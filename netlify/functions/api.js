@@ -170,7 +170,7 @@ const logAuthEvent = async (applicationId, appUserId, eventType, req, success, e
 // API Routes
 
 // Health check
-app.get('/health', (req, res) => {
+app.get('/api/health', (req, res) => {
   res.json({
     success: true,
     message: 'AuthSystem API is running on Netlify',
@@ -180,7 +180,7 @@ app.get('/health', (req, res) => {
 });
 
 // Login endpoint
-app.post('/auth/login', validateApiKey, authLimiter, async (req, res) => {
+app.post('/api/auth/login', validateApiKey, authLimiter, async (req, res) => {
   try {
     const { email, password, application_id, callback_url } = req.body;
 
@@ -338,7 +338,7 @@ app.post('/auth/login', validateApiKey, authLimiter, async (req, res) => {
 });
 
 // Register endpoint
-app.post('/auth/register', validateApiKey, authLimiter, async (req, res) => {
+app.post('/api/auth/register', validateApiKey, authLimiter, async (req, res) => {
   try {
     const { email, password, name, application_id, callback_url, metadata, role } = req.body;
 
@@ -545,8 +545,133 @@ app.post('/auth/register', validateApiKey, authLimiter, async (req, res) => {
   }
 });
 
+// Reset password endpoint
+app.post('/api/auth/reset-password', validateApiKey, authLimiter, async (req, res) => {
+  try {
+    const { email, application_id, callback_url } = req.body;
+
+    if (!email || !application_id) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'MISSING_FIELDS',
+          message: 'Email and application_id are required'
+        }
+      });
+    }
+
+    if (req.application.application_id !== application_id) {
+      return res.status(403).json({
+        success: false,
+        error: {
+          code: 'APPLICATION_MISMATCH',
+          message: 'API key no pertenece a la aplicación solicitada'
+        }
+      });
+    }
+
+    const { data: application, error: appError } = await supabase
+      .from('applications')
+      .select('*')
+      .eq('application_id', application_id)
+      .single();
+
+    if (appError || !application) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'APPLICATION_NOT_FOUND',
+          message: 'Aplicación no encontrada'
+        }
+      });
+    }
+
+    const { data: appUser, error: userError } = await supabase
+      .from('app_users')
+      .select('*')
+      .eq('application_id', application.id)
+      .eq('email', email)
+      .single();
+
+    if (userError || !appUser) {
+      await logAuthEvent(application.id, null, 'password_reset', req, false, 'Usuario no encontrado', { email, reason: 'user_not_found' });
+
+      return res.json({
+        success: true,
+        data: {
+          message: 'Si el email existe en nuestro sistema, recibirás un enlace de recuperación.',
+          email: email
+        }
+      });
+    }
+
+    const resetToken = `reset_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    const { error: updateError } = await supabase
+      .from('app_users')
+      .update({
+        metadata: {
+          ...appUser.metadata,
+          reset_token: resetToken,
+          reset_token_expires: expiresAt.toISOString()
+        }
+      })
+      .eq('id', appUser.id);
+
+    if (updateError) {
+      return res.status(500).json({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Error interno del servidor'
+        }
+      });
+    }
+
+    const resetUrl = callback_url 
+      ? `${callback_url.replace('/callback', '/reset-password')}?token=${resetToken}&email=${encodeURIComponent(email)}`
+      : `https://${application.domain}/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`;
+
+    await logAuthEvent(application.id, appUser.id, 'password_reset', req, true, null, { 
+      email, 
+      reset_token: resetToken,
+      expires_at: expiresAt.toISOString(),
+      reset_url: resetUrl
+    });
+
+    const response = {
+      success: true,
+      data: {
+        message: 'Email de recuperación enviado exitosamente.',
+        email: email,
+        debug_info: {
+          reset_token: resetToken,
+          reset_url: resetUrl,
+          expires_at: expiresAt.toISOString()
+        }
+      }
+    };
+
+    if (callback_url) {
+      response.data.callback_url = resetUrl;
+    }
+
+    res.json(response);
+
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Error interno del servidor'
+      }
+    });
+  }
+});
 // Verify token endpoint
-app.post('/auth/verify', validateApiKey, async (req, res) => {
+app.post('/api/auth/verify', validateApiKey, async (req, res) => {
   try {
     const { token, application_id } = req.body;
 
@@ -643,7 +768,7 @@ app.post('/auth/verify', validateApiKey, async (req, res) => {
 });
 
 // Get users endpoint
-app.get('/users', validateApiKey, async (req, res) => {
+app.get('/api/users', validateApiKey, async (req, res) => {
   try {
     const { application_id, page = 1, limit = 50, search } = req.query;
 
@@ -732,6 +857,17 @@ app.get('/users', validateApiKey, async (req, res) => {
       }
     });
   }
+});
+
+// Catch all handler for unmatched routes
+app.use('*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: {
+      code: 'NOT_FOUND',
+      message: 'Endpoint no encontrado'
+    }
+  });
 });
 
 // Error handling
