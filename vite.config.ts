@@ -1,29 +1,47 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { copyFileSync } from 'fs';
 
+// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  server: {
-    host: true,                 // acepta conexiones externas
-    port: 3000,
-    // mientras uses ngrok free (dominio cambia), habilita todos:
-    allowedHosts: true,         // o pon el dominio exacto si prefieres
-    hmr: {
-      protocol: 'wss',
-      // si quieres, fija el host de tu túnel actual; con allowedHosts:true suele bastar
-      // host: 'TU-DOMINIO.ngrok-free.app',
-      clientPort: 443,
+  build: {
+    outDir: 'dist',
+    sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          router: ['react-router-dom'],
+          supabase: ['@supabase/supabase-js'],
+          ui: ['lucide-react']
+        }
+      },
+      plugins: [
+        {
+          name: 'copy-redirects',
+          writeBundle() {
+            try {
+              copyFileSync('_redirects', 'dist/_redirects');
+              console.log('✅ _redirects file copied to dist/');
+            } catch (error) {
+              console.warn('⚠️ Could not copy _redirects file:', error.message);
+            }
+          }
+        }
+      ]
     },
+  },
+  server: {
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:3001', // tu API local
+        target: 'http://localhost:3001',
         changeOrigin: true,
-        secure: false,
-      },
-    },
+        secure: false
+      }
+    }
   },
-  preview: {
-    host: true,
-    allowedHosts: true,
+  optimizeDeps: {
+    exclude: ['lucide-react'],
   },
-})
+});
