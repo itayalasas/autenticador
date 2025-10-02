@@ -13,7 +13,7 @@ import UsersManager from './components/users/UsersManager';
 import EnvironmentsManager from './components/environments/EnvironmentsManager';
 import ApiKeysManager from './components/apikeys/ApiKeysManager';
 import RolesManager from './components/roles/RolesManager';
-import LogsViewer from './components/logs/LogsViewer';
+import LogsViewer from './components/logs/LogsViewer.tsx';
 import AuthenticationSettings from './components/authentication/AuthenticationSettings';
 import SettingsPage from './components/settings/SettingsPage';
 import SubscriptionManager from './components/subscription/SubscriptionManager';

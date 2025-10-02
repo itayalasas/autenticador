@@ -1,33 +1,29 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
 
-// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  build: {
-    outDir: 'dist',
-    sourcemap: true,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom'],
-          router: ['react-router-dom'],
-          supabase: ['@supabase/supabase-js'],
-          ui: ['lucide-react']
-        }
-      }
-    }
-  },
   server: {
+    host: true,                 // acepta conexiones externas
+    port: 3000,
+    // mientras uses ngrok free (dominio cambia), habilita todos:
+    allowedHosts: true,         // o pon el dominio exacto si prefieres
+    hmr: {
+      protocol: 'wss',
+      // si quieres, fija el host de tu túnel actual; con allowedHosts:true suele bastar
+      // host: 'TU-DOMINIO.ngrok-free.app',
+      clientPort: 443,
+    },
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: 'http://127.0.0.1:3001', // tu API local
         changeOrigin: true,
-        secure: false
-      }
-    }
+        secure: false,
+      },
+    },
   },
-  optimizeDeps: {
-    exclude: ['lucide-react'],
+  preview: {
+    host: true,
+    allowedHosts: true,
   },
-});
+})
