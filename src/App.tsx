@@ -13,7 +13,6 @@ import UsersManager from './components/users/UsersManager';
 import EnvironmentsManager from './components/environments/EnvironmentsManager';
 import ApiKeysManager from './components/apikeys/ApiKeysManager';
 import RolesManager from './components/roles/RolesManager';
-import LogsViewer from './components/logs/LogsViewer.tsx';
 import AuthenticationSettings from './components/authentication/AuthenticationSettings';
 import SettingsPage from './components/settings/SettingsPage';
 import SubscriptionManager from './components/subscription/SubscriptionManager';
@@ -163,7 +162,15 @@ function MainApp() {
       case 'api-keys':
         return <ApiKeysManager />;
       case 'logs':
-        return <LogsViewer />;
+        return (
+          <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
+            <div className="text-6xl mb-4">🚧</div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Logs en Desarrollo</h3>
+            <p className="text-gray-600">
+              La funcionalidad de logs estará disponible próximamente.
+            </p>
+          </div>
+        );
       case 'documentation':
         return <ApiDocumentation />;
       case 'settings':
