@@ -1,0 +1,726 @@
+import React, { useState, useEffect } from 'react';
+import { Shield, Key, Lock, Users, Settings, AlertTriangle, CheckCircle, Save, RotateCcw } from 'lucide-react';
+import { applicationService } from '../../services/applicationService';
+import { supabase } from '../../lib/supabase';
+import { useNotification } from '../../hooks/useNotification';
+import NotificationModal from '../ui/NotificationModal';
+
+export default function AuthenticationSettings() {
+  const [applications, setApplications] = useState<any[]>([]);
+  const [selectedApp, setSelectedApp] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
+  
+  const [authSettings, setAuthSettings] = useState({
+    // Configuración de autenticación
+    require_email_verification: true,
+    allow_public_registration: true,
+    enable_two_factor: false,
+    password_min_length: 8,
+    password_require_uppercase: true,
+    password_require_lowercase: true,
+    password_require_numbers: true,
+    password_require_symbols: false,
+    
+    // Configuración de sesiones
+    session_timeout: 24, // horas
+    refresh_token_lifetime: 30, // días
+    max_concurrent_sessions: 5,
+    
+    // Configuración de seguridad
+    enable_rate_limiting: true,
+    max_login_attempts: 5,
+    lockout_duration: 15, // minutos
+    enable_captcha: false,
+    
+    // Configuración de tokens
+    jwt_algorithm: 'HS256',
+    token_issuer: 'AuthSystem',
+    include_user_metadata: true,
+    
+    // Configuración de callbacks
+    allowed_callback_urls: '',
+    allowed_logout_urls: '',
+    allowed_origins: ''
+  });
+
+  const {
+    notification,
+    showSuccess,
+    showError,
+    closeNotification
+  } = useNotification();
+
+  useEffect(() => {
+    loadApplications();
+  }, []);
+
+  useEffect(() => {
+    if (selectedApp) {
+      loadAuthSettings();
+    }
+  }, [selectedApp]);
+
+  const loadApplications = async () => {
+    try {
+      const apps = await applicationService.getApplications();
+      setApplications(apps);
+      if (apps.length > 0) {
+        setSelectedApp(apps[0].id);
+      }
+    } catch (error) {
+      console.error('Error loading applications:', error);
+    }
+  };
+
+  const loadAuthSettings = async () => {
+    try {
+      setLoading(true);
+      
+      // Get application with metadata
+      const { data: app, error } = await supabase
+        .from('applications')
+        .select('*')
+        .eq('id', selectedApp)
+        .single();
+
+      if (error) throw error;
+
+      if (app && app.metadata) {
+        // Load settings from application metadata
+        const metadata = app.metadata;
+        setAuthSettings(prev => ({
+          ...prev,
+          require_email_verification: metadata.enable_email_verification ?? true,
+          allow_public_registration: metadata.allow_public_registration ?? true,
+          enable_two_factor: metadata.enable_two_factor ?? false,
+          password_min_length: metadata.password_min_length ?? 8,
+          password_require_uppercase: metadata.password_require_uppercase ?? true,
+          password_require_lowercase: metadata.password_require_lowercase ?? true,
+          password_require_numbers: metadata.password_require_numbers ?? true,
+          password_require_symbols: metadata.password_require_symbols ?? false,
+          session_timeout: metadata.session_timeout ?? 24,
+          refresh_token_lifetime: metadata.refresh_token_lifetime ?? 30,
+          max_concurrent_sessions: metadata.max_concurrent_sessions ?? 5,
+          enable_rate_limiting: metadata.enable_rate_limiting ?? true,
+          max_login_attempts: metadata.max_login_attempts ?? 5,
+          lockout_duration: metadata.lockout_duration ?? 15,
+          enable_captcha: metadata.enable_captcha ?? false,
+          jwt_algorithm: metadata.jwt_algorithm ?? 'HS256',
+          token_issuer: metadata.token_issuer ?? 'AuthSystem',
+          include_user_metadata: metadata.include_user_metadata ?? true,
+          allowed_callback_urls: Array.isArray(metadata.allowed_callback_urls) 
+            ? metadata.allowed_callback_urls.join('\n') 
+            : metadata.allowed_callback_urls || '',
+          allowed_logout_urls: Array.isArray(metadata.allowed_logout_urls)
+            ? metadata.allowed_logout_urls.join('\n')
+            : metadata.allowed_logout_urls || '',
+          allowed_origins: Array.isArray(metadata.cors_origins)
+            ? metadata.cors_origins.join('\n')
+            : metadata.cors_origins || ''
+        }));
+      }
+    } catch (error) {
+      console.error('Error loading auth settings:', error);
+      showError(
+        'Error al cargar configuración',
+        'No se pudo cargar la configuración de autenticación. Usando valores por defecto.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveSettings = async () => {
+    try {
+      setSaveLoading(true);
+      
+      // Prepare metadata object with all auth settings
+      const authMetadata = {
+        enable_email_verification: authSettings.require_email_verification,
+        allow_public_registration: authSettings.allow_public_registration,
+        enable_two_factor: authSettings.enable_two_factor,
+        password_min_length: authSettings.password_min_length,
+        password_require_uppercase: authSettings.password_require_uppercase,
+        password_require_lowercase: authSettings.password_require_lowercase,
+        password_require_numbers: authSettings.password_require_numbers,
+        password_require_symbols: authSettings.password_require_symbols,
+        session_timeout: authSettings.session_timeout,
+        refresh_token_lifetime: authSettings.refresh_token_lifetime,
+        max_concurrent_sessions: authSettings.max_concurrent_sessions,
+        enable_rate_limiting: authSettings.enable_rate_limiting,
+        max_login_attempts: authSettings.max_login_attempts,
+        lockout_duration: authSettings.lockout_duration,
+        enable_captcha: authSettings.enable_captcha,
+        jwt_algorithm: authSettings.jwt_algorithm,
+        token_issuer: authSettings.token_issuer,
+        include_user_metadata: authSettings.include_user_metadata,
+        allowed_callback_urls: authSettings.allowed_callback_urls.split('\n').filter(url => url.trim()),
+        allowed_logout_urls: authSettings.allowed_logout_urls.split('\n').filter(url => url.trim()),
+        cors_origins: authSettings.allowed_origins.split('\n').filter(url => url.trim()),
+        updated_at: new Date().toISOString()
+      };
+
+      // Get current application metadata
+      const { data: currentApp, error: getCurrentError } = await supabase
+        .from('applications')
+        .select('metadata')
+        .eq('id', selectedApp)
+        .single();
+
+      if (getCurrentError) throw getCurrentError;
+
+      // Merge with existing metadata
+      const updatedMetadata = {
+        ...currentApp.metadata,
+        ...authMetadata
+      };
+
+      // Update application with new auth settings
+      const { error: updateError } = await supabase
+        .from('applications')
+        .update({ 
+          metadata: updatedMetadata,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', selectedApp);
+
+      if (updateError) throw updateError;
+
+      showSuccess(
+        'Configuración guardada',
+        'La configuración de autenticación ha sido guardada exitosamente y se aplicará a todas las nuevas autenticaciones.'
+      );
+      
+    } catch (error) {
+      console.error('Error saving auth settings:', error);
+      showError(
+        'Error al guardar',
+        'Ha ocurrido un error al guardar la configuración de autenticación. Por favor, inténtalo de nuevo.'
+      );
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
+  const handleResetToDefaults = () => {
+    setAuthSettings({
+      require_email_verification: true,
+      allow_public_registration: true,
+      enable_two_factor: false,
+      password_min_length: 8,
+      password_require_uppercase: true,
+      password_require_lowercase: true,
+      password_require_numbers: true,
+      password_require_symbols: false,
+      session_timeout: 24,
+      refresh_token_lifetime: 30,
+      max_concurrent_sessions: 5,
+      enable_rate_limiting: true,
+      max_login_attempts: 5,
+      lockout_duration: 15,
+      enable_captcha: false,
+      jwt_algorithm: 'HS256',
+      token_issuer: 'AuthSystem',
+      include_user_metadata: true,
+      allowed_callback_urls: '',
+      allowed_logout_urls: '',
+      allowed_origins: ''
+    });
+  };
+
+  const handleSettingChange = (key: string, value: any) => {
+    setAuthSettings(prev => ({ ...prev, [key]: value }));
+  };
+
+  const validatePasswordPolicy = () => {
+    const policy = [];
+    if (authSettings.password_require_uppercase) policy.push('mayúsculas');
+    if (authSettings.password_require_lowercase) policy.push('minúsculas');
+    if (authSettings.password_require_numbers) policy.push('números');
+    if (authSettings.password_require_symbols) policy.push('símbolos');
+    
+    return `Mínimo ${authSettings.password_min_length} caracteres${policy.length > 0 ? `, debe incluir: ${policy.join(', ')}` : ''}`;
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900">Configuración de Autenticación</h2>
+        <p className="text-gray-600">
+          Configura métodos de autenticación, políticas de seguridad y comportamiento de sesiones
+        </p>
+      </div>
+
+      {/* Application Selector */}
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Seleccionar Aplicación</h3>
+        <select 
+          value={selectedApp}
+          onChange={(e) => setSelectedApp(e.target.value)}
+          disabled={loading}
+          className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        >
+          <option value="">Selecciona una aplicación</option>
+          {applications.map((app) => (
+            <option key={app.id} value={app.id}>
+              {app.name} ({app.domain})
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {selectedApp && (
+        <div className="space-y-6">
+          {/* Authentication Methods */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
+              <Shield className="w-5 h-5" />
+              <span>Métodos de Autenticación</span>
+            </h3>
+            
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-medium text-gray-900">Verificación de Email</h4>
+                  <p className="text-sm text-gray-600">Requiere que los usuarios verifiquen su email antes de acceder</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={authSettings.require_email_verification}
+                    onChange={(e) => handleSettingChange('require_email_verification', e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-medium text-gray-900">Registro Público</h4>
+                  <p className="text-sm text-gray-600">Permite que cualquier persona se registre en tu aplicación</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={authSettings.allow_public_registration}
+                    onChange={(e) => handleSettingChange('allow_public_registration', e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-medium text-gray-900">Autenticación de Dos Factores</h4>
+                  <p className="text-sm text-gray-600">Habilita 2FA para mayor seguridad (próximamente)</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={authSettings.enable_two_factor}
+                    onChange={(e) => handleSettingChange('enable_two_factor', e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* Password Policy */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
+              <Lock className="w-5 h-5" />
+              <span>Política de Contraseñas</span>
+            </h3>
+            
+            <div className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Longitud Mínima
+                </label>
+                <div className="flex items-center space-x-4">
+                  <input
+                    type="number"
+                    min="6"
+                    max="50"
+                    value={authSettings.password_min_length}
+                    onChange={(e) => handleSettingChange('password_min_length', parseInt(e.target.value))}
+                    className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  <span className="text-sm text-gray-600">caracteres</span>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 mb-3">Requisitos de Caracteres</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <label className="flex items-center space-x-3">
+                    <input
+                      type="checkbox"
+                      checked={authSettings.password_require_uppercase}
+                      onChange={(e) => handleSettingChange('password_require_uppercase', e.target.checked)}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div>
+                      <span className="text-sm font-medium text-gray-900">Requiere mayúsculas</span>
+                      <p className="text-xs text-gray-500">Al menos una letra mayúscula (A-Z)</p>
+                    </div>
+                  </label>
+                  
+                  <label className="flex items-center space-x-3">
+                    <input
+                      type="checkbox"
+                      checked={authSettings.password_require_lowercase}
+                      onChange={(e) => handleSettingChange('password_require_lowercase', e.target.checked)}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div>
+                      <span className="text-sm font-medium text-gray-900">Requiere minúsculas</span>
+                      <p className="text-xs text-gray-500">Al menos una letra minúscula (a-z)</p>
+                    </div>
+                  </label>
+                  
+                  <label className="flex items-center space-x-3">
+                    <input
+                      type="checkbox"
+                      checked={authSettings.password_require_numbers}
+                      onChange={(e) => handleSettingChange('password_require_numbers', e.target.checked)}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div>
+                      <span className="text-sm font-medium text-gray-900">Requiere números</span>
+                      <p className="text-xs text-gray-500">Al menos un dígito (0-9)</p>
+                    </div>
+                  </label>
+                  
+                  <label className="flex items-center space-x-3">
+                    <input
+                      type="checkbox"
+                      checked={authSettings.password_require_symbols}
+                      onChange={(e) => handleSettingChange('password_require_symbols', e.target.checked)}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div>
+                      <span className="text-sm font-medium text-gray-900">Requiere símbolos</span>
+                      <p className="text-xs text-gray-500">Al menos un carácter especial (!@#$%)</p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Password Policy Preview */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h5 className="text-sm font-medium text-blue-900 mb-2">Vista previa de la política:</h5>
+                <p className="text-sm text-blue-800">{validatePasswordPolicy()}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Session Configuration */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
+              <Key className="w-5 h-5" />
+              <span>Configuración de Sesiones</span>
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Duración de Sesión
+                </label>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="number"
+                    min="1"
+                    max="168"
+                    value={authSettings.session_timeout}
+                    onChange={(e) => handleSettingChange('session_timeout', parseInt(e.target.value))}
+                    className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  <span className="text-sm text-gray-600">horas</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">Tiempo antes de que expire el token de acceso</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Refresh Token
+                </label>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="number"
+                    min="1"
+                    max="365"
+                    value={authSettings.refresh_token_lifetime}
+                    onChange={(e) => handleSettingChange('refresh_token_lifetime', parseInt(e.target.value))}
+                    className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  <span className="text-sm text-gray-600">días</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">Tiempo de vida del token de renovación</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Sesiones Concurrentes
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={authSettings.max_concurrent_sessions}
+                  onChange={(e) => handleSettingChange('max_concurrent_sessions', parseInt(e.target.value))}
+                  className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <p className="text-xs text-gray-500 mt-1">Máximo de sesiones activas por usuario</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Security Settings */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
+              <AlertTriangle className="w-5 h-5" />
+              <span>Configuración de Seguridad</span>
+            </h3>
+            
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-medium text-gray-900">Rate Limiting</h4>
+                  <p className="text-sm text-gray-600">Limita intentos de autenticación por IP</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={authSettings.enable_rate_limiting}
+                    onChange={(e) => handleSettingChange('enable_rate_limiting', e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Máximo Intentos de Login
+                  </label>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="number"
+                      min="3"
+                      max="20"
+                      value={authSettings.max_login_attempts}
+                      onChange={(e) => handleSettingChange('max_login_attempts', parseInt(e.target.value))}
+                      className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <span className="text-sm text-gray-600">intentos</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Antes de bloquear temporalmente la IP</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Duración de Bloqueo
+                  </label>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="number"
+                      min="5"
+                      max="1440"
+                      value={authSettings.lockout_duration}
+                      onChange={(e) => handleSettingChange('lockout_duration', parseInt(e.target.value))}
+                      className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <span className="text-sm text-gray-600">minutos</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Tiempo de bloqueo después de exceder intentos</p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-medium text-gray-900">CAPTCHA</h4>
+                  <p className="text-sm text-gray-600">Protección adicional contra bots (próximamente)</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={authSettings.enable_captcha}
+                    onChange={(e) => handleSettingChange('enable_captcha', e.target.checked)}
+                    className="sr-only peer"
+                    disabled
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600 opacity-50"></div>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* Token Configuration */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
+              <Key className="w-5 h-5" />
+              <span>Configuración de Tokens</span>
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Algoritmo JWT
+                </label>
+                <select
+                  value={authSettings.jwt_algorithm}
+                  onChange={(e) => handleSettingChange('jwt_algorithm', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="HS256">HS256 (Recomendado)</option>
+                  <option value="HS384">HS384</option>
+                  <option value="HS512">HS512</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Emisor del Token
+                </label>
+                <input
+                  type="text"
+                  value={authSettings.token_issuer}
+                  onChange={(e) => handleSettingChange('token_issuer', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="AuthSystem"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <label className="flex items-center space-x-3">
+                <input
+                  type="checkbox"
+                  checked={authSettings.include_user_metadata}
+                  onChange={(e) => handleSettingChange('include_user_metadata', e.target.checked)}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <div>
+                  <span className="text-sm font-medium text-gray-900">Incluir metadata del usuario en tokens</span>
+                  <p className="text-xs text-gray-500">Agrega información adicional del usuario al JWT</p>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          {/* Callback URLs */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">URLs Permitidas</h3>
+            
+            <div className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  URLs de Callback Permitidas
+                </label>
+                <textarea
+                  value={authSettings.allowed_callback_urls}
+                  onChange={(e) => handleSettingChange('allowed_callback_urls', e.target.value)}
+                  rows={4}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="https://miapp.com/auth/callback&#10;https://localhost:3000/callback&#10;https://staging.miapp.com/callback"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Una URL por línea. Solo estas URLs podrán recibir redirecciones después de la autenticación.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  URLs de Logout Permitidas
+                </label>
+                <textarea
+                  value={authSettings.allowed_logout_urls}
+                  onChange={(e) => handleSettingChange('allowed_logout_urls', e.target.value)}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="https://miapp.com/logout&#10;https://localhost:3000/logout"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  URLs permitidas para redirección después del logout.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Orígenes Permitidos (CORS)
+                </label>
+                <textarea
+                  value={authSettings.allowed_origins}
+                  onChange={(e) => handleSettingChange('allowed_origins', e.target.value)}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="https://miapp.com&#10;https://localhost:3000&#10;https://staging.miapp.com"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Dominios permitidos para hacer requests CORS a la API de autenticación.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center justify-between">
+            <button
+              onClick={handleResetToDefaults}
+              className="flex items-center space-x-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span>Restablecer a valores por defecto</span>
+            </button>
+
+            <button
+              onClick={handleSaveSettings}
+              disabled={saveLoading || !selectedApp}
+              className="flex items-center space-x-2 px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {saveLoading ? (
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Save className="w-5 h-5" />
+              )}
+              <span>{saveLoading ? 'Guardando...' : 'Guardar Configuración'}</span>
+            </button>
+          </div>
+
+          {/* Warning Notice */}
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <div className="flex items-start space-x-3">
+              <AlertTriangle className="w-5 h-5 text-yellow-600 mt-0.5" />
+              <div>
+                <h4 className="font-medium text-yellow-900">Importante</h4>
+                <p className="text-sm text-yellow-800 mt-1">
+                  Los cambios en la configuración de autenticación se aplicarán inmediatamente a todas las nuevas 
+                  autenticaciones. Las sesiones existentes no se verán afectadas hasta que expiren o se renueven.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Notification Modal */}
+      <NotificationModal
+        isOpen={notification.isOpen}
+        onClose={closeNotification}
+        type={notification.type}
+        title={notification.title}
+        message={notification.message}
+        confirmText={notification.confirmText}
+        onConfirm={notification.onConfirm}
+      />
+    </div>
+  );
+}

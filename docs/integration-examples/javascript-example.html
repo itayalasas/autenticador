@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ejemplo de Integración - AuthSystem</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .auth-info { background: #f0f9ff; border: 1px solid #0ea5e9; padding: 15px; border-radius: 8px; margin: 10px 0; }
+        .error { background: #fef2f2; border: 1px solid #ef4444; color: #dc2626; }
+        .success { background: #f0fdf4; border: 1px solid #22c55e; color: #16a34a; }
+        button { background: #3b82f6; color: white; padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; }
+        button:hover { background: #2563eb; }
+        .user-info { background: #f9fafb; padding: 15px; border-radius: 8px; margin: 10px 0; }
+        code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <h1>🔐 Ejemplo de Integración con AuthSystem</h1>
+    
+    <div id="app">
+        <!-- El contenido se carga dinámicamente -->
+    </div>
+
+    <script>
+        // Configuración de tu aplicación
+        const CONFIG = {
+            APP_ID: 'app_mk2k3j4h5k6l',
+            API_KEY: 'ak_development_cd9bac61b17b0a09f307afe54e93d40f',
+            AUTH_BASE_URL: 'http://localhost:5173', // URL de AuthSystem
+            API_BASE_URL: 'http://localhost:3001/api', // API de AuthSystem
+            CALLBACK_URL: window.location.origin + '/auth/callback'
+        };
+
+        // Clase para manejar autenticación
+        class AuthManager {
+            constructor() {
+                this.user = null;
+                this.token = null;
+                this.init();
+            }
+
+            init() {
+                // Verificar si hay datos de autenticación almacenados
+                const storedAuth = this.getStoredAuth();
+                if (storedAuth && this.isTokenValid(storedAuth)) {
+                    this.user = storedAuth.user;
+                    this.token = storedAuth.access_token;
+                }
+                this.render();
+            }
+
+            // Obtener datos almacenados
+            getStoredAuth() {
+                try {
+                    const authData = localStorage.getItem('authData');
+                    return authData ? JSON.parse(authData) : null;
+                } catch (error) {
+                    return null;
+                }
+            }
+
+            // Verificar si el token es válido
+            isTokenValid(authData) {
+                if (!authData.expires_at) return false;
+                return new Date(authData.expires_at) > new Date();
+            }
+
+            // Redirigir a login
+            login() {
+                const loginUrl = `${CONFIG.AUTH_BASE_URL}/login?app_id=${CONFIG.APP_ID}&callback_url=${encodeURIComponent(CONFIG.CALLBACK_URL)}`;
+                console.log('🔄 Redirigiendo a login:', loginUrl);
+                window.location.href = loginUrl;
+            }
+
+            // Redirigir a registro
+            register() {
+                const registerUrl = `${CONFIG.AUTH_BASE_URL}/register?app_id=${CONFIG.APP_ID}&callback_url=${encodeURIComponent(CONFIG.CALLBACK_URL)}`;
+                console.log('🔄 Redirigiendo a registro:', registerUrl);
+                window.location.href = registerUrl;
+            }
+
+            // Procesar callback de autenticación
+            async handleCallback() {
+                try {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const token = urlParams.get('token');
+                    const refreshToken = urlParams.get('refresh_token');
+                    const userId = urlParams.get('user_id');
+                    const userEmail = urlParams.get('user_email');
+                    const userName = urlParams.get('user_name');
+                    const state = urlParams.get('state');
+                    const expiresIn = parseInt(urlParams.get('expires_in') || '86400');
+
+                    if (state !== 'success' || !token) {
+                        throw new Error('Autenticación fallida');
+                    }
+
+                    console.log('✅ Callback recibido:', {
+                        userId,
+                        userEmail,
+                        userName: decodeURIComponent(userName || ''),
+                        expiresIn
+                    });
+
+                    // Validar token con AuthSystem
+                    const isValid = await this.validateTokenWithAPI(token);
+                    if (!isValid) {
+                        throw new Error('Token inválido');
+                    }
+
+                    // Decodificar JWT para obtener datos completos
+                    const userData = this.parseJWT(token);
+
+                    // Preparar datos de autenticación
+                    const authData = {
+                        access_token: token,
+                        refresh_token: refreshToken,
+                        user: {
+                            id: userId,
+                            email: userEmail,
+                            name: decodeURIComponent(userName || ''),
+                            roles: userData.roles || [],
+                            permissions: userData.permissions || [],
+                            metadata: userData.metadata || {}
+                        },
+                        expires_at: new Date(Date.now() + expiresIn * 1000).toISOString()
+                    };
+
+                    // Guardar datos
+                    localStorage.setItem('authData', JSON.stringify(authData));
+                    
+                    // Actualizar estado
+                    this.user = authData.user;
+                    this.token = authData.access_token;
+
+                    console.log('💾 Datos de autenticación guardados:', authData.user);
+
+                    // Limpiar URL y redirigir
+                    window.history.replaceState({}, document.title, '/');
+                    this.render();
+
+                    return true;
+
+                } catch (error) {
+                    console.error('❌ Error procesando callback:', error);
+                    alert('Error en la autenticación: ' + error.message);
+                    return false;
+                }
+            }
+
+            // Validar token con la API
+            async validateTokenWithAPI(token) {
+                try {
+                    const response = await fetch(`${CONFIG.API_BASE_URL}/auth/verify`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-API-Key': CONFIG.API_KEY
+                        },
+                        body: JSON.stringify({
+                            token: token,
+                            application_id: CONFIG.APP_ID
+                        })
+                    });
+
+                    const result = await response.json();
+                    return result.success && result.data?.valid;
+                } catch (error) {
+                    console.error('Error validando token:', error);
+                    return false;
+                }
+            }
+
+            // Decodificar JWT
+            parseJWT(token) {
+                try {
+                    const base64Url = token.split('.')[1];
+                    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+                        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+                    }).join(''));
+                    return JSON.parse(jsonPayload);
+                } catch (error) {
+                    return {};
+                }
+            }
+
+            // Cerrar sesión
+            logout() {
+                localStorage.removeItem('authData');
+                this.user = null;
+                this.token = null;
+                this.render();
+            }
+
+            // Verificar permisos
+            hasPermission(permission) {
+                return this.user && this.user.permissions.includes(permission);
+            }
+
+            // Verificar rol
+            hasRole(role) {
+                return this.user && this.user.roles.includes(role);
+            }
+
+            // Renderizar interfaz
+            render() {
+                const app = document.getElementById('app');
+                
+                if (!this.user) {
+                    app.innerHTML = `
+                        <div class="auth-info">
+                            <h2>🔐 Sistema de Autenticación</h2>
+                            <p>Esta es una aplicación de ejemplo que muestra cómo integrar AuthSystem.</p>
+                            <p><strong>App ID:</strong> <code>${CONFIG.APP_ID}</code></p>
+                            <p><strong>Callback URL:</strong> <code>${CONFIG.CALLBACK_URL}</code></p>
+                        </div>
+                        
+                        <h3>Iniciar Sesión</h3>
+                        <p>Haz clic en uno de estos botones para autenticarte:</p>
+                        <button onclick="authManager.login()">🔑 Iniciar Sesión</button>
+                        <button onclick="authManager.register()">📝 Registrarse</button>
+                        
+                        <div class="auth-info">
+                            <h4>💡 Cómo funciona:</h4>
+                            <ol>
+                                <li>Haces clic en "Iniciar Sesión" o "Registrarse"</li>
+                                <li>Te redirigimos a AuthSystem con tu App ID</li>
+                                <li>El usuario completa el formulario</li>
+                                <li>AuthSystem te redirige de vuelta con los datos del usuario</li>
+                                <li>Tu aplicación procesa y guarda la sesión</li>
+                            </ol>
+                        </div>
+                    `;
+                } else {
+                    app.innerHTML = `
+                        <div class="success">
+                            <h2>✅ ¡Autenticación Exitosa!</h2>
+                        </div>
+                        
+                        <div class="user-info">
+                            <h3>👤 Información del Usuario</h3>
+                            <p><strong>ID:</strong> <code>${this.user.id}</code></p>
+                            <p><strong>Nombre:</strong> ${this.user.name}</p>
+                            <p><strong>Email:</strong> ${this.user.email}</p>
+                            <p><strong>Roles:</strong> ${this.user.roles.join(', ')}</p>
+                            <p><strong>Permisos:</strong> ${this.user.permissions.join(', ')}</p>
+                        </div>
+
+                        <h3>🛡️ Contenido Protegido</h3>
+                        <div class="auth-info">
+                            ${this.hasRole('admin') ? 
+                                '<p>🔧 <strong>Panel de Admin:</strong> Tienes acceso de administrador</p>' : 
+                                '<p>👤 <strong>Usuario Regular:</strong> Acceso básico'
+                            }
+                            
+                            ${this.hasPermission('write') ? 
+                                '<p>✏️ <strong>Permisos de Escritura:</strong> Puedes modificar datos</p>' : 
+                                '<p>👁️ <strong>Solo Lectura:</strong> Permisos limitados</p>'
+                            }
+                        </div>
+
+                        <button onclick="authManager.logout()">🚪 Cerrar Sesión</button>
+                        
+                        <div class="auth-info">
+                            <h4>🔍 Datos Técnicos:</h4>
+                            <p><strong>Token:</strong> <code>${this.token.substring(0, 20)}...</code></p>
+                            <p><strong>Expira:</strong> ${new Date(JSON.parse(localStorage.getItem('authData')).expires_at).toLocaleString()}</p>
+                        </div>
+                    `;
+                }
+            }
+        }
+
+        // Inicializar el gestor de autenticación
+        const authManager = new AuthManager();
+
+        // Manejar callback si estamos en la URL de callback
+        if (window.location.pathname === '/auth/callback' || window.location.search.includes('token=')) {
+            authManager.handleCallback().then(success => {
+                if (success) {
+                    console.log('✅ Callback procesado exitosamente');
+                } else {
+                    console.log('❌ Error procesando callback');
+                }
+            });
+        }
+    </script>
+</body>
+</html>
