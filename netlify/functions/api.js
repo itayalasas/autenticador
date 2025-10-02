@@ -10,10 +10,27 @@ import jwt from 'jsonwebtoken';
 
 const app = express();
 
+// Log environment variables for debugging
+console.log('🔧 Netlify Function Environment Check:', {
+  VITE_SUPABASE_URL: !!process.env.VITE_SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+  JWT_SECRET: !!process.env.JWT_SECRET,
+  NODE_ENV: process.env.NODE_ENV
+});
+
+// Validate required environment variables
+if (!process.env.VITE_SUPABASE_URL) {
+  console.error('❌ VITE_SUPABASE_URL is missing');
+}
+
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  console.error('❌ SUPABASE_SERVICE_ROLE_KEY is missing');
+}
+
 // Supabase client
 const supabase = createClient(
-  process.env.VITE_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
+  process.env.VITE_SUPABASE_URL || '',
+  process.env.SUPABASE_SERVICE_ROLE_KEY || '',
   {
     auth: {
       autoRefreshToken: false,
@@ -23,7 +40,9 @@ const supabase = createClient(
 );
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: false // Disable CSP for Netlify functions
+}));
 app.use(cors({
   origin: true, // Permitir todos los orígenes en Netlify
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -36,6 +55,8 @@ app.use(express.json({ limit: '10mb' }));
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
   message: {
     success: false,
     error: {
@@ -53,6 +74,12 @@ const validateApiKey = async (req, res, next) => {
   try {
     const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
     
+    console.log('🔑 API Key validation:', {
+      hasApiKey: !!apiKey,
+      apiKeyPrefix: apiKey ? apiKey.substring(0, 15) + '...' : 'none',
+      headers: Object.keys(req.headers)
+    });
+    
     if (!apiKey) {
       return res.status(401).json({
         success: false,
@@ -66,6 +93,7 @@ const validateApiKey = async (req, res, next) => {
     // Validate API key format
     const apiKeyPattern = /^ak_(development|dev|testing|test|production|live)_[a-f0-9]{32}$/;
     if (!apiKeyPattern.test(apiKey)) {
+      console.log('❌ Invalid API key format:', apiKey);
       return res.status(401).json({
         success: false,
         error: {
@@ -77,8 +105,10 @@ const validateApiKey = async (req, res, next) => {
 
     // Extract environment from API key
     const environment = apiKey.split('_')[1];
+    console.log('🌍 Environment from API key:', environment);
 
     // Validate API key against database
+    console.log('🔍 Checking API key in database...');
     const { data: apiKeyRecord, error: keyError } = await supabase
       .from('api_keys')
       .select(`
@@ -89,12 +119,19 @@ const validateApiKey = async (req, res, next) => {
       .eq('is_active', true)
       .maybeSingle();
 
+    console.log('📊 Database lookup result:', {
+      found: !!apiKeyRecord,
+      error: keyError?.message,
+      applicationId: apiKeyRecord?.applications?.application_id
+    });
+
     if (keyError || !apiKeyRecord) {
+      console.log('❌ API key not found or error:', keyError?.message);
       return res.status(401).json({
         success: false,
         error: {
           code: 'INVALID_API_KEY',
-          message: 'API key no encontrada en la base de datos'
+          message: `API key no encontrada en la base de datos. Error: ${keyError?.message || 'Not found'}`
         }
       });
     }
@@ -104,6 +141,7 @@ const validateApiKey = async (req, res, next) => {
     req.environment = environment;
     req.application = apiKeyRecord.applications;
     
+    console.log('✅ API key validated successfully');
     next();
   } catch (error) {
     console.error('API key validation error:', error);
@@ -111,7 +149,7 @@ const validateApiKey = async (req, res, next) => {
       success: false,
       error: {
         code: 'INTERNAL_ERROR',
-        message: 'Error interno del servidor'
+        message: `Error interno del servidor: ${error.message}`
       }
     });
   }
@@ -156,7 +194,7 @@ const logAuthEvent = async (applicationId, appUserId, eventType, req, success, e
       application_id: applicationId,
       app_user_id: appUserId,
       event_type: eventType,
-      ip_address: req.ip || req.connection.remoteAddress || 'unknown',
+      ip_address: req.headers['x-forwarded-for'] || req.ip || req.connection?.remoteAddress || 'unknown',
       user_agent: req.get('User-Agent'),
       success,
       error_message: errorMessage,
@@ -171,17 +209,25 @@ const logAuthEvent = async (applicationId, appUserId, eventType, req, success, e
 
 // Health check
 app.get('/api/health', (req, res) => {
+  console.log('🏥 Health check called');
   res.json({
     success: true,
     message: 'AuthSystem API is running on Netlify',
     timestamp: new Date().toISOString(),
-    environment: 'netlify'
+    environment: 'netlify',
+    supabase_configured: !!process.env.VITE_SUPABASE_URL && !!process.env.SUPABASE_SERVICE_ROLE_KEY
   });
 });
 
 // Login endpoint
 app.post('/api/auth/login', validateApiKey, authLimiter, async (req, res) => {
   try {
+    console.log('🔐 Login attempt:', {
+      email: req.body.email,
+      application_id: req.body.application_id,
+      hasPassword: !!req.body.password
+    });
+    
     const { email, password, application_id, callback_url } = req.body;
 
     // Validate required fields
@@ -197,6 +243,10 @@ app.post('/api/auth/login', validateApiKey, authLimiter, async (req, res) => {
 
     // Validate that API key belongs to the requested application
     if (req.application.application_id !== application_id) {
+      console.log('❌ Application mismatch:', {
+        apiKeyApp: req.application.application_id,
+        requestedApp: application_id
+      });
       return res.status(403).json({
         success: false,
         error: {
@@ -207,6 +257,7 @@ app.post('/api/auth/login', validateApiKey, authLimiter, async (req, res) => {
     }
 
     // Get application
+    console.log('🔍 Looking up application:', application_id);
     const { data: application, error: appError } = await supabase
       .from('applications')
       .select('*')
@@ -214,17 +265,21 @@ app.post('/api/auth/login', validateApiKey, authLimiter, async (req, res) => {
       .single();
 
     if (!application || appError) {
+      console.log('❌ Application not found:', appError?.message);
       await logAuthEvent(null, null, 'failed_login', req, false, 'Aplicación no encontrada', { application_id });
       return res.status(404).json({
         success: false,
         error: {
           code: 'APPLICATION_NOT_FOUND',
-          message: 'Aplicación no encontrada'
+          message: `Aplicación no encontrada: ${appError?.message || 'Unknown error'}`
         }
       });
     }
 
+    console.log('✅ Application found:', application.name);
+    
     // Get user
+    console.log('👤 Looking up user:', email);
     const { data: appUser, error: userError } = await supabase
       .from('app_users')
       .select(`
@@ -239,6 +294,7 @@ app.post('/api/auth/login', validateApiKey, authLimiter, async (req, res) => {
       .single();
 
     if (userError || !appUser) {
+      console.log('❌ User not found:', userError?.message);
       await logAuthEvent(application.id, null, 'failed_login', req, false, 'Usuario no encontrado', { email });
       return res.status(401).json({
         success: false,
@@ -249,20 +305,33 @@ app.post('/api/auth/login', validateApiKey, authLimiter, async (req, res) => {
       });
     }
 
+    console.log('✅ User found:', {
+      id: appUser.id,
+      status: appUser.status,
+      hasPasswordHash: !!appUser.password_hash
+    });
+    
     // Verify password
     let isValidPassword = false;
     try {
+      console.log('🔐 Verifying password...');
       isValidPassword = await bcrypt.compare(password, appUser.password_hash);
+      console.log('🔐 bcrypt result:', isValidPassword);
+      
       if (!isValidPassword) {
         const base64Password = btoa(password);
         isValidPassword = base64Password === appUser.password_hash;
+        console.log('🔐 base64 fallback result:', isValidPassword);
       }
     } catch (bcryptError) {
+      console.log('🔐 bcrypt error, trying base64:', bcryptError.message);
       const base64Password = btoa(password);
       isValidPassword = base64Password === appUser.password_hash;
+      console.log('🔐 base64 result:', isValidPassword);
     }
 
     if (!isValidPassword) {
+      console.log('❌ Invalid password');
       await logAuthEvent(application.id, appUser.id, 'failed_login', req, false, 'Contraseña incorrecta', { email });
       return res.status(401).json({
         success: false,
@@ -273,6 +342,21 @@ app.post('/api/auth/login', validateApiKey, authLimiter, async (req, res) => {
       });
     }
 
+    // Check user status
+    if (appUser.status !== 'active') {
+      console.log('❌ User not active:', appUser.status);
+      await logAuthEvent(application.id, appUser.id, 'failed_login', req, false, 'Usuario inactivo', { email, status: appUser.status });
+      return res.status(403).json({
+        success: false,
+        error: {
+          code: 'USER_INACTIVE',
+          message: 'Tu cuenta está inactiva. Contacta al administrador.'
+        }
+      });
+    }
+
+    console.log('✅ Password verified, generating tokens...');
+    
     // Generate tokens
     const { accessToken, refreshToken } = generateTokens(appUser, application_id, application);
 
@@ -285,6 +369,8 @@ app.post('/api/auth/login', validateApiKey, authLimiter, async (req, res) => {
     // Log successful login
     await logAuthEvent(application.id, appUser.id, 'login', req, true, null, { email, login_method: 'email_password' });
 
+    console.log('✅ Login successful for user:', appUser.email);
+    
     const response = {
       success: true,
       data: {
@@ -331,7 +417,7 @@ app.post('/api/auth/login', validateApiKey, authLimiter, async (req, res) => {
       success: false,
       error: {
         code: 'INTERNAL_ERROR',
-        message: 'Error interno del servidor'
+        message: `Error interno del servidor: ${error.message}`
       }
     });
   }
@@ -340,6 +426,12 @@ app.post('/api/auth/login', validateApiKey, authLimiter, async (req, res) => {
 // Register endpoint
 app.post('/api/auth/register', validateApiKey, authLimiter, async (req, res) => {
   try {
+    console.log('📝 Register attempt:', {
+      email: req.body.email,
+      name: req.body.name,
+      application_id: req.body.application_id
+    });
+    
     const { email, password, name, application_id, callback_url, metadata, role } = req.body;
 
     if (!email || !password || !name || !application_id) {
@@ -369,6 +461,7 @@ app.post('/api/auth/register', validateApiKey, authLimiter, async (req, res) => 
       .single();
 
     if (appError || !application) {
+      console.log('❌ Application not found for registration:', appError?.message);
       return res.status(404).json({
         success: false,
         error: {
@@ -387,6 +480,7 @@ app.post('/api/auth/register', validateApiKey, authLimiter, async (req, res) => 
       .single();
 
     if (existingUser) {
+      console.log('❌ User already exists:', email);
       return res.status(409).json({
         success: false,
         error: {
@@ -397,11 +491,14 @@ app.post('/api/auth/register', validateApiKey, authLimiter, async (req, res) => 
     }
 
     // Hash password
+    console.log('🔐 Hashing password...');
     const saltRounds = 12;
     const passwordHash = await bcrypt.hash(password, saltRounds);
     
     const requireEmailVerification = application.metadata?.enable_email_verification ?? true;
     const userStatus = requireEmailVerification ? 'pending' : 'active';
+    
+    console.log('👤 Creating user with status:', userStatus);
     
     // Create user
     const { data: newUser, error: createError } = await supabase
@@ -418,15 +515,18 @@ app.post('/api/auth/register', validateApiKey, authLimiter, async (req, res) => 
       .single();
 
     if (createError) {
+      console.log('❌ Error creating user:', createError.message);
       return res.status(500).json({
         success: false,
         error: {
           code: 'CREATE_USER_FAILED',
-          message: 'Error al crear el usuario'
+          message: `Error al crear el usuario: ${createError.message}`
         }
       });
     }
 
+    console.log('✅ User created successfully:', newUser.id);
+    
     // Assign role
     let assignedRoleName = 'user';
     let assignedPermissions = ['read'];
@@ -457,6 +557,7 @@ app.post('/api/auth/register', validateApiKey, authLimiter, async (req, res) => 
       }
     }
     
+    console.log('🎭 Assigning role:', assignedRoleName);
     await supabase
       .from('user_roles')
       .insert({
@@ -469,6 +570,7 @@ app.post('/api/auth/register', validateApiKey, authLimiter, async (req, res) => 
     await logAuthEvent(application.id, newUser.id, 'register', req, true, null, { email, registration_method: 'email_password' });
 
     if (requireEmailVerification) {
+      console.log('📧 Email verification required');
       const response = {
         success: true,
         data: {
@@ -494,6 +596,7 @@ app.post('/api/auth/register', validateApiKey, authLimiter, async (req, res) => 
     }
 
     // Generate tokens for auto-login
+    console.log('🎫 Generating tokens for auto-login...');
     const { accessToken, refreshToken } = generateTokens(newUser, application_id, application);
 
     const response = {
@@ -531,6 +634,7 @@ app.post('/api/auth/register', validateApiKey, authLimiter, async (req, res) => 
       response.data.callback_url = `${callback_url}?${callbackParams.toString()}`;
     }
 
+    console.log('✅ Registration successful');
     res.status(201).json(response);
 
   } catch (error) {
@@ -539,7 +643,7 @@ app.post('/api/auth/register', validateApiKey, authLimiter, async (req, res) => 
       success: false,
       error: {
         code: 'INTERNAL_ERROR',
-        message: 'Error interno del servidor'
+        message: `Error interno del servidor: ${error.message}`
       }
     });
   }
@@ -548,6 +652,8 @@ app.post('/api/auth/register', validateApiKey, authLimiter, async (req, res) => 
 // Reset password endpoint
 app.post('/api/auth/reset-password', validateApiKey, authLimiter, async (req, res) => {
   try {
+    console.log('🔄 Reset password attempt:', req.body.email);
+    
     const { email, application_id, callback_url } = req.body;
 
     if (!email || !application_id) {
@@ -620,11 +726,12 @@ app.post('/api/auth/reset-password', validateApiKey, authLimiter, async (req, re
       .eq('id', appUser.id);
 
     if (updateError) {
+      console.log('❌ Error updating user with reset token:', updateError.message);
       return res.status(500).json({
         success: false,
         error: {
           code: 'INTERNAL_ERROR',
-          message: 'Error interno del servidor'
+          message: `Error interno del servidor: ${updateError.message}`
         }
       });
     }
@@ -640,6 +747,8 @@ app.post('/api/auth/reset-password', validateApiKey, authLimiter, async (req, re
       reset_url: resetUrl
     });
 
+    console.log('✅ Reset password email sent');
+    
     const response = {
       success: true,
       data: {
@@ -665,14 +774,17 @@ app.post('/api/auth/reset-password', validateApiKey, authLimiter, async (req, re
       success: false,
       error: {
         code: 'INTERNAL_ERROR',
-        message: 'Error interno del servidor'
+        message: `Error interno del servidor: ${error.message}`
       }
     });
   }
 });
+
 // Verify token endpoint
 app.post('/api/auth/verify', validateApiKey, async (req, res) => {
   try {
+    console.log('🔍 Token verification attempt');
+    
     const { token, application_id } = req.body;
 
     if (!token || !application_id) {
@@ -730,6 +842,8 @@ app.post('/api/auth/verify', validateApiKey, async (req, res) => {
         });
       }
 
+      console.log('✅ Token verified successfully');
+      
       res.json({
         success: true,
         data: {
@@ -746,6 +860,7 @@ app.post('/api/auth/verify', validateApiKey, async (req, res) => {
       });
 
     } catch (jwtError) {
+      console.log('❌ JWT verification failed:', jwtError.message);
       return res.status(401).json({
         success: false,
         error: {
@@ -761,7 +876,7 @@ app.post('/api/auth/verify', validateApiKey, async (req, res) => {
       success: false,
       error: {
         code: 'INTERNAL_ERROR',
-        message: 'Error interno del servidor'
+        message: `Error interno del servidor: ${error.message}`
       }
     });
   }
@@ -770,6 +885,8 @@ app.post('/api/auth/verify', validateApiKey, async (req, res) => {
 // Get users endpoint
 app.get('/api/users', validateApiKey, async (req, res) => {
   try {
+    console.log('👥 Get users request');
+    
     const { application_id, page = 1, limit = 50, search } = req.query;
 
     if (!application_id) {
@@ -834,6 +951,8 @@ app.get('/api/users', validateApiKey, async (req, res) => {
       throw usersError;
     }
 
+    console.log('✅ Users retrieved:', users?.length || 0);
+    
     res.json({
       success: true,
       data: {
@@ -853,7 +972,7 @@ app.get('/api/users', validateApiKey, async (req, res) => {
       success: false,
       error: {
         code: 'INTERNAL_ERROR',
-        message: 'Error interno del servidor'
+        message: `Error interno del servidor: ${error.message}`
       }
     });
   }
@@ -861,11 +980,12 @@ app.get('/api/users', validateApiKey, async (req, res) => {
 
 // Catch all handler for unmatched routes
 app.use('*', (req, res) => {
+  console.log('❌ Route not found:', req.method, req.originalUrl);
   res.status(404).json({
     success: false,
     error: {
       code: 'NOT_FOUND',
-      message: 'Endpoint no encontrado'
+      message: `Endpoint no encontrado: ${req.method} ${req.originalUrl}`
     }
   });
 });
@@ -877,9 +997,18 @@ app.use((error, req, res, next) => {
     success: false,
     error: {
       code: 'INTERNAL_ERROR',
-      message: 'Error interno del servidor'
+      message: `Error interno del servidor: ${error.message}`
     }
   });
+});
+
+// Add startup logging
+console.log('🚀 Netlify Function initialized');
+console.log('📊 Environment check:', {
+  hasSupabaseUrl: !!process.env.VITE_SUPABASE_URL,
+  hasServiceRoleKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+  hasJwtSecret: !!process.env.JWT_SECRET,
+  nodeEnv: process.env.NODE_ENV
 });
 
 // Export the serverless function
