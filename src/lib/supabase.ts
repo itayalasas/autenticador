@@ -77,19 +77,42 @@ if (!isSupabaseConfigured) {
         }
       }
     })
+
+    const { authLogService } = await import('../services/authLogService')
+    if (error) {
+      await authLogService.logRegister('', email, false, error.message)
+    } else if (data.user) {
+      await authLogService.logRegister(data.user.id, email, true)
+    }
+
     return { data, error }
   }
-  
+
   signIn = async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password
     })
+
+    const { authLogService } = await import('../services/authLogService')
+    if (error) {
+      await authLogService.logLogin('', email, false, error.message)
+    } else if (data.user) {
+      await authLogService.logLogin(data.user.id, email, true)
+    }
+
     return { data, error }
   }
-  
+
   signOut = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
     const { error } = await supabase.auth.signOut()
+
+    if (!error && user) {
+      const { authLogService } = await import('../services/authLogService')
+      await authLogService.logLogout(user.id, user.email || 'unknown')
+    }
+
     return { error }
   }
   
