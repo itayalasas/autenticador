@@ -16,6 +16,7 @@ import RolesManager from './components/roles/RolesManager';
 import AuthenticationSettings from './components/authentication/AuthenticationSettings';
 import SettingsPage from './components/settings/SettingsPage';
 import SubscriptionManager from './components/subscription/SubscriptionManager';
+import LogsViewer from './components/logs/LogsViewer';
 
 // Component for handling public auth routes
 function PublicAuthRoute() {
@@ -162,15 +163,7 @@ function MainApp() {
       case 'api-keys':
         return <ApiKeysManager />;
       case 'logs':
-        return (
-          <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
-            <div className="text-6xl mb-4">🚧</div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2">Logs en Desarrollo</h3>
-            <p className="text-gray-600">
-              La funcionalidad de logs estará disponible próximamente.
-            </p>
-          </div>
-        );
+        return <LogsViewer />;
       case 'documentation':
         return <ApiDocumentation />;
       case 'settings':

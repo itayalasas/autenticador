@@ -29,7 +29,7 @@ const sidebarItems = [
   { id: 'branding', label: 'Branding', icon: Palette },
   { id: 'environments', label: 'Ambientes', icon: Database },
   { id: 'api-keys', label: 'API Keys', icon: Key },
-  { id: 'logs', label: 'Logs', icon: Activity },
+  { id: 'logs', label: 'Logs de Actividad', icon: Activity },
   { id: 'documentation', label: 'Documentación', icon: FileText },
   { id: 'settings', label: 'Configuración', icon: Settings },
 ];
