@@ -73,22 +73,40 @@ const generateTokens = (user, applicationId, application) => {
 };
 
 // Helper function to log auth events
-const logAuthEvent = async (applicationId, appUserId, eventType, req, success, errorMessage = null, metadata = {}) => {
+const logAuthEvent = async (applicationId, appUserId, eventType, headers, success, errorMessage = null, metadata = {}) => {
   try {
-    if (!supabase) return;
-    
-    await supabase.from('auth_logs').insert({
+    if (!supabase) {
+      console.warn('⚠️ Supabase not initialized, skipping log');
+      return;
+    }
+
+    const logData = {
       application_id: applicationId,
       app_user_id: appUserId,
       event_type: eventType,
-      ip_address: req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || 'unknown',
-      user_agent: req.headers['user-agent'] || 'unknown',
+      ip_address: headers['x-forwarded-for'] || headers['x-real-ip'] || '0.0.0.0',
+      user_agent: headers['user-agent'] || 'unknown',
       success,
       error_message: errorMessage,
       metadata
+    };
+
+    console.log('📝 Attempting to log auth event:', {
+      event_type: eventType,
+      application_id: applicationId,
+      success,
+      ip: logData.ip_address
     });
+
+    const { data, error } = await supabase.from('auth_logs').insert(logData);
+
+    if (error) {
+      console.error('❌ Error inserting auth log:', error);
+    } else {
+      console.log('✅ Auth event logged successfully');
+    }
   } catch (error) {
-    console.error('Error logging auth event:', error);
+    console.error('❌ Exception logging auth event:', error);
   }
 };
 
@@ -229,7 +247,7 @@ exports.handler = async (event, context) => {
 
         if (appError || !application) {
           console.log('❌ Application not found:', appError?.message);
-          await logAuthEvent(null, null, 'failed_login', { headers: event.headers }, false, 'Application not found', { application_id });
+          await logAuthEvent(null, null, 'failed_login', event.headers, false, 'Application not found', { application_id });
           
           return {
             statusCode: 404,
@@ -267,7 +285,7 @@ exports.handler = async (event, context) => {
 
         if (userError || !appUser) {
           console.log('❌ User not found:', userError?.message);
-          await logAuthEvent(application.id, null, 'failed_login', { headers: event.headers }, false, 'User not found', { email });
+          await logAuthEvent(application.id, null, 'failed_login', event.headers, false, 'User not found', { email });
           
           return {
             statusCode: 401,
@@ -293,7 +311,7 @@ exports.handler = async (event, context) => {
         // 3. Check if user requires email verification
         if (appUser.status === 'pending') {
           console.log('❌ User email not verified');
-          await logAuthEvent(application.id, appUser.id, 'failed_login', { headers: event.headers }, false, 'Email not verified', { email, reason: 'email_not_verified' });
+          await logAuthEvent(application.id, appUser.id, 'failed_login', event.headers, false, 'Email not verified', { email, reason: 'email_not_verified' });
 
           const response = {
             success: false,
@@ -353,7 +371,7 @@ exports.handler = async (event, context) => {
 
         if (!isValidPassword) {
           console.log('❌ Invalid password');
-          await logAuthEvent(application.id, appUser.id, 'failed_login', { headers: event.headers }, false, 'Invalid password', { email });
+          await logAuthEvent(application.id, appUser.id, 'failed_login', event.headers, false, 'Invalid password', { email });
           
           return {
             statusCode: 401,
@@ -371,7 +389,7 @@ exports.handler = async (event, context) => {
         // 5. Check if user is active
         if (appUser.status !== 'active') {
           console.log('❌ User not active:', appUser.status);
-          await logAuthEvent(application.id, appUser.id, 'failed_login', { headers: event.headers }, false, 'User inactive', { email, status: appUser.status });
+          await logAuthEvent(application.id, appUser.id, 'failed_login', event.headers, false, 'User inactive', { email, status: appUser.status });
           
           return {
             statusCode: 403,
@@ -402,7 +420,7 @@ exports.handler = async (event, context) => {
         }
 
         // 8. Log successful login
-        await logAuthEvent(application.id, appUser.id, 'login', { headers: event.headers }, true, null, { email, login_method: 'email_password' });
+        await logAuthEvent(application.id, appUser.id, 'login', event.headers, true, null, { email, login_method: 'email_password' });
 
         // 9. Prepare response
         const lastLoginTime = new Date().toISOString();
@@ -624,7 +642,7 @@ exports.handler = async (event, context) => {
           });
 
         // 6. Log successful registration
-        await logAuthEvent(application.id, newUser.id, 'register', { headers: event.headers }, true, null, { email, registration_method: 'email_password' });
+        await logAuthEvent(application.id, newUser.id, 'register', event.headers, true, null, { email, registration_method: 'email_password' });
 
         // 7. Generate tokens for auto-login
         const { accessToken, refreshToken } = generateTokens(newUser, application_id, application);
@@ -755,7 +773,7 @@ exports.handler = async (event, context) => {
           .single();
 
         if (userError || !appUser) {
-          await logAuthEvent(application.id, null, 'password_reset', { headers: event.headers }, false, 'User not found', { email, reason: 'user_not_found' });
+          await logAuthEvent(application.id, null, 'password_reset', event.headers, false, 'User not found', { email, reason: 'user_not_found' });
 
           return {
             statusCode: 200,
@@ -805,8 +823,8 @@ exports.handler = async (event, context) => {
           ? `${callback_url.replace('/callback', '/reset-password')}?token=${resetToken}&email=${encodeURIComponent(email)}`
           : `https://${application.domain}/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`;
 
-        await logAuthEvent(application.id, appUser.id, 'password_reset', { headers: event.headers }, true, null, { 
-          email, 
+        await logAuthEvent(application.id, appUser.id, 'password_reset', event.headers, true, null, {
+          email,
           reset_token: resetToken,
           expires_at: expiresAt.toISOString(),
           reset_url: resetUrl
