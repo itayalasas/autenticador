@@ -74,9 +74,38 @@ serve(async (req) => {
             message: 'Email and application_id are required'
           }
         }),
-        { 
-          status: 400, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      )
+    }
+
+    // Get IP address from request
+    const ipAddress = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '0.0.0.0'
+
+    // Check if IP is blocked
+    const { data: blockedIP } = await supabase
+      .from('blocked_ips')
+      .select('id, reason')
+      .eq('ip_address', ipAddress)
+      .eq('is_active', true)
+      .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
+      .maybeSingle()
+
+    if (blockedIP) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'IP_BLOCKED',
+            message: 'Su dirección IP ha sido bloqueada. Contacte al administrador.',
+            reason: blockedIP.reason
+          }
+        }),
+        {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       )
     }

@@ -17,13 +17,11 @@ interface RegisterRequest {
 }
 
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    // Validate request method
     if (req.method !== 'POST') {
       return new Response(
         JSON.stringify({
@@ -45,7 +43,6 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    // Validate request body
     let requestBody;
     try {
       requestBody = await req.json()
@@ -67,7 +64,6 @@ serve(async (req) => {
 
     const { email, password, name, application_id, callback_url, metadata }: RegisterRequest = requestBody
 
-    // Validate required fields
     if (!email || !password || !name || !application_id) {
       return new Response(
         JSON.stringify({
@@ -77,14 +73,42 @@ serve(async (req) => {
             message: 'Email, password, name, and application_id are required'
           }
         }),
-        { 
-          status: 400, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       )
     }
 
-    // 1. Verificar que la aplicación existe y permite registro público
+    // Get IP address from request
+    const ipAddress = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '0.0.0.0'
+
+    // Check if IP is blocked
+    const { data: blockedIP } = await supabase
+      .from('blocked_ips')
+      .select('id, reason')
+      .eq('ip_address', ipAddress)
+      .eq('is_active', true)
+      .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
+      .maybeSingle()
+
+    if (blockedIP) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'IP_BLOCKED',
+            message: 'Su dirección IP ha sido bloqueada. Contacte al administrador.',
+            reason: blockedIP.reason
+          }
+        }),
+        {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      )
+    }
+
     const { data: application, error: appError } = await supabase
       .from('applications')
       .select('*')
@@ -107,7 +131,6 @@ serve(async (req) => {
       )
     }
 
-    // 2. Verificar si el usuario ya existe
     const { data: existingUser } = await supabase
       .from('app_users')
       .select('id')
@@ -131,12 +154,9 @@ serve(async (req) => {
       )
     }
 
-    // 3. Crear usuario
-    const passwordHash = btoa(password) // En producción usar bcrypt
-    
-     // Verificar configuración de la aplicación
-     const requireEmailVerification = true; // Obtener de configuración de la app
-     const userStatus = requireEmailVerification ? 'pending' : 'active';
+    const passwordHash = btoa(password)
+    const requireEmailVerification = true
+    const userStatus = requireEmailVerification ? 'pending' : 'active'
      
     const { data: newUser, error: createError } = await supabase
       .from('app_users')
@@ -167,7 +187,6 @@ serve(async (req) => {
       )
     }
 
-    // 4. Asignar rol por defecto
     await supabase
       .from('user_roles')
       .insert({
@@ -176,19 +195,24 @@ serve(async (req) => {
         permissions: ['read']
       })
 
-    // 5. Log registro exitoso
-    await supabase.from('auth_logs').insert({
-      application_id: application.id,
-      app_user_id: newUser.id,
-      event_type: 'register',
-      ip_address: req.headers.get('x-forwarded-for') || 'unknown',
-      user_agent: req.headers.get('user-agent'),
-      success: true,
-      metadata: { email, registration_method: 'email_password' }
-    })
+    const ipHeader = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '0.0.0.0'
+    const clientIp = ipHeader.split(',')[0].trim()
 
-     // 6. Generar respuesta basada en si requiere verificación de email
-    // 6. Generar tokens para login automático
+    try {
+      const { error: logError } = await supabase.from('auth_logs').insert({
+        application_id: application.id,
+        app_user_id: newUser.id,
+        event_type: 'register',
+        ip_address: clientIp,
+        user_agent: req.headers.get('user-agent') || 'unknown',
+        success: true,
+        metadata: { email, registration_method: 'email_password' }
+      })
+      if (logError) console.error('Error logging registration:', logError)
+    } catch (logErr) {
+      console.error('Exception logging registration:', logErr)
+    }
+
     const now = Math.floor(Date.now() / 1000)
     const accessTokenPayload = {
       sub: newUser.id,
@@ -206,38 +230,36 @@ serve(async (req) => {
     const accessToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify(accessTokenPayload))}.signature`
     const refreshToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify({...accessTokenPayload, type: 'refresh', exp: now + (30 * 24 * 60 * 60)}))}.signature`
 
-     // Si requiere verificación de email, no generar tokens aún
-     if (requireEmailVerification) {
-       const response = {
-         success: true,
-         data: {
-           message: 'Usuario registrado exitosamente. Por favor verifica tu email antes de continuar.',
-           user_id: newUser.id,
-           email_verification_required: true,
-           next_step: 'verify_email'
-         }
-       }
-       
-       // Redirigir a página de verificación de email
-       if (callback_url) {
-         const verifyParams = new URLSearchParams({
-           user_id: newUser.id,
-           email: newUser.email,
-           state: 'email_verification_required',
-           message: 'Por favor verifica tu email para continuar'
-         })
-         
-         response.data.callback_url = `${callback_url.replace('/callback', '/verify-email')}?${verifyParams.toString()}`
-       }
-       
-       return new Response(
-         JSON.stringify(response),
-         { 
-           status: 201, 
-           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-         }
-       )
-     }
+    if (requireEmailVerification) {
+      const response = {
+        success: true,
+        data: {
+          message: 'Usuario registrado exitosamente. Por favor verifica tu email antes de continuar.',
+          user_id: newUser.id,
+          email_verification_required: true,
+          next_step: 'verify_email'
+        }
+      }
+      
+      if (callback_url) {
+        const verifyParams = new URLSearchParams({
+          user_id: newUser.id,
+          email: newUser.email,
+          state: 'email_verification_required',
+          message: 'Por favor verifica tu email para continuar'
+        })
+        
+        response.data.callback_url = `${callback_url.replace('/callback', '/verify-email')}?${verifyParams.toString()}`
+      }
+      
+      return new Response(
+        JSON.stringify(response),
+        { 
+          status: 201, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      )
+    }
 
     const response = {
       success: true,
@@ -263,7 +285,6 @@ serve(async (req) => {
       }
     }
 
-    // 7. Si hay callback_url, generar URL de redirección
     if (callback_url) {
       const callbackParams = new URLSearchParams({
         token: accessToken,

@@ -15,13 +15,11 @@ interface LoginRequest {
 }
 
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    // Validate request method
     if (req.method !== 'POST') {
       return new Response(
         JSON.stringify({
@@ -43,7 +41,6 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    // Validate request body
     let requestBody;
     try {
       requestBody = await req.json()
@@ -65,7 +62,6 @@ serve(async (req) => {
 
     const { email, password, application_id, callback_url }: LoginRequest = requestBody
 
-    // Validate required fields
     if (!email || !password || !application_id) {
       return new Response(
         JSON.stringify({
@@ -75,14 +71,42 @@ serve(async (req) => {
             message: 'Email, password, and application_id are required'
           }
         }),
-        { 
-          status: 400, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       )
     }
 
-    // 1. Verificar que la aplicación existe
+    // Get IP address from request
+    const ipAddress = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '0.0.0.0'
+
+    // Check if IP is blocked
+    const { data: blockedIP } = await supabase
+      .from('blocked_ips')
+      .select('id, reason')
+      .eq('ip_address', ipAddress)
+      .eq('is_active', true)
+      .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
+      .maybeSingle()
+
+    if (blockedIP) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'IP_BLOCKED',
+            message: 'Su dirección IP ha sido bloqueada. Contacte al administrador.',
+            reason: blockedIP.reason
+          }
+        }),
+        {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      )
+    }
+
     const { data: application, error: appError } = await supabase
       .from('applications')
       .select('*')
@@ -105,7 +129,6 @@ serve(async (req) => {
       )
     }
 
-    // 2. Buscar el usuario en la aplicación
     const { data: appUser, error: userError } = await supabase
       .from('app_users')
       .select(`
@@ -121,16 +144,23 @@ serve(async (req) => {
       .single()
 
     if (userError || !appUser) {
-      // Log intento fallido
-      await supabase.from('auth_logs').insert({
-        application_id: application.id,
-        event_type: 'failed_login',
-        ip_address: req.headers.get('x-forwarded-for') || 'unknown',
-        user_agent: req.headers.get('user-agent'),
-        success: false,
-        error_message: 'Usuario no encontrado',
-        metadata: { email }
-      })
+      const ipHeader = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '0.0.0.0'
+      const clientIp = ipHeader.split(',')[0].trim()
+
+      try {
+        const { error: logError } = await supabase.from('auth_logs').insert({
+          application_id: application.id,
+          event_type: 'failed_login',
+          ip_address: clientIp,
+          user_agent: req.headers.get('user-agent') || 'unknown',
+          success: false,
+          error_message: 'Usuario no encontrado',
+          metadata: { email }
+        })
+        if (logError) console.error('Error logging failed login:', logError)
+      } catch (logErr) {
+        console.error('Exception logging failed login:', logErr)
+      }
 
       return new Response(
         JSON.stringify({
@@ -147,19 +177,25 @@ serve(async (req) => {
       )
     }
 
-    // 3.5. Verificar si el usuario requiere verificación de email
     if (appUser.status === 'pending') {
-      // Log intento de login con email no verificado
-      await supabase.from('auth_logs').insert({
-        application_id: application.id,
-        app_user_id: appUser.id,
-        event_type: 'failed_login',
-        ip_address: req.headers.get('x-forwarded-for') || 'unknown',
-        user_agent: req.headers.get('user-agent'),
-        success: false,
-        error_message: 'Email no verificado',
-        metadata: { email, reason: 'email_not_verified' }
-      })
+      const ipHeader = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '0.0.0.0'
+      const clientIp = ipHeader.split(',')[0].trim()
+
+      try {
+        const { error: logError } = await supabase.from('auth_logs').insert({
+          application_id: application.id,
+          app_user_id: appUser.id,
+          event_type: 'failed_login',
+          ip_address: clientIp,
+          user_agent: req.headers.get('user-agent') || 'unknown',
+          success: false,
+          error_message: 'Email no verificado',
+          metadata: { email, reason: 'email_not_verified' }
+        })
+        if (logError) console.error('Error logging unverified email:', logError)
+      } catch (logErr) {
+        console.error('Exception logging unverified email:', logErr)
+      }
 
       const response = {
         success: false,
@@ -172,7 +208,6 @@ serve(async (req) => {
         }
       }
 
-      // Si hay callback_url, redirigir a página de verificación
       if (callback_url) {
         const verifyParams = new URLSearchParams({
           user_id: appUser.id,
@@ -193,21 +228,27 @@ serve(async (req) => {
       )
     }
 
-    // 3. Verificar contraseña (en producción usar bcrypt)
     const isValidPassword = btoa(password) === appUser.password_hash
 
     if (!isValidPassword) {
-      // Log intento fallido
-      await supabase.from('auth_logs').insert({
-        application_id: application.id,
-        app_user_id: appUser.id,
-        event_type: 'failed_login',
-        ip_address: req.headers.get('x-forwarded-for') || 'unknown',
-        user_agent: req.headers.get('user-agent'),
-        success: false,
-        error_message: 'Contraseña incorrecta',
-        metadata: { email }
-      })
+      const ipHeader = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '0.0.0.0'
+      const clientIp = ipHeader.split(',')[0].trim()
+
+      try {
+        const { error: logError } = await supabase.from('auth_logs').insert({
+          application_id: application.id,
+          app_user_id: appUser.id,
+          event_type: 'failed_login',
+          ip_address: clientIp,
+          user_agent: req.headers.get('user-agent') || 'unknown',
+          success: false,
+          error_message: 'Contraseña incorrecta',
+          metadata: { email }
+        })
+        if (logError) console.error('Error logging wrong password:', logError)
+      } catch (logErr) {
+        console.error('Exception logging wrong password:', logErr)
+      }
 
       return new Response(
         JSON.stringify({
@@ -224,7 +265,6 @@ serve(async (req) => {
       )
     }
 
-    // 4. Generar tokens JWT
     const now = Math.floor(Date.now() / 1000)
     const accessTokenPayload = {
       sub: appUser.id,
@@ -234,7 +274,7 @@ serve(async (req) => {
       roles: appUser.user_roles?.map(r => r.role_name) || [],
       permissions: appUser.user_roles?.flatMap(r => r.permissions) || [],
       iat: now,
-      exp: now + (24 * 60 * 60), // 24 horas
+      exp: now + (24 * 60 * 60),
       iss: 'AuthSystem',
       aud: application.domain
     }
@@ -244,39 +284,43 @@ serve(async (req) => {
       app_id: application_id,
       type: 'refresh',
       iat: now,
-      exp: now + (30 * 24 * 60 * 60), // 30 días
+      exp: now + (30 * 24 * 60 * 60),
       iss: 'AuthSystem'
     }
 
-    // Generar tokens (simplificado para demo - usar librería JWT real)
     const accessToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify(accessTokenPayload))}.signature`
     const refreshToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify(refreshTokenPayload))}.signature`
 
-    // 5. Actualizar último login
     await supabase
       .from('app_users')
       .update({ last_login: new Date().toISOString() })
       .eq('id', appUser.id)
 
-    // 6. Log login exitoso
-    await supabase.from('auth_logs').insert({
-      application_id: application.id,
-      app_user_id: appUser.id,
-      event_type: 'login',
-      ip_address: req.headers.get('x-forwarded-for') || 'unknown',
-      user_agent: req.headers.get('user-agent'),
-      success: true,
-      metadata: { email, login_method: 'email_password' }
-    })
+    const ipHeader = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '0.0.0.0'
+    const clientIp = ipHeader.split(',')[0].trim()
 
-    // 7. Preparar respuesta
+    try {
+      const { error: logError } = await supabase.from('auth_logs').insert({
+        application_id: application.id,
+        app_user_id: appUser.id,
+        event_type: 'login',
+        ip_address: clientIp,
+        user_agent: req.headers.get('user-agent') || 'unknown',
+        success: true,
+        metadata: { email, login_method: 'email_password' }
+      })
+      if (logError) console.error('Error logging successful login:', logError)
+    } catch (logErr) {
+      console.error('Exception logging successful login:', logErr)
+    }
+
     const response = {
       success: true,
       data: {
         access_token: accessToken,
         refresh_token: refreshToken,
         token_type: 'Bearer',
-        expires_in: 86400, // 24 horas en segundos
+        expires_in: 86400,
         user: {
           id: appUser.id,
           email: appUser.email,
@@ -294,7 +338,6 @@ serve(async (req) => {
       }
     }
 
-    // 8. Si hay callback_url, generar URL de redirección
     if (callback_url) {
       const callbackParams = new URLSearchParams({
         token: accessToken,

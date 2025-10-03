@@ -16,7 +16,7 @@ import RolesManager from './components/roles/RolesManager';
 import AuthenticationSettings from './components/authentication/AuthenticationSettings';
 import SettingsPage from './components/settings/SettingsPage';
 import SubscriptionManager from './components/subscription/SubscriptionManager';
-import LogsViewer from './components/logs/LogsViewer';
+import LogsViewer from './components/activity/LogsViewer';
 
 // Component for handling public auth routes
 function PublicAuthRoute() {
