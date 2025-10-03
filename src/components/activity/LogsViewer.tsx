@@ -24,6 +24,8 @@ interface AuthLog {
     name: string;
     email: string;
   };
+  failed_attempts?: number;
+  grouped_logs?: AuthLog[];
 }
 
 interface BlockedIP {
@@ -91,6 +93,53 @@ export default function LogsViewer() {
     if (data) setApplications(data);
   };
 
+  const groupFailedAttempts = (logs: AuthLog[]): AuthLog[] => {
+    const groupedMap = new Map<string, AuthLog>();
+    const processedIds = new Set<string>();
+
+    logs.forEach(log => {
+      if (processedIds.has(log.id)) return;
+
+      // Solo agrupar intentos fallidos de login y registro
+      if (!log.success && (log.event_type === 'login' || log.event_type === 'register' || log.event_type === 'failed_login')) {
+        const email = log.app_user?.email || log.metadata?.email || 'anonymous';
+        const groupKey = `${log.ip_address}_${email}_${log.application_id || 'no-app'}`;
+
+        if (!groupedMap.has(groupKey)) {
+          // Primer intento fallido con esta combinación
+          const relatedLogs = logs.filter(l =>
+            !l.success &&
+            (l.event_type === 'login' || l.event_type === 'register' || l.event_type === 'failed_login') &&
+            l.ip_address === log.ip_address &&
+            (l.app_user?.email || l.metadata?.email || 'anonymous') === email &&
+            (l.application_id || 'no-app') === (log.application_id || 'no-app')
+          );
+
+          // Marcar todos los logs relacionados como procesados
+          relatedLogs.forEach(l => processedIds.add(l.id));
+
+          const grouped = {
+            ...log,
+            failed_attempts: relatedLogs.length,
+            grouped_logs: relatedLogs.sort((a, b) =>
+              new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+            )
+          };
+
+          groupedMap.set(groupKey, grouped);
+        }
+      } else {
+        // Los logs exitosos y otros eventos no se agrupan
+        groupedMap.set(log.id, log);
+        processedIds.add(log.id);
+      }
+    });
+
+    return Array.from(groupedMap.values()).sort((a, b) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+  };
+
   const loadLogs = async () => {
     try {
       let query = supabase
@@ -145,7 +194,10 @@ export default function LogsViewer() {
           )
         : data;
 
-      setLogs(filteredData || []);
+      // Agrupar intentos fallidos por IP, email, aplicación y usuario
+      const groupedData = groupFailedAttempts(filteredData || []);
+
+      setLogs(groupedData);
 
       if (filteredData) {
         const uniqueUsers = new Set(filteredData.map(l => l.app_user_id).filter(Boolean));
@@ -531,6 +583,11 @@ export default function LogsViewer() {
                       <span className="text-sm font-medium text-gray-900">
                         {getEventLabel(log.event_type)}
                       </span>
+                      {log.failed_attempts && log.failed_attempts > 1 && (
+                        <span className="px-2 py-0.5 bg-red-100 text-red-800 text-xs font-semibold rounded-full">
+                          {log.failed_attempts} intentos
+                        </span>
+                      )}
                     </div>
                     {log.error_message && (
                       <p className="text-xs text-red-600 mt-1">{log.error_message}</p>
@@ -701,6 +758,43 @@ export default function LogsViewer() {
                   </span>
                 </div>
               </div>
+
+              {selectedLog.failed_attempts && selectedLog.failed_attempts > 1 && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-semibold text-red-900">Múltiples Intentos Fallidos</p>
+                    <span className="px-3 py-1 bg-red-600 text-white rounded-full text-sm font-bold">
+                      {selectedLog.failed_attempts} intentos
+                    </span>
+                  </div>
+                  <p className="text-xs text-red-700 mb-3">
+                    Se detectaron {selectedLog.failed_attempts} intentos fallidos desde la misma IP y email en esta aplicación.
+                  </p>
+
+                  {selectedLog.grouped_logs && selectedLog.grouped_logs.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-red-900 mb-2">Historial de intentos:</p>
+                      <div className="max-h-40 overflow-y-auto space-y-1">
+                        {selectedLog.grouped_logs.map((attempt, index) => (
+                          <div key={attempt.id} className="text-xs bg-white p-2 rounded border border-red-200">
+                            <div className="flex items-center justify-between">
+                              <span className="font-mono text-gray-600">
+                                #{selectedLog.grouped_logs!.length - index}
+                              </span>
+                              <span className="text-gray-700">
+                                {new Date(attempt.created_at).toLocaleString()}
+                              </span>
+                            </div>
+                            {attempt.error_message && (
+                              <p className="text-red-600 mt-1 text-xs">{attempt.error_message}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {selectedLog.error_message && (
                 <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
