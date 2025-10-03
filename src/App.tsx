@@ -17,6 +17,7 @@ import AuthenticationSettings from './components/authentication/AuthenticationSe
 import SettingsPage from './components/settings/SettingsPage';
 import SubscriptionManager from './components/subscription/SubscriptionManager';
 import LogsViewer from './components/logs/LogsViewer';
+import LogsViewer from './components/logs/LogsViewer';
 
 // Component for handling public auth routes
 function PublicAuthRoute() {
@@ -148,8 +149,6 @@ function MainApp() {
         return <DashboardOverview />;
       case 'applications':
         return <ApplicationsList />;
-      case 'subscription':
-        return <SubscriptionManager />;
       case 'users':
         return <UsersManager />;
       case 'roles':
