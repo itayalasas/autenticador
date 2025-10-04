@@ -251,27 +251,36 @@ export default function LogsViewer() {
       return;
     }
 
+    if (!user?.id) {
+      showNotification('Error: Usuario no autenticado', 'error');
+      return;
+    }
+
     setIsBlocking(true);
 
     try {
-      console.log('Bloqueando IP:', {
+      const insertData: any = {
         ip_address: ipToBlock.ip,
         reason: blockIPReason.trim(),
-        blocked_by: user?.id,
-        log_id: ipToBlock.logId,
-        application_id: selectedLog?.application_id
-      });
+        blocked_by: user.id,
+        is_active: true
+      };
+
+      // Solo agregar log_id si existe
+      if (ipToBlock.logId) {
+        insertData.log_id = ipToBlock.logId;
+      }
+
+      // Solo agregar application_id si existe
+      if (selectedLog?.application_id) {
+        insertData.application_id = selectedLog.application_id;
+      }
+
+      console.log('Bloqueando IP con datos:', insertData);
 
       const { data, error } = await supabase
         .from('blocked_ips')
-        .insert({
-          ip_address: ipToBlock.ip,
-          reason: blockIPReason.trim(),
-          blocked_by: user?.id,
-          log_id: ipToBlock.logId,
-          application_id: selectedLog?.application_id,
-          is_active: true
-        })
+        .insert(insertData)
         .select();
 
       if (error) {
