@@ -42,7 +42,7 @@ interface BlockedIP {
 
 export default function LogsViewer() {
   const { user } = useAuth();
-  const { showNotification } = useNotification();
+  const { showSuccess, showError } = useNotification();
   const [logs, setLogs] = useState<AuthLog[]>([]);
   const [blockedIPs, setBlockedIPs] = useState<BlockedIP[]>([]);
   const [loading, setLoading] = useState(true);
@@ -213,7 +213,7 @@ export default function LogsViewer() {
       }
     } catch (error: any) {
       console.error('Error loading logs:', error);
-      showNotification('Error al cargar los logs', 'error');
+      showError('Error', 'Error al cargar los logs');
     } finally {
       setLoading(false);
     }
@@ -247,12 +247,12 @@ export default function LogsViewer() {
     e.preventDefault();
 
     if (!ipToBlock || !blockIPReason.trim()) {
-      showNotification('Por favor ingrese una razón para el bloqueo', 'error');
+      showError('Error', 'Por favor ingrese una razón para el bloqueo');
       return;
     }
 
     if (!user?.id) {
-      showNotification('Error: Usuario no autenticado', 'error');
+      showError('Error', 'Usuario no autenticado');
       return;
     }
 
@@ -290,7 +290,7 @@ export default function LogsViewer() {
 
       console.log('IP bloqueada exitosamente:', data);
 
-      showNotification(`IP ${ipToBlock.ip} bloqueada exitosamente`, 'success');
+      showSuccess('Éxito', `IP ${ipToBlock.ip} bloqueada exitosamente`);
       await loadBlockedIPs();
       setShowBlockIPModal(false);
       setIpToBlock(null);
@@ -298,7 +298,7 @@ export default function LogsViewer() {
       setSelectedLog(null);
     } catch (error: any) {
       console.error('Error blocking IP:', error);
-      showNotification('Error al bloquear IP: ' + error.message, 'error');
+      showError('Error', 'Error al bloquear IP: ' + error.message);
     } finally {
       setIsBlocking(false);
     }
@@ -313,11 +313,11 @@ export default function LogsViewer() {
 
       if (error) throw error;
 
-      showNotification(`IP ${ipAddress} desbloqueada exitosamente`, 'success');
+      showSuccess('Éxito', `IP ${ipAddress} desbloqueada exitosamente`);
       loadBlockedIPs();
     } catch (error: any) {
       console.error('Error unblocking IP:', error);
-      showNotification('Error al desbloquear IP: ' + error.message, 'error');
+      showError('Error', 'Error al desbloquear IP: ' + error.message);
     }
   };
 
