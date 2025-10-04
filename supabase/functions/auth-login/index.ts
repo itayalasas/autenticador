@@ -12,6 +12,7 @@ interface LoginRequest {
   password: string
   application_id: string
   callback_url?: string
+  client_ip?: string
 }
 
 serve(async (req) => {
@@ -60,7 +61,7 @@ serve(async (req) => {
       )
     }
 
-    const { email, password, application_id, callback_url }: LoginRequest = requestBody
+    const { email, password, application_id, callback_url, client_ip }: LoginRequest = requestBody
 
     if (!email || !password || !application_id) {
       return new Response(
@@ -78,8 +79,9 @@ serve(async (req) => {
       )
     }
 
-    // Get IP address from request
-    const ipAddress = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '0.0.0.0'
+    // Get IP address from client_ip in body (preferred) or headers as fallback
+    const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0'
+    console.log('🔍 Login attempt from IP:', ipAddress, 'source:', client_ip ? 'client_provided' : 'headers')
 
     // Check if IP is blocked
     const { data: blockedIP } = await supabase
@@ -144,8 +146,7 @@ serve(async (req) => {
       .single()
 
     if (userError || !appUser) {
-      const ipHeader = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '0.0.0.0'
-      const clientIp = ipHeader.split(',')[0].trim()
+      const clientIp = ipAddress
 
       try {
         const { error: logError } = await supabase.from('auth_logs').insert({
@@ -203,8 +204,7 @@ serve(async (req) => {
     }
 
     if (appUser.status === 'pending') {
-      const ipHeader = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '0.0.0.0'
-      const clientIp = ipHeader.split(',')[0].trim()
+      const clientIp = ipAddress
 
       try {
         const { error: logError } = await supabase.from('auth_logs').insert({
@@ -256,8 +256,7 @@ serve(async (req) => {
     const isValidPassword = btoa(password) === appUser.password_hash
 
     if (!isValidPassword) {
-      const ipHeader = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '0.0.0.0'
-      const clientIp = ipHeader.split(',')[0].trim()
+      const clientIp = ipAddress
 
       try {
         const { error: logError } = await supabase.from('auth_logs').insert({
@@ -346,8 +345,7 @@ serve(async (req) => {
       .update({ last_login: new Date().toISOString() })
       .eq('id', appUser.id)
 
-    const ipHeader = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '0.0.0.0'
-    const clientIp = ipHeader.split(',')[0].trim()
+    const clientIp = ipAddress
 
     try {
       const { error: logError } = await supabase.from('auth_logs').insert({

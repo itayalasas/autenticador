@@ -161,43 +161,53 @@ export default function PublicAuthForms({
       // Obtener parámetros de la URL
       const urlParams = new URLSearchParams(window.location.search);
       const callbackUrl = urlParams.get('callback_url') || urlParams.get('redirect_uri');
-      
+
       if (!apiKey) {
         throw new Error('API key no disponible para esta aplicación');
       }
+
+      // Get client IP first
+      const clientIp = await ipService.getClientIP();
+      console.log('📍 Client IP:', clientIp);
+
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
       let endpoint = '';
       let payload: any = {};
 
       switch (formType) {
         case 'login':
-          endpoint = `/api/auth/login`;
+          endpoint = `${supabaseUrl}/functions/v1/auth-login`;
           payload = {
             email: formData.email,
             password: formData.password,
             application_id: applicationId,
-            callback_url: callbackUrl
+            callback_url: callbackUrl,
+            client_ip: clientIp
           };
           break;
         case 'register':
           if (formData.password !== formData.confirmPassword) {
             throw new Error('Las contraseñas no coinciden');
           }
-          endpoint = `/api/auth/register`;
+          endpoint = `${supabaseUrl}/functions/v1/auth-register`;
           payload = {
             email: formData.email,
             password: formData.password,
             name: formData.name,
             application_id: applicationId,
             callback_url: callbackUrl,
-            role: selectedRole || undefined
+            role: selectedRole || undefined,
+            client_ip: clientIp
           };
           break;
         case 'reset-password':
-          endpoint = `/api/auth/reset-password`;
+          endpoint = `${supabaseUrl}/functions/v1/auth-reset-password`;
           payload = {
             email: formData.email,
-            application_id: applicationId
+            application_id: applicationId,
+            client_ip: clientIp
           };
           break;
       }
@@ -205,15 +215,16 @@ export default function PublicAuthForms({
       console.log('🚀 Making API request:', {
         endpoint,
         apiKey: apiKey.substring(0, 20) + '...',
-        payload: { ...payload, password: '***' }
+        payload: { ...payload, password: '***', client_ip: clientIp }
       });
 
-      // Llamar a la API de autenticación
+      // Llamar a la API de autenticación (Supabase Edge Functions)
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-API-Key': apiKey
+          'Authorization': `Bearer ${supabaseAnonKey}`,
+          'apikey': supabaseAnonKey
         },
         body: JSON.stringify(payload)
       });
