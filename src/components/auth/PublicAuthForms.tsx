@@ -86,6 +86,8 @@ export default function PublicAuthForms({
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const apiUrl = `${supabaseUrl}/functions/v1/check-ip-status`;
 
+      console.log('🔍 Checking IP status at:', apiUrl);
+
       const response = await fetch(apiUrl, {
         method: 'GET',
         headers: {
@@ -93,14 +95,22 @@ export default function PublicAuthForms({
         }
       });
 
+      console.log('📡 Response status:', response.status);
+
       const result = await response.json();
+      console.log('📦 Response data:', result);
 
       if (result.success && result.data.is_blocked) {
+        console.log('🚫 IP is blocked:', result.data);
         setIpBlocked(true);
         setBlockedInfo(result.data.blocked_info);
+      } else {
+        console.log('✅ IP is not blocked');
       }
     } catch (error) {
-      console.error('Error checking IP status:', error);
+      console.error('❌ Error checking IP status:', error);
+      // En caso de error, permitimos el acceso para no bloquear usuarios legítimos
+      setIpBlocked(false);
     } finally {
       setCheckingIP(false);
     }

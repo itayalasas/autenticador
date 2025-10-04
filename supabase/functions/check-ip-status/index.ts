@@ -16,14 +16,17 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    // Use service role key to bypass RLS
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? ''
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
     // Get IP address from request
     const ipAddress = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '0.0.0.0';
     const clientIp = ipAddress.split(',')[0].trim();
+
+    console.log('Checking IP status for:', clientIp);
 
     // Check if IP is blocked
     const { data: blockedIP, error } = await supabase
@@ -37,6 +40,8 @@ Deno.serve(async (req: Request) => {
     if (error) {
       console.error('Error checking IP status:', error);
     }
+
+    console.log('Blocked IP result:', blockedIP);
 
     const isBlocked = !!blockedIP;
 
