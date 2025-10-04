@@ -165,7 +165,24 @@ serve(async (req) => {
           p_ip_address: clientIp
         })
         if (blockError) console.error('Error checking auto-block:', blockError)
-        if (wasBlocked) console.log('IP auto-blocked:', clientIp)
+
+        if (wasBlocked) {
+          console.log('IP auto-blocked:', clientIp)
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: {
+                code: 'IP_BLOCKED',
+                message: 'Su dirección IP ha sido bloqueada temporalmente debido a múltiples intentos fallidos. Intente más tarde.',
+                blocked: true
+              }
+            }),
+            {
+              status: 403,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            }
+          )
+        }
       } catch (logErr) {
         console.error('Exception logging failed login:', logErr)
       }
@@ -178,9 +195,9 @@ serve(async (req) => {
             message: 'Email o contraseña incorrectos'
           }
         }),
-        { 
-          status: 401, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       )
     }
@@ -261,7 +278,24 @@ serve(async (req) => {
           p_ip_address: clientIp
         })
         if (blockError) console.error('Error checking auto-block:', blockError)
-        if (wasBlocked) console.log('IP auto-blocked:', clientIp)
+
+        if (wasBlocked) {
+          console.log('IP auto-blocked:', clientIp)
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: {
+                code: 'IP_BLOCKED',
+                message: 'Su dirección IP ha sido bloqueada temporalmente debido a múltiples intentos fallidos. Intente más tarde.',
+                blocked: true
+              }
+            }),
+            {
+              status: 403,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            }
+          )
+        }
       } catch (logErr) {
         console.error('Exception logging wrong password:', logErr)
       }
@@ -274,9 +308,9 @@ serve(async (req) => {
             message: 'Email o contraseña incorrectos'
           }
         }),
-        { 
-          status: 401, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       )
     }
