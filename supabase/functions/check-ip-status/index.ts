@@ -22,11 +22,33 @@ Deno.serve(async (req: Request) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Get IP address from request
-    const ipAddress = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '0.0.0.0';
-    const clientIp = ipAddress.split(',')[0].trim();
+    // Get IP address from multiple sources
+    // 1. Check if client sent their IP in the body (for development environments)
+    let clientIp = '0.0.0.0';
 
-    console.log('Checking IP status for:', clientIp);
+    if (req.method === 'POST') {
+      try {
+        const body = await req.json();
+        if (body.client_ip) {
+          clientIp = body.client_ip;
+          console.log('Using client-provided IP:', clientIp);
+        }
+      } catch (e) {
+        // If parsing fails, continue with header detection
+      }
+    }
+
+    // 2. Try to get IP from headers (for production environments)
+    if (clientIp === '0.0.0.0') {
+      const ipAddress = req.headers.get('x-forwarded-for') ||
+                       req.headers.get('x-real-ip') ||
+                       req.headers.get('cf-connecting-ip') ||
+                       '0.0.0.0';
+      clientIp = ipAddress.split(',')[0].trim();
+      console.log('Using header-detected IP:', clientIp);
+    }
+
+    console.log('Final IP to check:', clientIp);
 
     // Check if IP is blocked
     const { data: blockedIP, error } = await supabase

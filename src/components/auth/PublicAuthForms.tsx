@@ -3,6 +3,7 @@ import { Eye, EyeOff, Mail, Lock, User, ArrowRight, CheckCircle, AlertCircle, Sh
 import { useSearchParams } from 'react-router-dom';
 import { rolesService } from '../../services/rolesService';
 import { applicationService } from '../../services/applicationService';
+import { ipService } from '../../services/ipService';
 
 interface PublicAuthFormsProps {
   applicationId: string;
@@ -83,29 +84,15 @@ export default function PublicAuthForms({
   const checkIPStatus = async () => {
     try {
       setCheckingIP(true);
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const apiUrl = `${supabaseUrl}/functions/v1/check-ip-status`;
 
-      console.log('🔍 Checking IP status at:', apiUrl);
+      const result = await ipService.checkIPStatus();
 
-      const response = await fetch(apiUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-
-      console.log('📡 Response status:', response.status);
-
-      const result = await response.json();
-      console.log('📦 Response data:', result);
-
-      if (result.success && result.data.is_blocked) {
-        console.log('🚫 IP is blocked:', result.data);
+      if (result.is_blocked) {
+        console.log('🚫 IP is blocked:', result);
         setIpBlocked(true);
-        setBlockedInfo(result.data.blocked_info);
+        setBlockedInfo(result.blocked_info);
       } else {
-        console.log('✅ IP is not blocked');
+        console.log('✅ IP is not blocked:', result.ip_address);
       }
     } catch (error) {
       console.error('❌ Error checking IP status:', error);
