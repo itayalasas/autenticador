@@ -158,6 +158,14 @@ serve(async (req) => {
           metadata: { email }
         })
         if (logError) console.error('Error logging failed login:', logError)
+
+        // Check and auto-block IP if threshold reached
+        const { data: wasBlocked, error: blockError } = await supabase.rpc('check_and_auto_block_ip', {
+          p_application_id: application.id,
+          p_ip_address: clientIp
+        })
+        if (blockError) console.error('Error checking auto-block:', blockError)
+        if (wasBlocked) console.log('IP auto-blocked:', clientIp)
       } catch (logErr) {
         console.error('Exception logging failed login:', logErr)
       }
@@ -246,6 +254,14 @@ serve(async (req) => {
           metadata: { email }
         })
         if (logError) console.error('Error logging wrong password:', logError)
+
+        // Check and auto-block IP if threshold reached
+        const { data: wasBlocked, error: blockError } = await supabase.rpc('check_and_auto_block_ip', {
+          p_application_id: application.id,
+          p_ip_address: clientIp
+        })
+        if (blockError) console.error('Error checking auto-block:', blockError)
+        if (wasBlocked) console.log('IP auto-blocked:', clientIp)
       } catch (logErr) {
         console.error('Exception logging wrong password:', logErr)
       }

@@ -21,23 +21,27 @@ export default function AuthenticationSettings() {
     password_require_lowercase: true,
     password_require_numbers: true,
     password_require_symbols: false,
-    
+
     // Configuración de sesiones
     session_timeout: 24, // horas
     refresh_token_lifetime: 30, // días
     max_concurrent_sessions: 5,
-    
+
     // Configuración de seguridad
     enable_rate_limiting: true,
     max_login_attempts: 5,
     lockout_duration: 15, // minutos
     enable_captcha: false,
-    
+
+    // Configuración de bloqueo automático de IP
+    auto_block_enabled: true,
+    max_failed_attempts: 5, // intentos antes de bloqueo automático
+
     // Configuración de tokens
     jwt_algorithm: 'HS256',
     token_issuer: 'AuthSystem',
     include_user_metadata: true,
-    
+
     // Configuración de callbacks
     allowed_callback_urls: '',
     allowed_logout_urls: '',
@@ -76,19 +80,19 @@ export default function AuthenticationSettings() {
   const loadAuthSettings = async () => {
     try {
       setLoading(true);
-      
-      // Get application with metadata
+
+      // Get application with metadata and new auto_block fields
       const { data: app, error } = await supabase
         .from('applications')
-        .select('*')
+        .select('*, max_failed_attempts, auto_block_enabled')
         .eq('id', selectedApp)
         .single();
 
       if (error) throw error;
 
-      if (app && app.metadata) {
-        // Load settings from application metadata
-        const metadata = app.metadata;
+      if (app) {
+        // Load settings from application metadata and columns
+        const metadata = app.metadata || {};
         setAuthSettings(prev => ({
           ...prev,
           require_email_verification: metadata.enable_email_verification ?? true,
@@ -106,11 +110,14 @@ export default function AuthenticationSettings() {
           max_login_attempts: metadata.max_login_attempts ?? 5,
           lockout_duration: metadata.lockout_duration ?? 15,
           enable_captcha: metadata.enable_captcha ?? false,
+          // Load auto-block settings from columns
+          auto_block_enabled: app.auto_block_enabled ?? true,
+          max_failed_attempts: app.max_failed_attempts ?? 5,
           jwt_algorithm: metadata.jwt_algorithm ?? 'HS256',
           token_issuer: metadata.token_issuer ?? 'AuthSystem',
           include_user_metadata: metadata.include_user_metadata ?? true,
-          allowed_callback_urls: Array.isArray(metadata.allowed_callback_urls) 
-            ? metadata.allowed_callback_urls.join('\n') 
+          allowed_callback_urls: Array.isArray(metadata.allowed_callback_urls)
+            ? metadata.allowed_callback_urls.join('\n')
             : metadata.allowed_callback_urls || '',
           allowed_logout_urls: Array.isArray(metadata.allowed_logout_urls)
             ? metadata.allowed_logout_urls.join('\n')
@@ -134,7 +141,7 @@ export default function AuthenticationSettings() {
   const handleSaveSettings = async () => {
     try {
       setSaveLoading(true);
-      
+
       // Prepare metadata object with all auth settings
       const authMetadata = {
         enable_email_verification: authSettings.require_email_verification,
@@ -176,11 +183,13 @@ export default function AuthenticationSettings() {
         ...authMetadata
       };
 
-      // Update application with new auth settings
+      // Update application with new auth settings including auto-block config
       const { error: updateError } = await supabase
         .from('applications')
-        .update({ 
+        .update({
           metadata: updatedMetadata,
+          auto_block_enabled: authSettings.auto_block_enabled,
+          max_failed_attempts: authSettings.max_failed_attempts,
           updated_at: new Date().toISOString()
         })
         .eq('id', selectedApp);
@@ -191,7 +200,7 @@ export default function AuthenticationSettings() {
         'Configuración guardada',
         'La configuración de autenticación ha sido guardada exitosamente y se aplicará a todas las nuevas autenticaciones.'
       );
-      
+
     } catch (error) {
       console.error('Error saving auth settings:', error);
       showError(
@@ -220,6 +229,8 @@ export default function AuthenticationSettings() {
       max_login_attempts: 5,
       lockout_duration: 15,
       enable_captcha: false,
+      auto_block_enabled: true,
+      max_failed_attempts: 5,
       jwt_algorithm: 'HS256',
       token_issuer: 'AuthSystem',
       include_user_metadata: true,
@@ -559,6 +570,60 @@ export default function AuthenticationSettings() {
                   />
                   <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600 opacity-50"></div>
                 </label>
+              </div>
+
+              {/* Auto-Block IP Configuration */}
+              <div className="border-t border-gray-200 pt-6 mt-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h4 className="font-medium text-gray-900">Bloqueo Automático de IP</h4>
+                    <p className="text-sm text-gray-600">Bloquea automáticamente IPs después de múltiples intentos fallidos</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={authSettings.auto_block_enabled}
+                      onChange={(e) => handleSettingChange('auto_block_enabled', e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+
+                {authSettings.auto_block_enabled && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <div className="flex items-start space-x-3">
+                      <Shield className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1">
+                        <label className="block text-sm font-medium text-blue-900 mb-2">
+                          Intentos fallidos permitidos antes de bloqueo
+                        </label>
+                        <div className="flex items-center space-x-4">
+                          <input
+                            type="number"
+                            min="1"
+                            max="50"
+                            value={authSettings.max_failed_attempts || ''}
+                            onChange={(e) => {
+                              const value = e.target.value === '' ? null : parseInt(e.target.value);
+                              handleSettingChange('max_failed_attempts', value);
+                            }}
+                            className="w-24 px-3 py-2 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                            placeholder="5"
+                          />
+                          <span className="text-sm text-blue-800">intentos</span>
+                        </div>
+                        <p className="text-xs text-blue-700 mt-2">
+                          Cuando una IP alcance este número de intentos fallidos de login, será bloqueada automáticamente.
+                          Puedes desbloquearla manualmente desde el Log de Actividad.
+                        </p>
+                        <p className="text-xs text-blue-700 mt-1">
+                          <strong>Nota:</strong> Deja vacío o en 0 para bloqueo manual únicamente.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
