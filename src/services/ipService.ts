@@ -28,6 +28,7 @@ export const ipService = {
       const ipToCheck = clientIp || await this.getClientIP();
 
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
       const apiUrl = `${supabaseUrl}/functions/v1/check-ip-status`;
 
       console.log('🔍 Checking IP status for:', ipToCheck);
@@ -35,7 +36,9 @@ export const ipService = {
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseAnonKey}`,
+          'apikey': supabaseAnonKey
         },
         body: JSON.stringify({ client_ip: ipToCheck })
       });
