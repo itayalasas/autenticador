@@ -1,0 +1,83 @@
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from 'jsr:@supabase/supabase-js@2';
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
+};
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, {
+      status: 200,
+      headers: corsHeaders,
+    });
+  }
+
+  try {
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? ''
+    );
+
+    // Get IP address from request
+    const ipAddress = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '0.0.0.0';
+    const clientIp = ipAddress.split(',')[0].trim();
+
+    // Check if IP is blocked
+    const { data: blockedIP, error } = await supabase
+      .from('blocked_ips')
+      .select('id, ip_address, reason, blocked_at, expires_at')
+      .eq('ip_address', clientIp)
+      .eq('is_active', true)
+      .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error checking IP status:', error);
+    }
+
+    const isBlocked = !!blockedIP;
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        data: {
+          ip_address: clientIp,
+          is_blocked: isBlocked,
+          blocked_info: blockedIP ? {
+            reason: blockedIP.reason,
+            blocked_at: blockedIP.blocked_at,
+            expires_at: blockedIP.expires_at
+          } : null
+        }
+      }),
+      {
+        status: 200,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+  } catch (error) {
+    console.error('Check IP status error:', error);
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Error al verificar el estado de la IP'
+        }
+      }),
+      {
+        status: 500,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+  }
+});

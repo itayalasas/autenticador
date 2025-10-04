@@ -24,17 +24,20 @@ interface PublicAuthFormsProps {
   onError?: (error: string) => void;
 }
 
-export default function PublicAuthForms({ 
-  applicationId, 
+export default function PublicAuthForms({
+  applicationId,
   internalApplicationId,
-  formType, 
+  formType,
   apiKey,
   branding = {},
   onSuccess,
-  onError 
+  onError
 }: PublicAuthFormsProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [checkingIP, setCheckingIP] = useState(true);
+  const [ipBlocked, setIpBlocked] = useState(false);
+  const [blockedInfo, setBlockedInfo] = useState<any>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [appInfo, setAppInfo] = useState<any>(null);
   const [availableRoles, setAvailableRoles] = useState<any[]>([]);
@@ -67,6 +70,8 @@ export default function PublicAuthForms({
   
 
   useEffect(() => {
+    // Check IP status first
+    checkIPStatus();
     // Load application info
     loadApplicationInfo();
     loadCustomTexts();
@@ -74,6 +79,32 @@ export default function PublicAuthForms({
       loadAvailableRoles();
     }
   }, [applicationId]);
+
+  const checkIPStatus = async () => {
+    try {
+      setCheckingIP(true);
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const apiUrl = `${supabaseUrl}/functions/v1/check-ip-status`;
+
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const result = await response.json();
+
+      if (result.success && result.data.is_blocked) {
+        setIpBlocked(true);
+        setBlockedInfo(result.data.blocked_info);
+      }
+    } catch (error) {
+      console.error('Error checking IP status:', error);
+    } finally {
+      setCheckingIP(false);
+    }
+  };
 
   const loadApplicationInfo = async () => {
     try {
@@ -297,10 +328,65 @@ export default function PublicAuthForms({
 
   const urlParams = new URLSearchParams(window.location.search);
 
+  // Show loading while checking IP
+  if (checkingIP) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gray-50">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Verificando acceso...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show blocked screen if IP is blocked
+  if (ipBlocked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-red-50">
+        <div className="max-w-md w-full">
+          <div className="bg-white rounded-lg shadow-xl border border-red-200 p-8 text-center">
+            <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Shield className="w-10 h-10 text-red-600" />
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-3">
+              Acceso Bloqueado
+            </h1>
+            <p className="text-gray-600 mb-6">
+              Tu dirección IP ha sido bloqueada temporalmente por razones de seguridad.
+            </p>
+            {blockedInfo && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 text-left">
+                <p className="text-sm text-gray-700 mb-2">
+                  <strong>Razón:</strong> {blockedInfo.reason}
+                </p>
+                <p className="text-sm text-gray-700">
+                  <strong>Fecha:</strong> {new Date(blockedInfo.blocked_at).toLocaleString()}
+                </p>
+                {blockedInfo.expires_at && (
+                  <p className="text-sm text-gray-700 mt-2">
+                    <strong>Expira:</strong> {new Date(blockedInfo.expires_at).toLocaleString()}
+                  </p>
+                )}
+              </div>
+            )}
+            <p className="text-sm text-gray-500 mb-4">
+              Si crees que esto es un error, por favor contacta al administrador del sistema.
+            </p>
+            <div className="flex items-center justify-center space-x-2 text-sm text-gray-500">
+              <Shield className="w-4 h-4" />
+              <span>Protegido por AuthSystem</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div 
+    <div
       className="min-h-screen flex items-center justify-center p-4"
-      style={{ 
+      style={{
         backgroundColor: defaultBranding.background_color,
         fontFamily: defaultBranding.font_family
       }}
