@@ -320,7 +320,7 @@ serve(async (req) => {
       console.log('❌ User not found for reset password:', email, 'in application:', application.name);
       
       // Log attempt with user not found
-      await supabase.from('auth_logs').insert({
+      const { error: logError } = await supabase.from('auth_logs').insert({
         application_id: application.id,
         event_type: 'password_reset',
         ip_address: ipAddress,
@@ -328,7 +328,13 @@ serve(async (req) => {
         success: false,
         error_message: 'Usuario no encontrado',
         metadata: { email, reason: 'user_not_found' }
-      })
+      });
+      
+      if (logError) {
+        console.error('❌ Error logging reset password attempt:', logError);
+      } else {
+        console.log('📝 Logged reset password attempt for non-existent user:', email);
+      }
 
       // For security, don't reveal if user exists
       return new Response(
@@ -369,7 +375,7 @@ serve(async (req) => {
       console.log('❌ Error creating reset token for user:', appUser.email);
       
       // Log token creation error
-      await supabase.from('auth_logs').insert({
+      const { error: logError2 } = await supabase.from('auth_logs').insert({
         application_id: application.id,
         app_user_id: appUser.id,
         event_type: 'failed_login',
@@ -385,6 +391,12 @@ serve(async (req) => {
           application_name: application.name
         }
       });
+      
+      if (logError2) {
+        console.error('❌ Error logging token creation failure:', logError2);
+      } else {
+        console.log('📝 Logged token creation failure for:', email);
+      }
       
       return new Response(
         JSON.stringify({
@@ -422,7 +434,7 @@ serve(async (req) => {
     }
 
     // Log successful event
-    await supabase.from('auth_logs').insert({
+    const { error: logError } = await supabase.from('auth_logs').insert({
       application_id: application.id,
       app_user_id: appUser.id,
       event_type: 'password_reset',
@@ -436,7 +448,13 @@ serve(async (req) => {
         email_sent: sendPasswordResetEmail,
         expires_at: expiresAt.toISOString()
       }
-    })
+    });
+    
+    if (logError) {
+      console.error('❌ Error logging successful reset password:', logError);
+    } else {
+      console.log('📝 Logged successful reset password for:', email);
+    }
 
     const response = {
       success: true,

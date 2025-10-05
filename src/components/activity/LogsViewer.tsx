@@ -77,6 +77,28 @@ export default function LogsViewer() {
     loadLogs();
     loadBlockedIPs();
     setCurrentPage(1);
+    
+    // Debug: Check if we have any logs at all
+    const debugLogs = async () => {
+      const { data: allLogs, error } = await supabase
+        .from('auth_logs')
+        .select('id, event_type, success, created_at')
+        .order('created_at', { ascending: false })
+        .limit(10);
+        
+      console.log('🔍 Debug - Recent logs in database:', {
+        count: allLogs?.length || 0,
+        logs: allLogs?.map(log => ({
+          id: log.id,
+          event_type: log.event_type,
+          success: log.success,
+          created_at: log.created_at
+        })) || [],
+        error: error?.message
+      });
+    };
+    
+    debugLogs();
   }, [appFilter, eventFilter, timeFilter]);
 
   useEffect(() => {
@@ -87,6 +109,7 @@ export default function LogsViewer() {
     let interval: NodeJS.Timeout;
     if (autoRefresh) {
       interval = setInterval(() => {
+        console.log('🔄 Auto-refreshing logs...');
         loadLogs();
       }, 5000);
     }
@@ -103,6 +126,8 @@ export default function LogsViewer() {
   };
 
   const groupFailedAttempts = (logs: AuthLog[]): AuthLog[] => {
+    console.log('🔄 Grouping failed attempts for', logs.length, 'logs');
+    
     const groupedMap = new Map<string, AuthLog>();
     const processedIds = new Set<string>();
 
@@ -111,6 +136,14 @@ export default function LogsViewer() {
 
       // Solo agrupar intentos fallidos de login y registro
       if (!log.success && (log.event_type === 'login' || log.event_type === 'register' || log.event_type === 'failed_login')) {
+        console.log('🔍 Processing failed attempt:', {
+          id: log.id,
+          event_type: log.event_type,
+          success: log.success,
+          email: log.app_user?.email || log.metadata?.email,
+          ip: log.ip_address
+        });
+        
         const email = log.app_user?.email || log.metadata?.email || 'anonymous';
         const groupKey = `${log.ip_address}_${email}_${log.application_id || 'no-app'}`;
 
@@ -135,6 +168,11 @@ export default function LogsViewer() {
             )
           };
 
+          console.log('📦 Grouped failed attempts:', {
+            groupKey,
+            attempts: relatedLogs.length,
+            logs: relatedLogs.map(l => l.id)
+          });
           groupedMap.set(groupKey, grouped);
         }
       } else {
@@ -144,13 +182,29 @@ export default function LogsViewer() {
       }
     });
 
-    return Array.from(groupedMap.values()).sort((a, b) =>
+    const result = Array.from(groupedMap.values()).sort((a, b) =>
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
+    
+    console.log('✅ Grouping complete:', {
+      original: logs.length,
+      grouped: result.length,
+      failed: result.filter(log => !log.success).length,
+      successful: result.filter(log => log.success).length
+    });
+    
+    return result;
   };
 
   const loadLogs = async () => {
     try {
+      console.log('🔄 Loading logs with filters:', {
+        appFilter,
+        eventFilter,
+        timeFilter,
+        currentPage
+      });
+      
       // First, get total count for pagination
       let countQuery = supabase
         .from('auth_logs')
@@ -188,6 +242,7 @@ export default function LogsViewer() {
 
       const { count } = await countQuery;
       const totalCount = count || 0;
+      console.log('📊 Total logs count:', totalCount);
       setTotalPages(Math.ceil(totalCount / logsPerPage));
 
       // Now get the actual data with pagination
@@ -237,6 +292,17 @@ export default function LogsViewer() {
       const { data, error } = await query;
 
       if (error) throw error;
+      
+      console.log('📥 Raw logs data:', {
+        count: data?.length || 0,
+        sample: data?.slice(0, 3).map(log => ({
+          id: log.id,
+          event_type: log.event_type,
+          success: log.success,
+          error_message: log.error_message,
+          created_at: log.created_at
+        }))
+      });
 
       const filteredData = searchQuery
         ? data?.filter(log =>
@@ -248,13 +314,20 @@ export default function LogsViewer() {
 
       // Agrupar intentos fallidos por IP, email, aplicación y usuario
       const groupedData = groupFailedAttempts(filteredData || []);
+      
+      console.log('📊 Processed logs:', {
+        original: data?.length || 0,
+        filtered: filteredData?.length || 0,
+        grouped: groupedData.length,
+        failed_logs: groupedData.filter(log => !log.success).length
+      });
 
       setLogs(groupedData);
 
       // Get stats for ALL data (not just current page)
       let statsQuery = supabase
         .from('auth_logs')
-        .select('success, app_user_id, ip_address');
+        .select('success, app_user_id, ip_address, event_type, error_message');
 
       if (appFilter !== 'all') {
         statsQuery = statsQuery.eq('application_id', appFilter);
@@ -291,19 +364,25 @@ export default function LogsViewer() {
       if (statsData) {
         const uniqueUsers = new Set(statsData.map(l => l.app_user_id).filter(Boolean));
         const uniqueIPs = new Set(statsData.map(l => l.ip_address));
+        const successfulLogs = statsData.filter(l => l.success);
+        const failedLogs = statsData.filter(l => !l.success);
 
         console.log('📊 Stats calculated:', {
           total: totalCount,
-          successful: statsData.filter(l => l.success).length,
-          failed: statsData.filter(l => !l.success).length,
+          successful: successfulLogs.length,
+          failed: failedLogs.length,
           uniqueUsers: uniqueUsers.size,
-          uniqueIPs: uniqueIPs.size
+          uniqueIPs: uniqueIPs.size,
+          failedEvents: failedLogs.map(log => ({
+            event_type: log.event_type,
+            error_message: log.error_message
+          }))
         });
         
         setStats({
           total: totalCount,
-          successful: statsData.filter(l => l.success).length,
-          failed: statsData.filter(l => !l.success).length,
+          successful: successfulLogs.length,
+          failed: failedLogs.length,
           uniqueUsers: uniqueUsers.size,
           uniqueIPs: uniqueIPs.size
         });
@@ -344,7 +423,7 @@ export default function LogsViewer() {
     e.preventDefault();
 
     if (!ipToBlock || !blockIPReason.trim()) {
-      showError('Error', 'Por favor ingrese una razón para el bloqueo');
+      showError('Error', 'Por favor ingresa una razón para el bloqueo');
       return;
     }
 
@@ -356,6 +435,8 @@ export default function LogsViewer() {
     setIsBlocking(true);
 
     try {
+      console.log('🚫 Blocking IP:', ipToBlock.ip, 'Reason:', blockIPReason);
+      
       const insertData: any = {
         ip_address: ipToBlock.ip,
         reason: blockIPReason.trim(),
@@ -585,7 +666,7 @@ export default function LogsViewer() {
           <select
             value={eventFilter}
             onChange={(e) => setEventFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg"
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
           >
             <option value="all">Todos los eventos</option>
             <option value="login">Login</option>
@@ -597,7 +678,7 @@ export default function LogsViewer() {
           <select
             value={timeFilter}
             onChange={(e) => setTimeFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg"
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
           >
             <option value="1h">Última hora</option>
             <option value="24h">Últimas 24 horas</option>

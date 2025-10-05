@@ -197,7 +197,7 @@ Deno.serve(async (req) => {
     if (userError || !user) {
       console.log('❌ User not found:', email, 'in application:', application.name);
       
-      await supabase.from('auth_logs').insert({
+      const { error: logError } = await supabase.from('auth_logs').insert({
         application_id: application.id,
         event_type: 'failed_login',
         ip_address: ipAddress,
@@ -209,7 +209,13 @@ Deno.serve(async (req) => {
           error_type: 'user_not_found',
           application_name: application.name
         }
-      })
+      });
+      
+      if (logError) {
+        console.error('❌ Error logging failed login attempt:', logError);
+      } else {
+        console.log('📝 Logged failed login attempt for:', email);
+      }
 
       return new Response(
         JSON.stringify({
@@ -227,11 +233,25 @@ Deno.serve(async (req) => {
     }
 
     console.log('🔐 Checking password for user:', user.email);
-    const passwordHash = btoa(password)
-    if (user.password_hash !== passwordHash) {
+    
+    // Import bcrypt for proper password verification
+    const bcrypt = await import('https://deno.land/x/bcrypt@v0.4.1/mod.ts');
+    
+    let passwordValid = false;
+    try {
+      // Try bcrypt first (proper hashing)
+      passwordValid = await bcrypt.compare(password, user.password_hash);
+    } catch (bcryptError) {
+      console.log('⚠️ Bcrypt failed, trying base64 fallback:', bcryptError.message);
+      // Fallback to base64 for existing users
+      const passwordHash = btoa(password);
+      passwordValid = user.password_hash === passwordHash;
+    }
+    
+    if (!passwordValid) {
       console.log('❌ Invalid password for user:', user.email);
       
-      await supabase.from('auth_logs').insert({
+      const { error: logError } = await supabase.from('auth_logs').insert({
         application_id: application.id,
         app_user_id: user.id,
         event_type: 'failed_login',
@@ -245,7 +265,13 @@ Deno.serve(async (req) => {
           error_type: 'invalid_password',
           application_name: application.name
         }
-      })
+      });
+      
+      if (logError) {
+        console.error('❌ Error logging invalid password attempt:', logError);
+      } else {
+        console.log('📝 Logged invalid password attempt for:', email);
+      }
 
       return new Response(
         JSON.stringify({
@@ -265,7 +291,7 @@ Deno.serve(async (req) => {
     if (user.status !== 'active') {
       console.log('❌ User not active:', user.email, 'status:', user.status);
       
-      await supabase.from('auth_logs').insert({
+      const { error: logError } = await supabase.from('auth_logs').insert({
         application_id: application.id,
         app_user_id: user.id,
         event_type: 'failed_login',
@@ -280,7 +306,13 @@ Deno.serve(async (req) => {
           error_type: user.status === 'pending' ? 'email_not_verified' : 'user_inactive',
           application_name: application.name
         }
-      })
+      });
+      
+      if (logError) {
+        console.error('❌ Error logging inactive user attempt:', logError);
+      } else {
+        console.log('📝 Logged inactive user attempt for:', email);
+      }
 
       return new Response(
         JSON.stringify({
@@ -309,7 +341,13 @@ Deno.serve(async (req) => {
 
     console.log('✅ Login successful for user:', user.email);
     
-    await supabase.from('auth_logs').insert({
+    // Update last_login timestamp
+    await supabase
+      .from('app_users')
+      .update({ last_login: new Date().toISOString() })
+      .eq('id', user.id);
+    
+    const { error: logError } = await supabase.from('auth_logs').insert({
       application_id: application.id,
       app_user_id: user.id,
       event_type: 'login',
@@ -324,7 +362,13 @@ Deno.serve(async (req) => {
         roles: userRoles,
         permissions: userPermissions
       }
-    })
+    });
+    
+    if (logError) {
+      console.error('❌ Error logging successful login:', logError);
+    } else {
+      console.log('📝 Logged successful login for:', email);
+    }
 
     const now = Math.floor(Date.now() / 1000)
     const accessTokenPayload = {

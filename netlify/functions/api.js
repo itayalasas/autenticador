@@ -205,6 +205,12 @@ exports.handler = async (event, context) => {
 
       try {
         const result = await callEdgeFunction('auth-login', requestBody);
+        
+        console.log('📥 Edge Function response:', {
+          statusCode: result.statusCode,
+          success: result.body?.success,
+          error: result.body?.error
+        });
 
         return {
           statusCode: result.statusCode,
@@ -250,6 +256,12 @@ exports.handler = async (event, context) => {
 
       try {
         const result = await callEdgeFunction('auth-register', requestBody);
+        
+        console.log('📥 Edge Function response:', {
+          statusCode: result.statusCode,
+          success: result.body?.success,
+          error: result.body?.error
+        });
 
         return {
           statusCode: result.statusCode,

@@ -298,7 +298,7 @@ Deno.serve(async (req) => {
       console.log('❌ Email already exists:', email, 'in application:', application.name);
       
       // Log email already exists error
-      await supabase.from('auth_logs').insert({
+      const { error: logError } = await supabase.from('auth_logs').insert({
         application_id: application.id,
         event_type: 'failed_login',
         ip_address: ipAddress,
@@ -312,6 +312,12 @@ Deno.serve(async (req) => {
           application_name: application.name
         }
       });
+      
+      if (logError) {
+        console.error('❌ Error logging email exists attempt:', logError);
+      } else {
+        console.log('📝 Logged email already exists attempt for:', email);
+      }
       
       return new Response(
         JSON.stringify({
@@ -328,7 +334,10 @@ Deno.serve(async (req) => {
       );
     }
 
-    const passwordHash = btoa(password);
+    // Use proper password hashing
+    const bcrypt = await import('https://deno.land/x/bcrypt@v0.4.1/mod.ts');
+    const passwordHash = await bcrypt.hash(password, 10);
+    
     const emailConfig = application.email_config || {};
     const requireEmailVerification = emailConfig.require_email_verification || false;
     const userStatus = requireEmailVerification ? 'pending' : 'active';
@@ -350,7 +359,7 @@ Deno.serve(async (req) => {
       console.log('❌ Error creating user:', createError.message);
       
       // Log user creation error
-      await supabase.from('auth_logs').insert({
+      const { error: logError } = await supabase.from('auth_logs').insert({
         application_id: application.id,
         event_type: 'failed_login',
         ip_address: ipAddress,
@@ -365,6 +374,12 @@ Deno.serve(async (req) => {
           application_name: application.name
         }
       });
+      
+      if (logError) {
+        console.error('❌ Error logging user creation failure:', logError);
+      } else {
+        console.log('📝 Logged user creation failure for:', email);
+      }
       
       return new Response(
         JSON.stringify({
