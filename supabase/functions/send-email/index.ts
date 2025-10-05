@@ -255,23 +255,42 @@ Deno.serve(async (req: Request) => {
     }
 
     // Store email in database for tracking
-    const { error: dbError } = await supabase
+    console.log('💾 Attempting to save email log to database...');
+    const emailLogData = {
+      to_email: to,
+      from_email: emailConfig.from_email,
+      from_name: emailConfig.from_name,
+      subject,
+      html_content: html,
+      status,
+      error_message: errorMessage,
+      application_id: application_id || null,
+      app_user_id: app_user_id || null,
+      sent_at: actuallySent ? new Date().toISOString() : null
+    };
+
+    console.log('📝 Email log data:', {
+      ...emailLogData,
+      html_content: '(html omitted)',
+      application_id: application_id,
+      app_user_id: app_user_id
+    });
+
+    const { data: insertedData, error: dbError } = await supabase
       .from('email_logs')
-      .insert({
-        to_email: to,
-        from_email: emailConfig.from_email,
-        from_name: emailConfig.from_name,
-        subject,
-        html_content: html,
-        status,
-        error_message: errorMessage,
-        application_id: application_id || null,
-        app_user_id: app_user_id || null,
-        sent_at: actuallySent ? new Date().toISOString() : null
-      });
+      .insert(emailLogData)
+      .select();
 
     if (dbError) {
-      console.error('Error logging email:', dbError);
+      console.error('❌ ERROR logging email to database:', {
+        error: dbError,
+        code: dbError.code,
+        message: dbError.message,
+        details: dbError.details,
+        hint: dbError.hint
+      });
+    } else {
+      console.log('✅ Email log saved successfully to database:', insertedData);
     }
 
     return new Response(
