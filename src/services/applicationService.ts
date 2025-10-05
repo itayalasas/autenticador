@@ -509,9 +509,9 @@ export const applicationService = {
       .from('branding_configs')
       .select('*')
       .eq('application_id', applicationId)
-      .single();
+      .maybeSingle();
 
-    if (error && error.code !== 'PGRST116') throw error;
+    if (error) throw error;
     return data;
   }
 };
