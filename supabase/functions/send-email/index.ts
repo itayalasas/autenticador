@@ -294,17 +294,23 @@ Deno.serve(async (req: Request) => {
       console.log('✅ Email log saved successfully to database:', insertedData);
     }
 
+    const isSuccess = status !== 'failed';
+
     return new Response(
       JSON.stringify({
-        success: status === 'sent',
-        message: actuallySent 
-          ? 'Email sent successfully' 
-          : 'Email logged (not sent - configure email provider)',
+        success: isSuccess,
+        message: status === 'failed'
+          ? `Email sending failed: ${errorMessage}`
+          : (actuallySent
+            ? 'Email sent successfully'
+            : 'Email logged (not sent - configure email provider)'),
         provider: emailConfig.email_provider,
-        actually_sent: actuallySent
+        actually_sent: actuallySent,
+        status: status,
+        error: status === 'failed' ? errorMessage : undefined
       }),
       {
-        status: status === 'sent' ? 200 : 500,
+        status: isSuccess ? 200 : 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       }
     );
