@@ -183,6 +183,8 @@ serve(async (req) => {
     const { email, application_id, callback_url, client_ip }: ResetPasswordRequest = requestBody
 
     if (!email || !application_id) {
+      const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0'
+      
       // Log missing fields error
       await supabase.from('auth_logs').insert({
         application_id: null,
@@ -216,6 +218,12 @@ serve(async (req) => {
     // Get IP address
     const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0'
 
+    console.log('🔍 Processing reset password request:', {
+      email,
+      application_id,
+      ip_address: ipAddress
+    });
+
     // Check if IP is blocked
     const { data: blockedIP } = await supabase
       .from('blocked_ips')
@@ -226,6 +234,24 @@ serve(async (req) => {
       .maybeSingle()
 
     if (blockedIP) {
+      console.log('🚫 IP is blocked:', ipAddress, blockedIP.reason);
+      
+      // Log blocked IP attempt
+      await supabase.from('auth_logs').insert({
+        application_id: null,
+        event_type: 'failed_login',
+        ip_address: ipAddress,
+        user_agent: req.headers.get('user-agent') || 'unknown',
+        success: false,
+        error_message: 'IP bloqueada',
+        metadata: { 
+          email,
+          application_id,
+          error_type: 'ip_blocked',
+          block_reason: blockedIP.reason
+        }
+      });
+      
       return new Response(
         JSON.stringify({
           success: false,
@@ -250,6 +276,8 @@ serve(async (req) => {
       .single()
 
     if (appError || !application) {
+      console.log('❌ Application not found:', application_id);
+      
       // Log application not found error
       await supabase.from('auth_logs').insert({
         application_id: null,
@@ -289,6 +317,8 @@ serve(async (req) => {
       .single()
 
     if (userError || !appUser) {
+      console.log('❌ User not found for reset password:', email, 'in application:', application.name);
+      
       // Log attempt with user not found
       await supabase.from('auth_logs').insert({
         application_id: application.id,
@@ -336,6 +366,8 @@ serve(async (req) => {
     if (tokenError) {
       console.error('Error creating reset token:', tokenError)
       
+      console.log('❌ Error creating reset token for user:', appUser.email);
+      
       // Log token creation error
       await supabase.from('auth_logs').insert({
         application_id: application.id,
@@ -369,6 +401,8 @@ serve(async (req) => {
       )
     }
 
+    console.log('✅ Reset password successful for user:', appUser.email);
+    
     // Build reset URL
     const baseUrl = callback_url ? callback_url.split('/callback')[0] : `https://${application.domain}`
     const resetUrl = `${baseUrl}/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`
@@ -427,22 +461,31 @@ serve(async (req) => {
   } catch (error) {
     console.error('Reset password error:', error)
     
+    const ipAddress = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0'
+    
     // Log internal server error
-    await supabase.from('auth_logs').insert({
-      application_id: null,
-      event_type: 'failed_login',
-      ip_address: req.headers.get('x-forwarded-for')?.split(',')[0].trim() || '0.0.0.0',
-      user_agent: req.headers.get('user-agent') || 'unknown',
-      success: false,
-      error_message: 'Error interno del servidor en reset password',
-      metadata: { 
-        error_type: 'internal_error',
-        error_message: error.message,
-        endpoint: 'auth-reset-password'
-      }
-    }).catch(logError => {
-      console.error('Error logging internal error:', logError);
-    });
+    try {
+      const supabase = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      )
+      
+      await supabase.from('auth_logs').insert({
+        application_id: null,
+        event_type: 'failed_login',
+        ip_address: ipAddress,
+        user_agent: req.headers.get('user-agent') || 'unknown',
+        success: false,
+        error_message: 'Error interno del servidor en reset password',
+        metadata: { 
+          error_type: 'internal_error',
+          error_message: error.message,
+          endpoint: 'auth-reset-password'
+        }
+      })
+    } catch (logError) {
+        console.error('Error logging internal error:', logError);
+    }
     
     return new Response(
       JSON.stringify({

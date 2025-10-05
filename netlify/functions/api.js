@@ -105,6 +105,24 @@ exports.handler = async (event, context) => {
     // Check Supabase connection
     if (!supabase) {
       console.error('❌ Supabase not initialized - check environment variables');
+      console.log('📥 Edge Function response:', {
+        statusCode: result.statusCode,
+        success: result.body?.success,
+        error: result.body?.error
+      });
+      
+      console.log('📥 Edge Function response:', {
+        statusCode: result.statusCode,
+        success: result.body?.success,
+        error: result.body?.error
+      });
+      
+      console.log('📥 Edge Function response:', {
+        statusCode: result.statusCode,
+        success: result.body?.success,
+        error: result.body?.error
+      });
+      
       return {
         statusCode: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

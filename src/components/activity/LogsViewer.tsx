@@ -292,6 +292,14 @@ export default function LogsViewer() {
         const uniqueUsers = new Set(statsData.map(l => l.app_user_id).filter(Boolean));
         const uniqueIPs = new Set(statsData.map(l => l.ip_address));
 
+        console.log('📊 Stats calculated:', {
+          total: totalCount,
+          successful: statsData.filter(l => l.success).length,
+          failed: statsData.filter(l => !l.success).length,
+          uniqueUsers: uniqueUsers.size,
+          uniqueIPs: uniqueIPs.size
+        });
+        
         setStats({
           total: totalCount,
           successful: statsData.filter(l => l.success).length,

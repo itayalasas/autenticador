@@ -215,7 +215,7 @@ export default function PublicAuthForms({
       console.log('🚀 Making API request:', {
         endpoint,
         apiKey: apiKey.substring(0, 20) + '...',
-        payload: { ...payload, password: '***', client_ip: clientIp }
+        payload: { ...payload, password: '***' }
       });
 
       // Llamar a la API de autenticación (Supabase Edge Functions)
@@ -232,7 +232,12 @@ export default function PublicAuthForms({
       const result = await response.json();
       console.log('📥 API Response:', result);
 
+      // Log the response status for debugging
+      console.log('📊 Response status:', response.status, response.ok);
+      
       if (!result.success) {
+        console.log('❌ Authentication failed:', result.error);
+        
         // Manejar caso especial de email no verificado
         if (result.error?.code === 'EMAIL_NOT_VERIFIED') {
           setMessage({ 
@@ -251,6 +256,8 @@ export default function PublicAuthForms({
         
         throw new Error(result.error?.message || 'Error en la autenticación');
       }
+      
+      console.log('✅ Authentication successful:', result.data);
       
       // Manejar diferentes tipos de respuesta
       if (formType === 'register' && result.data?.email_verification_required) {
