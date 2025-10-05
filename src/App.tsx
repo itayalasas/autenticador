@@ -58,6 +58,7 @@ function MainApp() {
   const { user, loading } = useAuth();
   const [activeSection, setActiveSection] = useState('dashboard');
   const [currentEnvironment, setCurrentEnvironment] = useState('development');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
   const [searchParams] = useSearchParams();
 
@@ -174,18 +175,21 @@ function MainApp() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen bg-gray-50 overflow-hidden">
       {/* Sidebar */}
-      <Sidebar 
-        activeSection={activeSection} 
-        onSectionChange={setActiveSection} 
+      <Sidebar
+        activeSection={activeSection}
+        onSectionChange={setActiveSection}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
       />
-      
+
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header 
-          title={getSectionTitle(activeSection)} 
+        <Header
+          title={getSectionTitle(activeSection)}
           subtitle={getSectionSubtitle(activeSection)}
+          onMenuClick={() => setSidebarOpen(true)}
         />
         
         <main className="flex-1 overflow-y-auto p-6">

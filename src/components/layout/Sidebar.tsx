@@ -1,23 +1,26 @@
 import React from 'react';
-import { 
-  Home, 
-  Zap, 
+import {
+  Home,
+  Zap,
   Crown,
-  Shield, 
-  Users, 
-  Settings, 
-  FileText, 
-  Palette, 
+  Shield,
+  Users,
+  Settings,
+  FileText,
+  Palette,
   Database,
   Key,
   Activity,
   HelpCircle,
-  LogOut
+  LogOut,
+  X
 } from 'lucide-react';
 
 interface SidebarProps {
   activeSection: string;
   onSectionChange: (section: string) => void;
+  isOpen: boolean;
+  onClose: () => void;
 }
 
 const sidebarItems = [
@@ -34,19 +37,44 @@ const sidebarItems = [
   { id: 'settings', label: 'Configuración', icon: Settings },
 ];
 
-export default function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
+export default function Sidebar({ activeSection, onSectionChange, isOpen, onClose }: SidebarProps) {
   return (
-    <div className="w-64 bg-gray-900 text-white h-full flex flex-col">
+    <>
+      {/* Mobile Overlay */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+          onClick={onClose}
+        />
+      )}
+
+      {/* Sidebar */}
+      <div className={`
+        fixed lg:static inset-y-0 left-0 z-50
+        w-64 bg-gray-900 text-white flex flex-col
+        transform transition-transform duration-300 ease-in-out
+        lg:translate-x-0
+        ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+      `}>
       {/* Header */}
       <div className="p-6 border-b border-gray-800">
-        <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
-            <Shield className="w-5 h-5" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
+              <Shield className="w-5 h-5" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold">AuthSystem</h1>
+              <p className="text-xs text-gray-400">Development</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xl font-bold">AuthSystem</h1>
-            <p className="text-xs text-gray-400">Development</p>
-          </div>
+          {/* Close button for mobile */}
+          <button
+            onClick={onClose}
+            className="lg:hidden p-2 hover:bg-gray-800 rounded-lg transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
       </div>
 
@@ -63,10 +91,16 @@ export default function Sidebar({ activeSection, onSectionChange }: SidebarProps
             return (
               <button
                 key={item.id}
-                onClick={() => onSectionChange(item.id)}
+                onClick={() => {
+                  onSectionChange(item.id);
+                  // Close sidebar on mobile when item is clicked
+                  if (window.innerWidth < 1024) {
+                    onClose();
+                  }
+                }}
                 className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-left transition-colors ${
-                  isActive 
-                    ? 'bg-blue-600 text-white' 
+                  isActive
+                    ? 'bg-blue-600 text-white'
                     : 'text-gray-300 hover:bg-gray-800 hover:text-white'
                 }`}
               >
@@ -77,7 +111,7 @@ export default function Sidebar({ activeSection, onSectionChange }: SidebarProps
           })}
         </div>
       </nav>
-
-    </div>
+      </div>
+    </>
   );
 }
