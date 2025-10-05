@@ -488,8 +488,8 @@ export default function SettingsPage() {
           </div>
 
           {/* Usage Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-            <div className="bg-gray-50 rounded-lg p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-6">
+            <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-gray-700">Aplicaciones</span>
                 <Globe className="w-4 h-4 text-gray-500" />
@@ -512,7 +512,7 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            <div className="bg-gray-50 rounded-lg p-4">
+            <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-gray-700">Usuarios</span>
                 <User className="w-4 h-4 text-gray-500" />
@@ -535,7 +535,7 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            <div className="bg-gray-50 rounded-lg p-4">
+            <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-gray-700">API Requests</span>
                 <Shield className="w-4 h-4 text-gray-500" />
@@ -560,20 +560,20 @@ export default function SettingsPage() {
           </div>
 
           {/* Actions */}
-          <div className="flex items-center justify-between pt-6 border-t border-gray-200">
-            <div className="flex items-center space-x-4">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 pt-6 border-t border-gray-200">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4">
               <button
                 onClick={() => setActiveTab('subscription')}
-                className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors"
+                className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center justify-center space-x-2 transition-colors text-sm"
               >
                 <Crown className="w-4 h-4" />
                 <span>Ver Todos los Planes</span>
               </button>
-              
+
               {currentSubscription.subscription_plans?.price > 0 && (
                 <button
                   onClick={handleCancelSubscription}
-                  className="text-red-600 hover:text-red-700 px-4 py-2 rounded-lg hover:bg-red-50 transition-colors"
+                  className="text-red-600 hover:text-red-700 px-4 py-2 rounded-lg hover:bg-red-50 transition-colors text-sm text-center"
                 >
                   Cancelar Suscripción
                 </button>
@@ -613,11 +613,11 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         {plans.map((plan) => (
           <div 
             key={plan.id} 
-            className={`relative bg-white rounded-2xl border-2 p-6 transition-all hover:shadow-lg ${
+            className={`relative bg-white rounded-2xl border-2 p-4 sm:p-6 transition-all hover:shadow-lg ${
               plan.is_popular 
                 ? 'border-purple-500 shadow-lg' 
                 : isCurrentPlan(plan.id)
@@ -925,22 +925,22 @@ export default function SettingsPage() {
       {/* Tabs */}
       <div className="bg-white rounded-lg border border-gray-200">
         <div className="border-b border-gray-200">
-          <nav className="flex space-x-8 px-6">
+          <nav className="flex overflow-x-auto space-x-4 sm:space-x-8 px-4 sm:px-6">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
-              
+
               return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center space-x-2 py-4 border-b-2 font-medium text-sm transition-colors ${
+                  className={`flex items-center space-x-2 py-3 sm:py-4 border-b-2 font-medium text-xs sm:text-sm transition-colors whitespace-nowrap ${
                     isActive
                       ? 'border-blue-500 text-blue-600'
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                   }`}
                 >
-                  <Icon className="w-5 h-5" />
+                  <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
                   <span>{tab.label}</span>
                   {tab.id === 'subscription' && !currentSubscription && (
                     <span className="bg-red-100 text-red-800 px-2 py-0.5 rounded-full text-xs font-medium">
@@ -954,7 +954,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Tab Content */}
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           {loading ? (
             <div className="flex items-center justify-center h-32">
               <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>

@@ -388,17 +388,17 @@ export default function LogsViewer() {
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Activity className="w-6 h-6" />
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <Activity className="w-5 h-5 sm:w-6 sm:h-6" />
             Logs de Actividad
           </h1>
-          <p className="text-sm text-gray-600 mt-1">Monitorea eventos de autenticación en tiempo real</p>
+          <p className="text-xs sm:text-sm text-gray-600 mt-1">Monitorea eventos de autenticación en tiempo real</p>
         </div>
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 text-sm text-gray-600">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+          <label className="flex items-center gap-2 text-xs sm:text-sm text-gray-600">
             <input
               type="checkbox"
               checked={autoRefresh}
@@ -409,28 +409,28 @@ export default function LogsViewer() {
           </label>
           <button
             onClick={loadLogs}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+            className="px-3 py-2 sm:px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm"
           >
             <RefreshCw className="w-4 h-4" />
-            Actualizar
+            <span className="hidden sm:inline">Actualizar</span>
           </button>
           <button
             onClick={exportLogs}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2"
+            className="px-3 py-2 sm:px-4 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 text-sm"
           >
             <Download className="w-4 h-4" />
-            Exportar
+            <span className="hidden sm:inline">Exportar</span>
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-5 gap-4">
-        <div className="bg-white p-4 rounded-lg border border-gray-200">
-          <div className="flex items-center gap-3">
-            <Activity className="w-8 h-8 text-blue-600" />
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+        <div className="bg-white p-3 sm:p-4 rounded-lg border border-gray-200">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Activity className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
             <div>
-              <p className="text-sm text-gray-600">Total Eventos</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
+              <p className="text-xs sm:text-sm text-gray-600">Total Eventos</p>
+              <p className="text-lg sm:text-2xl font-bold text-gray-900">{stats.total}</p>
             </div>
           </div>
         </div>
@@ -472,12 +472,12 @@ export default function LogsViewer() {
         </div>
       </div>
 
-      <div className="bg-white p-4 rounded-lg border border-gray-200 space-y-4">
-        <div className="flex items-center gap-4">
+      <div className="bg-white p-3 sm:p-4 rounded-lg border border-gray-200 space-y-4">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4">
           <select
             value={appFilter}
             onChange={(e) => setAppFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg"
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
           >
             <option value="all">Todas las aplicaciones</option>
             {applications.map(app => (
@@ -510,26 +510,27 @@ export default function LogsViewer() {
           </select>
 
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Buscar por email, IP, error..."
+              placeholder="Buscar..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg"
+              className="w-full pl-9 sm:pl-10 pr-3 sm:pr-4 py-2 border border-gray-300 rounded-lg text-sm"
             />
           </div>
 
           <button
             onClick={() => setShowBlockedIPs(!showBlockedIPs)}
-            className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
+            className={`px-3 py-2 sm:px-4 rounded-lg flex items-center gap-2 text-sm whitespace-nowrap ${
               showBlockedIPs
                 ? 'bg-red-600 text-white hover:bg-red-700'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
             <Shield className="w-4 h-4" />
-            IPs Bloqueadas ({blockedIPs.length})
+            <span className="hidden sm:inline">IPs Bloqueadas ({blockedIPs.length})</span>
+            <span className="sm:hidden">({blockedIPs.length})</span>
           </button>
         </div>
       </div>
