@@ -273,13 +273,21 @@ export default function PublicAuthForms({
           }, 3000);
         }
       } else {
-        setMessage({ 
-          type: 'success', 
-          text: formType === 'login' ? '¡Bienvenido!' : 
-                formType === 'register' ? 'Cuenta creada exitosamente' :
-                'Email de recuperación enviado'
+        // Determinar mensaje según el tipo de formulario y respuesta
+        let successMessage = '¡Bienvenido!';
+
+        if (formType === 'register') {
+          successMessage = 'Cuenta creada exitosamente';
+        } else if (formType === 'reset-password') {
+          // Usar el mensaje que viene del servidor o uno genérico
+          successMessage = result.data?.message || 'Si el email existe en nuestro sistema, recibirás un enlace de recuperación.';
+        }
+
+        setMessage({
+          type: 'success',
+          text: successMessage
         });
-        
+
         // Si hay callback URL, redirigir después de un breve delay
         if (result.data?.callback_url) {
           console.log('🔄 Redirecting to callback URL:', result.data.callback_url);
