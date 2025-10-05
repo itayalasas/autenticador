@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -21,6 +22,115 @@ function generateVerificationToken(): string {
   const array = new Uint8Array(32);
   crypto.getRandomValues(array);
   return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+interface EmailConfig {
+  email_provider: 'system' | 'smtp' | 'resend' | 'sendgrid';
+  from_name: string;
+  from_email: string;
+  smtp_host?: string;
+  smtp_port?: number;
+  smtp_secure?: boolean;
+  smtp_user?: string;
+  smtp_password?: string;
+  api_key?: string;
+}
+
+async function sendWithSMTP(config: EmailConfig, to: string, subject: string, html: string): Promise<boolean> {
+  try {
+    const client = new SMTPClient({
+      connection: {
+        hostname: config.smtp_host || '',
+        port: config.smtp_port || 587,
+        tls: config.smtp_secure ?? true,
+        auth: {
+          username: config.smtp_user || '',
+          password: config.smtp_password || '',
+        },
+      },
+    });
+
+    await client.send({
+      from: `${config.from_name} <${config.from_email}>`,
+      to,
+      subject,
+      content: html,
+      html,
+    });
+
+    await client.close();
+    console.log('✅ Email sent successfully via SMTP');
+    return true;
+  } catch (error) {
+    console.error('❌ SMTP Error:', error);
+    throw error;
+  }
+}
+
+async function sendWithResend(apiKey: string, config: EmailConfig, to: string, subject: string, html: string): Promise<boolean> {
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        from: `${config.from_name} <${config.from_email}>`,
+        to: [to],
+        subject,
+        html,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Resend API error: ${error}`);
+    }
+
+    console.log('✅ Email sent successfully via Resend');
+    return true;
+  } catch (error) {
+    console.error('❌ Resend Error:', error);
+    throw error;
+  }
+}
+
+async function sendWithSendGrid(apiKey: string, config: EmailConfig, to: string, subject: string, html: string): Promise<boolean> {
+  try {
+    const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        personalizations: [{
+          to: [{ email: to }],
+        }],
+        from: {
+          email: config.from_email,
+          name: config.from_name,
+        },
+        subject,
+        content: [{
+          type: 'text/html',
+          value: html,
+        }],
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`SendGrid API error: ${error}`);
+    }
+
+    console.log('✅ Email sent successfully via SendGrid');
+    return true;
+  } catch (error) {
+    console.error('❌ SendGrid Error:', error);
+    throw error;
+  }
 }
 
 function getVerificationEmailHTML(name: string, verificationUrl: string, appName: string): string {
@@ -81,40 +191,108 @@ async function sendVerificationEmail(
   appName: string,
   applicationId: string,
   userId: string,
-  emailConfig: any
+  emailConfig: EmailConfig
 ) {
-  const html = getVerificationEmailHTML(name, verificationUrl, appName);
+  console.log('📧 Starting sendVerificationEmail function...');
+  console.log('📧 Email Config:', {
+    provider: emailConfig.email_provider,
+    from_email: emailConfig.from_email,
+    from_name: emailConfig.from_name
+  });
+
+  const rawHtml = getVerificationEmailHTML(name, verificationUrl, appName);
+  const html = rawHtml.replace(/\r?\n/g, '\r\n');
   const subject = `Verifica tu email - ${appName}`;
 
+  let status = 'sent';
+  let errorMessage = null;
+  let actuallySent = false;
+
   try {
-    // Call send-email edge function
-    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    console.log('📤 Attempting to send email using provider:', emailConfig.email_provider);
 
-    const response = await fetch(`${supabaseUrl}/functions/v1/send-email`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${serviceKey}`,
-      },
-      body: JSON.stringify({
-        to: email,
-        subject: subject,
-        html: html,
-        application_id: applicationId,
-        app_user_id: userId
-      })
-    });
+    switch (emailConfig.email_provider) {
+      case 'smtp':
+        console.log('🔧 Using SMTP provider');
+        if (emailConfig.smtp_host && emailConfig.smtp_user && emailConfig.smtp_password) {
+          console.log('✅ SMTP configuration complete, sending email...');
+          await sendWithSMTP(emailConfig, email, subject, html);
+          actuallySent = true;
+        } else {
+          console.error('❌ SMTP configuration incomplete');
+          throw new Error('SMTP configuration incomplete');
+        }
+        break;
 
-    const result = await response.json();
+      case 'resend':
+        console.log('🔧 Using Resend provider');
+        if (emailConfig.api_key) {
+          console.log('✅ Resend API key found, sending email...');
+          await sendWithResend(emailConfig.api_key, emailConfig, email, subject, html);
+          actuallySent = true;
+        } else {
+          console.error('❌ Resend API key not configured');
+          throw new Error('Resend API key not configured');
+        }
+        break;
 
-    if (result.success) {
-      console.log('✅ Verification email sent successfully to:', email);
-    } else {
-      console.error('❌ Failed to send verification email:', result.error);
+      case 'sendgrid':
+        console.log('🔧 Using SendGrid provider');
+        if (emailConfig.api_key) {
+          console.log('✅ SendGrid API key found, sending email...');
+          await sendWithSendGrid(emailConfig.api_key, emailConfig, email, subject, html);
+          actuallySent = true;
+        } else {
+          console.error('❌ SendGrid API key not configured');
+          throw new Error('SendGrid API key not configured');
+        }
+        break;
+
+      case 'system':
+      default:
+        console.log('⚠️ Using SYSTEM mode - Email will be logged but NOT sent physically');
+        console.log('📧 Email logged (system mode):', {
+          to: email,
+          from: `${emailConfig.from_name} <${emailConfig.from_email}>`,
+          subject,
+        });
+        break;
     }
-  } catch (error) {
-    console.error('Error sending verification email:', error);
+  } catch (error: any) {
+    status = 'failed';
+    errorMessage = error.message;
+    console.error('❌ Email sending failed:', error);
+  }
+
+  console.log('💾 Saving email log to database...');
+  const emailLogData = {
+    to_email: email,
+    from_email: emailConfig.from_email,
+    from_name: emailConfig.from_name,
+    subject,
+    html_content: html,
+    status,
+    error_message: errorMessage,
+    application_id: applicationId || null,
+    app_user_id: userId || null,
+    sent_at: actuallySent ? new Date().toISOString() : null
+  };
+
+  const { data: insertedData, error: dbError } = await supabase
+    .from('email_logs')
+    .insert(emailLogData)
+    .select();
+
+  if (dbError) {
+    console.error('❌ ERROR logging email to database:', dbError);
+  } else {
+    console.log('✅ Email log saved successfully to database');
+  }
+
+  if (status === 'failed') {
+    console.error('⚠️ Email sending failed, but continuing with registration flow. Error:', errorMessage);
+  } else {
+    console.log('✅ Verification email processed successfully');
   }
 }
 
@@ -169,7 +347,6 @@ Deno.serve(async (req) => {
     if (!email || !password || !name || !application_id) {
       const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0';
       
-      // Log missing fields error
       await supabase.from('auth_logs').insert({
         application_id: null,
         event_type: 'failed_login',
@@ -221,7 +398,6 @@ Deno.serve(async (req) => {
     if (blockedIP) {
       console.log('🚫 IP is blocked:', ipAddress, blockedIP.reason);
       
-      // Log blocked IP attempt
       await supabase.from('auth_logs').insert({
         application_id: null,
         event_type: 'failed_login',
@@ -263,7 +439,6 @@ Deno.serve(async (req) => {
     if (appError || !application) {
       console.log('❌ Application not found:', application_id);
       
-      // Log application not found error
       await supabase.from('auth_logs').insert({
         application_id: null,
         event_type: 'failed_login',
@@ -304,7 +479,6 @@ Deno.serve(async (req) => {
     if (existingUser) {
       console.log('❌ Email already exists:', email, 'in application:', application.name);
       
-      // Log email already exists error
       const { error: logError } = await supabase.from('auth_logs').insert({
         application_id: application.id,
         event_type: 'failed_login',
@@ -341,11 +515,26 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Use proper password hashing
     const bcrypt = await import('https://deno.land/x/bcrypt@v0.4.1/mod.ts');
     const passwordHash = await bcrypt.hash(password, 10);
     
-    const emailConfig = application.email_config || {};
+    console.log('📧 Raw application.email_config:', application.email_config);
+
+    const emailConfig: EmailConfig = {
+      email_provider: 'system',
+      from_name: 'AuthSystem',
+      from_email: 'noreply@authsystem.com',
+      ...(application.email_config || {})
+    };
+
+    console.log('📧 Final emailConfig:', {
+      provider: emailConfig.email_provider,
+      from_name: emailConfig.from_name,
+      from_email: emailConfig.from_email,
+      has_smtp_host: !!emailConfig.smtp_host,
+      has_smtp_user: !!emailConfig.smtp_user,
+      has_smtp_password: !!emailConfig.smtp_password
+    });
     const requireEmailVerification = emailConfig.require_email_verification || false;
     const userStatus = requireEmailVerification ? 'pending' : 'active';
      
@@ -365,7 +554,6 @@ Deno.serve(async (req) => {
     if (createError) {
       console.log('❌ Error creating user:', createError.message);
       
-      // Log user creation error
       const { error: logError } = await supabase.from('auth_logs').insert({
         application_id: application.id,
         event_type: 'failed_login',
@@ -459,33 +647,6 @@ Deno.serve(async (req) => {
         newUser.id,
         emailConfig
       );
-
-      if (emailConfig.notify_admin_new_user && emailConfig.admin_notification_email) {
-        const adminHtml = `
-          <h2>Nuevo Registro en ${application.name}</h2>
-          <p><strong>Nombre:</strong> ${name}</p>
-          <p><strong>Email:</strong> ${email}</p>
-          <p><strong>Fecha:</strong> ${new Date().toLocaleString()}</p>
-          <p><strong>IP:</strong> ${ipAddress}</p>
-        `;
-
-        const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-        const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-
-        await fetch(`${supabaseUrl}/functions/v1/send-email`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${serviceKey}`,
-          },
-          body: JSON.stringify({
-            to: emailConfig.admin_notification_email,
-            subject: `Nuevo registro en ${application.name}`,
-            html: adminHtml,
-            application_id: application.id
-          })
-        });
-      }
       
       const response = {
         success: true,
@@ -581,7 +742,6 @@ Deno.serve(async (req) => {
     
     const ipAddress = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0';
     
-    // Log internal server error
     try {
       const supabase = createClient(
         Deno.env.get('SUPABASE_URL') ?? '',
