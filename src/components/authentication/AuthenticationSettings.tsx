@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Key, Lock, Users, Settings, AlertTriangle, CheckCircle, Save, RotateCcw, Mail } from 'lucide-react';
+import { Shield, Key, Lock, Users, Settings, AlertTriangle, CheckCircle, Save, RotateCcw, Mail, AlertCircle } from 'lucide-react';
 import { applicationService } from '../../services/applicationService';
 import { supabase } from '../../lib/supabase';
 import { useNotification } from '../../hooks/useNotification';
@@ -420,6 +420,28 @@ export default function AuthenticationSettings() {
             </h3>
 
             <div className="space-y-6">
+              {/* Important Notice */}
+              {authSettings.email_provider === 'system' && (
+                <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded">
+                  <div className="flex">
+                    <div className="flex-shrink-0">
+                      <AlertCircle className="h-5 w-5 text-yellow-400" />
+                    </div>
+                    <div className="ml-3">
+                      <h3 className="text-sm font-medium text-yellow-800">
+                        Correos no se envían físicamente
+                      </h3>
+                      <div className="mt-2 text-sm text-yellow-700">
+                        <p>
+                          Actualmente estás usando el modo "Sistema por Defecto" que solo registra los correos en la base de datos pero NO los envía.
+                          Para enviar correos reales de registro y recuperación de contraseña, configura un proveedor de email (SMTP, Resend o SendGrid).
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Email Provider Selection */}
               <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4">
                 <label className="block text-sm font-medium text-gray-900 mb-3">
@@ -430,16 +452,16 @@ export default function AuthenticationSettings() {
                   onChange={(e) => handleSettingChange('email_provider', e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
                 >
-                  <option value="system">Sistema por Defecto (Solo Logs)</option>
-                  <option value="smtp">Servidor SMTP Personalizado</option>
-                  <option value="resend">Resend</option>
-                  <option value="sendgrid">SendGrid</option>
+                  <option value="system">Sistema por Defecto (Solo Logs - No envía emails)</option>
+                  <option value="smtp">Servidor SMTP Personalizado (Envía emails reales)</option>
+                  <option value="resend">Resend (Envía emails reales)</option>
+                  <option value="sendgrid">SendGrid (Envía emails reales)</option>
                 </select>
                 <p className="text-xs text-gray-600 mt-2">
-                  {authSettings.email_provider === 'system' && 'Los emails se registrarán pero no se enviarán físicamente'}
-                  {authSettings.email_provider === 'smtp' && 'Configura tu propio servidor SMTP para enviar emails'}
-                  {authSettings.email_provider === 'resend' && 'Usa Resend para enviar emails (requiere API key)'}
-                  {authSettings.email_provider === 'sendgrid' && 'Usa SendGrid para enviar emails (requiere API key)'}
+                  {authSettings.email_provider === 'system' && '⚠️ Los emails se registrarán pero NO se enviarán físicamente'}
+                  {authSettings.email_provider === 'smtp' && '✅ Configura tu propio servidor SMTP para enviar emails reales'}
+                  {authSettings.email_provider === 'resend' && '✅ Usa Resend para enviar emails reales (requiere API key)'}
+                  {authSettings.email_provider === 'sendgrid' && '✅ Usa SendGrid para enviar emails reales (requiere API key)'}
                 </p>
               </div>
               <div className="flex items-center justify-between">

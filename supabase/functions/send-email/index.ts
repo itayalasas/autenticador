@@ -162,15 +162,31 @@ Deno.serve(async (req: Request) => {
     };
 
     if (application_id) {
-      const { data: app } = await supabase
+      console.log('🔍 Looking for application config with ID:', application_id);
+
+      const { data: app, error: appError } = await supabase
         .from('applications')
         .select('email_config')
         .eq('id', application_id)
-        .single();
+        .maybeSingle();
+
+      if (appError) {
+        console.error('❌ Error fetching application config:', appError);
+      }
 
       if (app?.email_config) {
+        console.log('📧 Found email config:', {
+          provider: app.email_config.email_provider,
+          from_email: app.email_config.from_email,
+          has_smtp_host: !!app.email_config.smtp_host,
+          has_api_key: !!app.email_config.api_key
+        });
         emailConfig = { ...emailConfig, ...app.email_config };
+      } else {
+        console.log('⚠️ No email config found for application, using defaults');
       }
+    } else {
+      console.log('⚠️ No application_id provided, using default email config');
     }
 
     let status = 'sent';
@@ -178,37 +194,53 @@ Deno.serve(async (req: Request) => {
     let actuallySent = false;
 
     // Send email based on provider
+    console.log('📤 Attempting to send email using provider:', emailConfig.email_provider);
+
     try {
       switch (emailConfig.email_provider) {
         case 'smtp':
+          console.log('🔧 Using SMTP provider');
           if (emailConfig.smtp_host && emailConfig.smtp_user && emailConfig.smtp_password) {
+            console.log('✅ SMTP configuration complete, sending email...');
             await sendWithSMTP(emailConfig, to, subject, html);
             actuallySent = true;
           } else {
+            console.error('❌ SMTP configuration incomplete:', {
+              has_host: !!emailConfig.smtp_host,
+              has_user: !!emailConfig.smtp_user,
+              has_password: !!emailConfig.smtp_password
+            });
             throw new Error('SMTP configuration incomplete');
           }
           break;
 
         case 'resend':
+          console.log('🔧 Using Resend provider');
           if (emailConfig.api_key) {
+            console.log('✅ Resend API key found, sending email...');
             await sendWithResend(emailConfig.api_key, emailConfig, to, subject, html);
             actuallySent = true;
           } else {
+            console.error('❌ Resend API key not configured');
             throw new Error('Resend API key not configured');
           }
           break;
 
         case 'sendgrid':
+          console.log('🔧 Using SendGrid provider');
           if (emailConfig.api_key) {
+            console.log('✅ SendGrid API key found, sending email...');
             await sendWithSendGrid(emailConfig.api_key, emailConfig, to, subject, html);
             actuallySent = true;
           } else {
+            console.error('❌ SendGrid API key not configured');
             throw new Error('SendGrid API key not configured');
           }
           break;
 
         case 'system':
         default:
+          console.log('⚠️ Using SYSTEM mode - Email will be logged but NOT sent physically');
           console.log('📧 Email logged (system mode - not sent physically):', {
             to,
             from: `${emailConfig.from_name} <${emailConfig.from_email}>`,
@@ -219,7 +251,7 @@ Deno.serve(async (req: Request) => {
     } catch (error: any) {
       status = 'failed';
       errorMessage = error.message;
-      console.error('Email sending failed:', error);
+      console.error('❌ Email sending failed:', error);
     }
 
     // Store email in database for tracking
