@@ -113,7 +113,7 @@ async function sendVerificationEmail(
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return new Response('ok', { headers: corsHeaders });
   }
 
   try {
@@ -130,17 +130,17 @@ Deno.serve(async (req) => {
           status: 405, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         }
-      )
+      );
     }
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    )
+    );
 
     let requestBody;
     try {
-      requestBody = await req.json()
+      requestBody = await req.json();
     } catch (error) {
       return new Response(
         JSON.stringify({
@@ -154,13 +154,13 @@ Deno.serve(async (req) => {
           status: 400, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         }
-      )
+      );
     }
 
-    const { email, password, name, application_id, callback_url, client_ip, metadata }: RegisterRequest = requestBody
+    const { email, password, name, application_id, callback_url, client_ip, metadata }: RegisterRequest = requestBody;
 
     if (!email || !password || !name || !application_id) {
-      const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0'
+      const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0';
       
       // Log missing fields error
       await supabase.from('auth_logs').insert({
@@ -190,10 +190,10 @@ Deno.serve(async (req) => {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
-      )
+      );
     }
 
-    const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0'
+    const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0';
     
     console.log('🔍 Processing register request:', {
       email,
@@ -209,7 +209,7 @@ Deno.serve(async (req) => {
       .eq('ip_address', ipAddress)
       .eq('is_active', true)
       .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
-      .maybeSingle()
+      .maybeSingle();
 
     if (blockedIP) {
       console.log('🚫 IP is blocked:', ipAddress, blockedIP.reason);
@@ -244,14 +244,14 @@ Deno.serve(async (req) => {
           status: 403,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
-      )
+      );
     }
 
     const { data: application, error: appError } = await supabase
       .from('applications')
       .select('*')
       .eq('application_id', application_id)
-      .single()
+      .single();
 
     if (appError || !application) {
       console.log('❌ Application not found:', application_id);
@@ -284,7 +284,7 @@ Deno.serve(async (req) => {
           status: 404, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         }
-      )
+      );
     }
 
     const { data: existingUser } = await supabase
@@ -292,7 +292,7 @@ Deno.serve(async (req) => {
       .select('id')
       .eq('application_id', application.id)
       .eq('email', email)
-      .maybeSingle()
+      .maybeSingle();
 
     if (existingUser) {
       console.log('❌ Email already exists:', email, 'in application:', application.name);
@@ -325,13 +325,13 @@ Deno.serve(async (req) => {
           status: 409, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         }
-      )
+      );
     }
 
-    const passwordHash = btoa(password)
-    const emailConfig = application.email_config || {}
-    const requireEmailVerification = emailConfig.require_email_verification || false
-    const userStatus = requireEmailVerification ? 'pending' : 'active'
+    const passwordHash = btoa(password);
+    const emailConfig = application.email_config || {};
+    const requireEmailVerification = emailConfig.require_email_verification || false;
+    const userStatus = requireEmailVerification ? 'pending' : 'active';
      
     const { data: newUser, error: createError } = await supabase
       .from('app_users')
@@ -344,7 +344,7 @@ Deno.serve(async (req) => {
         metadata: metadata || {}
       })
       .select()
-      .single()
+      .single();
 
     if (createError) {
       console.log('❌ Error creating user:', createError.message);
@@ -378,7 +378,7 @@ Deno.serve(async (req) => {
           status: 500, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         }
-      )
+      );
     }
 
     await supabase
@@ -387,7 +387,7 @@ Deno.serve(async (req) => {
         app_user_id: newUser.id,
         role_name: 'user',
         permissions: ['read']
-      })
+      });
 
     console.log('✅ Registration successful for user:', newUser.email);
     
@@ -407,10 +407,10 @@ Deno.serve(async (req) => {
           user_status: userStatus,
           requires_verification: requireEmailVerification
         }
-      })
-      if (logError) console.error('Error logging registration:', logError)
+      });
+      if (logError) console.error('Error logging registration:', logError);
     } catch (logErr) {
-      console.error('Exception logging registration:', logErr)
+      console.error('Exception logging registration:', logErr);
     }
 
     if (requireEmailVerification) {
@@ -467,7 +467,7 @@ Deno.serve(async (req) => {
           email_verification_required: true,
           next_step: 'verify_email'
         }
-      }
+      };
       
       if (callback_url) {
         const verifyParams = new URLSearchParams({
@@ -475,9 +475,9 @@ Deno.serve(async (req) => {
           email: newUser.email,
           state: 'email_verification_required',
           message: 'Por favor verifica tu email para continuar'
-        })
+        });
         
-        response.data.callback_url = `${callback_url.replace('/callback', '/verify-email')}?${verifyParams.toString()}`
+        response.data.callback_url = `${callback_url.replace('/callback', '/verify-email')}?${verifyParams.toString()}`;
       }
       
       return new Response(
@@ -486,10 +486,10 @@ Deno.serve(async (req) => {
           status: 201, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         }
-      )
+      );
     }
 
-    const now = Math.floor(Date.now() / 1000)
+    const now = Math.floor(Date.now() / 1000);
     const accessTokenPayload = {
       sub: newUser.id,
       email: newUser.email,
@@ -501,10 +501,10 @@ Deno.serve(async (req) => {
       exp: now + (24 * 60 * 60),
       iss: 'AuthSystem',
       aud: application.domain
-    }
+    };
 
-    const accessToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify(accessTokenPayload))}.signature`
-    const refreshToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify({...accessTokenPayload, type: 'refresh', exp: now + (30 * 24 * 60 * 60)}))}.signature`
+    const accessToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify(accessTokenPayload))}.signature`;
+    const refreshToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify({...accessTokenPayload, type: 'refresh', exp: now + (30 * 24 * 60 * 60)}))}.signature`;
 
     const response = {
       success: true,
@@ -528,7 +528,7 @@ Deno.serve(async (req) => {
           domain: application.domain
         }
       }
-    }
+    };
 
     if (callback_url) {
       const callbackParams = new URLSearchParams({
@@ -536,10 +536,8 @@ Deno.serve(async (req) => {
         refresh_token: refreshToken,
         user_id: newUser.id,
         state: 'registered_and_logged_in'
-      })
-      })
-    } catch (logError) {
-      response.data.callback_url = `${callback_url}?${callbackParams.toString()}`
+      });
+      response.data.callback_url = `${callback_url}?${callbackParams.toString()}`;
     }
 
     return new Response(
@@ -548,37 +546,38 @@ Deno.serve(async (req) => {
         status: 201, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
-    )
+    );
 
   } catch (error) {
-    console.error('Register error:', error)
+    console.error('Register error:', error);
     
-    const ipAddress = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0'
+    const ipAddress = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0';
     
     // Log internal server error
     try {
       const supabase = createClient(
         Deno.env.get('SUPABASE_URL') ?? '',
         Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-      )
+      );
       
       await supabase.from('auth_logs').insert({
-      application_id: null,
-      event_type: 'failed_login',
-      ip_address: req.headers.get('x-forwarded-for')?.split(',')[0].trim() || '0.0.0.0',
-      user_agent: req.headers.get('user-agent') || 'unknown',
-      success: false,
-      error_message: 'Error interno del servidor en registro',
-      metadata: { 
-        error_type: 'internal_error',
-        error_message: error.message,
-        endpoint: 'auth-register'
-      }
-    }).catch(logError => {
-      console.error('Error logging internal error:', logError);
-    });
-    
+        application_id: null,
+        event_type: 'failed_login',
         ip_address: ipAddress,
+        user_agent: req.headers.get('user-agent') || 'unknown',
+        success: false,
+        error_message: 'Error interno del servidor en registro',
+        metadata: { 
+          error_type: 'internal_error',
+          error_message: error.message,
+          endpoint: 'auth-register'
+        }
+      });
+    } catch (logError) {
+      console.error('Error logging internal error:', logError);
+    }
+    
+    return new Response(
       JSON.stringify({
         success: false,
         error: {
@@ -590,6 +589,6 @@ Deno.serve(async (req) => {
         status: 500, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
-    )
+    );
   }
-})
+});
