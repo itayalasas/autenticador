@@ -360,7 +360,7 @@ serve(async (req) => {
     }
 
     const emailConfig = application.email_config || {}
-    const sendPasswordResetEmail = emailConfig.send_password_reset_email !== false // Default to true
+    const shouldSendPasswordResetEmail = emailConfig.send_password_reset_email !== false // Default to true
 
     // Generate reset token
     const resetToken = generateResetToken()
@@ -427,7 +427,7 @@ serve(async (req) => {
     const resetUrl = `${baseUrl}/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`
 
     // Send reset email if enabled
-    if (sendPasswordResetEmail) {
+    if (shouldSendPasswordResetEmail) {
       await sendResetPasswordEmail(
         supabase,
         email,
@@ -448,11 +448,11 @@ serve(async (req) => {
       ip_address: ipAddress,
       user_agent: req.headers.get('user-agent') || 'unknown',
       success: true,
-      metadata: { 
+      metadata: {
         email,
         user_name: appUser.name,
         application_name: application.name,
-        email_sent: sendPasswordResetEmail,
+        email_sent: shouldSendPasswordResetEmail,
         expires_at: expiresAt.toISOString()
       }
     });
