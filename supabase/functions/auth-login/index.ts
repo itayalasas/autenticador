@@ -374,8 +374,6 @@ Deno.serve(async (req) => {
         user_id: user.id,
         state: 'authenticated'
       })
-      })
-    } catch (logError) {
       response.data.callback_url = `${callback_url}?${callbackParams.toString()}`
     }
 
@@ -400,22 +398,23 @@ Deno.serve(async (req) => {
       )
       
       await supabase.from('auth_logs').insert({
-      application_id: null,
-      event_type: 'failed_login',
-      ip_address: req.headers.get('x-forwarded-for')?.split(',')[0].trim() || '0.0.0.0',
-      user_agent: req.headers.get('user-agent') || 'unknown',
-      success: false,
-      error_message: 'Error interno del servidor',
-      metadata: { 
-        error_type: 'internal_error',
-        error_message: error.message,
-        endpoint: 'auth-login'
-      }
-    }).catch(logError => {
-      console.error('Error logging internal error:', logError);
-    });
-    
+        application_id: null,
+        event_type: 'failed_login',
         ip_address: ipAddress,
+        user_agent: req.headers.get('user-agent') || 'unknown',
+        success: false,
+        error_message: 'Error interno del servidor',
+        metadata: { 
+          error_type: 'internal_error',
+          error_message: error.message,
+          endpoint: 'auth-login'
+        }
+      })
+    } catch (logError) {
+      console.error('Error logging internal error:', logError);
+    }
+    
+    return new Response(
       JSON.stringify({
         success: false,
         error: {
