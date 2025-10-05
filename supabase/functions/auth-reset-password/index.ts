@@ -106,29 +106,36 @@ async function sendResetPasswordEmail(
   userId: string,
   emailConfig: any
 ) {
-  const fromName = emailConfig?.from_name || 'AuthSystem';
-  const fromEmail = emailConfig?.from_email || 'noreply@authsystem.com';
-  
   const html = getResetPasswordEmailHTML(name, resetUrl, appName);
-  
+  const subject = `Recupera tu contraseña - ${appName}`;
+
   try {
-    const { error } = await supabase.from('email_logs').insert({
-      to_email: email,
-      from_email: fromEmail,
-      from_name: fromName,
-      subject: `Recupera tu contraseña - ${appName}`,
-      html_content: html,
-      status: 'sent',
-      application_id: applicationId,
-      app_user_id: userId,
-      sent_at: new Date().toISOString()
+    // Call send-email edge function
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/send-email`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${serviceKey}`,
+      },
+      body: JSON.stringify({
+        to: email,
+        subject: subject,
+        html: html,
+        application_id: applicationId,
+        app_user_id: userId
+      })
     });
-    
-    if (error) {
-      console.error('Error logging email:', error);
+
+    const result = await response.json();
+
+    if (result.success) {
+      console.log('✅ Reset password email sent successfully to:', email);
+    } else {
+      console.error('❌ Failed to send reset password email:', result.error);
     }
-    
-    console.log('📧 Reset password email logged for:', email);
   } catch (error) {
     console.error('Error sending reset email:', error);
   }

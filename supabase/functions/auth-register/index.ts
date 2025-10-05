@@ -83,29 +83,36 @@ async function sendVerificationEmail(
   userId: string,
   emailConfig: any
 ) {
-  const fromName = emailConfig?.from_name || 'AuthSystem';
-  const fromEmail = emailConfig?.from_email || 'noreply@authsystem.com';
-  
   const html = getVerificationEmailHTML(name, verificationUrl, appName);
-  
+  const subject = `Verifica tu email - ${appName}`;
+
   try {
-    const { error } = await supabase.from('email_logs').insert({
-      to_email: email,
-      from_email: fromEmail,
-      from_name: fromName,
-      subject: `Verifica tu email - ${appName}`,
-      html_content: html,
-      status: 'sent',
-      application_id: applicationId,
-      app_user_id: userId,
-      sent_at: new Date().toISOString()
+    // Call send-email edge function
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/send-email`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${serviceKey}`,
+      },
+      body: JSON.stringify({
+        to: email,
+        subject: subject,
+        html: html,
+        application_id: applicationId,
+        app_user_id: userId
+      })
     });
-    
-    if (error) {
-      console.error('Error logging email:', error);
+
+    const result = await response.json();
+
+    if (result.success) {
+      console.log('✅ Verification email sent successfully to:', email);
+    } else {
+      console.error('❌ Failed to send verification email:', result.error);
     }
-    
-    console.log('📧 Verification email logged for:', email);
   } catch (error) {
     console.error('Error sending verification email:', error);
   }
@@ -461,16 +468,22 @@ Deno.serve(async (req) => {
           <p><strong>Fecha:</strong> ${new Date().toLocaleString()}</p>
           <p><strong>IP:</strong> ${ipAddress}</p>
         `;
-        
-        await supabase.from('email_logs').insert({
-          to_email: emailConfig.admin_notification_email,
-          from_email: emailConfig.from_email || 'noreply@authsystem.com',
-          from_name: emailConfig.from_name || 'AuthSystem',
-          subject: `Nuevo registro en ${application.name}`,
-          html_content: adminHtml,
-          status: 'sent',
-          application_id: application.id,
-          sent_at: new Date().toISOString()
+
+        const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+        const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+
+        await fetch(`${supabaseUrl}/functions/v1/send-email`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${serviceKey}`,
+          },
+          body: JSON.stringify({
+            to: emailConfig.admin_notification_email,
+            subject: `Nuevo registro en ${application.name}`,
+            html: adminHtml,
+            application_id: application.id
+          })
         });
       }
       
