@@ -13,7 +13,128 @@ interface RegisterRequest {
   name: string
   application_id: string
   callback_url?: string
+  client_ip?: string
   metadata?: Record<string, any>
+}
+
+function generateVerificationToken(): string {
+  const array = new Uint8Array(32);
+  crypto.getRandomValues(array);
+  return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function getVerificationEmailHTML(name: string, verificationUrl: string, appName: string): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Verifica tu email</title>
+    </head>
+    <body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f4;">
+      <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 20px;">
+        <tr>
+          <td align="center">
+            <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+              <!-- Header -->
+              <tr>
+                <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 30px; text-align: center; border-radius: 8px 8px 0 0;">
+                  <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">Verifica tu Email</h1>
+                </td>
+              </tr>
+              
+              <!-- Content -->
+              <tr>
+                <td style="padding: 40px 30px;">
+                  <p style="margin: 0 0 20px; color: #333333; font-size: 16px; line-height: 1.6;">
+                    Hola <strong>${name}</strong>,
+                  </p>
+                  <p style="margin: 0 0 20px; color: #666666; font-size: 14px; line-height: 1.6;">
+                    Gracias por registrarte en <strong>${appName}</strong>. Para completar tu registro y activar tu cuenta, necesitamos verificar tu dirección de email.
+                  </p>
+                  <p style="margin: 0 0 30px; color: #666666; font-size: 14px; line-height: 1.6;">
+                    Haz clic en el botón de abajo para verificar tu email:
+                  </p>
+                  
+                  <!-- Button -->
+                  <table width="100%" cellpadding="0" cellspacing="0">
+                    <tr>
+                      <td align="center" style="padding: 20px 0;">
+                        <a href="${verificationUrl}" style="display: inline-block; padding: 16px 40px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; border-radius: 6px; box-shadow: 0 4px 6px rgba(102, 126, 234, 0.4);">
+                          Verificar Email
+                        </a>
+                      </td>
+                    </tr>
+                  </table>
+                  
+                  <p style="margin: 30px 0 0; padding: 20px; background-color: #f8f9fa; border-left: 4px solid #667eea; color: #666666; font-size: 13px; line-height: 1.6;">
+                    <strong>Nota de seguridad:</strong> Si no creaste esta cuenta, puedes ignorar este email de forma segura. El enlace expirará en 24 horas.
+                  </p>
+                  
+                  <p style="margin: 20px 0 0; color: #999999; font-size: 12px; line-height: 1.6;">
+                    Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
+                    <a href="${verificationUrl}" style="color: #667eea; word-break: break-all;">${verificationUrl}</a>
+                  </p>
+                </td>
+              </tr>
+              
+              <!-- Footer -->
+              <tr>
+                <td style="background-color: #f8f9fa; padding: 20px 30px; text-align: center; border-radius: 0 0 8px 8px;">
+                  <p style="margin: 0; color: #999999; font-size: 12px;">
+                    Este email fue enviado por <strong>${appName}</strong>
+                  </p>
+                  <p style="margin: 10px 0 0; color: #999999; font-size: 12px;">
+                    Powered by AuthSystem
+                  </p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </body>
+    </html>
+  `;
+}
+
+async function sendVerificationEmail(
+  supabase: any,
+  email: string,
+  name: string,
+  verificationUrl: string,
+  appName: string,
+  applicationId: string,
+  userId: string,
+  emailConfig: any
+) {
+  const fromName = emailConfig?.from_name || 'AuthSystem';
+  const fromEmail = emailConfig?.from_email || 'noreply@authsystem.com';
+  
+  const html = getVerificationEmailHTML(name, verificationUrl, appName);
+  
+  try {
+    const { error } = await supabase.from('email_logs').insert({
+      to_email: email,
+      from_email: fromEmail,
+      from_name: fromName,
+      subject: `Verifica tu email - ${appName}`,
+      html_content: html,
+      status: 'sent',
+      application_id: applicationId,
+      app_user_id: userId,
+      sent_at: new Date().toISOString()
+    });
+    
+    if (error) {
+      console.error('Error logging email:', error);
+    }
+    
+    console.log('📧 Verification email logged for:', email);
+  } catch (error) {
+    console.error('Error sending verification email:', error);
+  }
 }
 
 serve(async (req) => {
@@ -62,7 +183,7 @@ serve(async (req) => {
       )
     }
 
-    const { email, password, name, application_id, callback_url, metadata }: RegisterRequest = requestBody
+    const { email, password, name, application_id, callback_url, client_ip, metadata }: RegisterRequest = requestBody
 
     if (!email || !password || !name || !application_id) {
       return new Response(
@@ -80,8 +201,8 @@ serve(async (req) => {
       )
     }
 
-    // Get IP address from request
-    const ipAddress = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '0.0.0.0'
+    // Get IP address
+    const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0'
 
     // Check if IP is blocked
     const { data: blockedIP } = await supabase
@@ -155,7 +276,8 @@ serve(async (req) => {
     }
 
     const passwordHash = btoa(password)
-    const requireEmailVerification = true
+    const emailConfig = application.email_config || {}
+    const requireEmailVerification = emailConfig.require_email_verification || false
     const userStatus = requireEmailVerification ? 'pending' : 'active'
      
     const { data: newUser, error: createError } = await supabase
@@ -195,15 +317,12 @@ serve(async (req) => {
         permissions: ['read']
       })
 
-    const ipHeader = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '0.0.0.0'
-    const clientIp = ipHeader.split(',')[0].trim()
-
     try {
       const { error: logError } = await supabase.from('auth_logs').insert({
         application_id: application.id,
         app_user_id: newUser.id,
         event_type: 'register',
-        ip_address: clientIp,
+        ip_address: ipAddress,
         user_agent: req.headers.get('user-agent') || 'unknown',
         success: true,
         metadata: { email, registration_method: 'email_password' }
@@ -213,24 +332,57 @@ serve(async (req) => {
       console.error('Exception logging registration:', logErr)
     }
 
-    const now = Math.floor(Date.now() / 1000)
-    const accessTokenPayload = {
-      sub: newUser.id,
-      email: newUser.email,
-      name: newUser.name,
-      app_id: application_id,
-      roles: ['user'],
-      permissions: ['read'],
-      iat: now,
-      exp: now + (24 * 60 * 60),
-      iss: 'AuthSystem',
-      aud: application.domain
-    }
-
-    const accessToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify(accessTokenPayload))}.signature`
-    const refreshToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify({...accessTokenPayload, type: 'refresh', exp: now + (30 * 24 * 60 * 60)}))}.signature`
-
+    // Send verification email if required
     if (requireEmailVerification) {
+      const verificationToken = generateVerificationToken();
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + 24); // Token expires in 24 hours
+      
+      // Store verification token
+      await supabase.from('email_verification_tokens').insert({
+        app_user_id: newUser.id,
+        token: verificationToken,
+        expires_at: expiresAt.toISOString()
+      });
+      
+      // Generate verification URL
+      const baseUrl = callback_url ? callback_url.split('/callback')[0] : 'https://yourdomain.com';
+      const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}&email=${encodeURIComponent(email)}`;
+      
+      // Send verification email
+      await sendVerificationEmail(
+        supabase,
+        email,
+        name,
+        verificationUrl,
+        application.name,
+        application.id,
+        newUser.id,
+        emailConfig
+      );
+
+      // Notify admin if configured
+      if (emailConfig.notify_admin_new_user && emailConfig.admin_notification_email) {
+        const adminHtml = `
+          <h2>Nuevo Registro en ${application.name}</h2>
+          <p><strong>Nombre:</strong> ${name}</p>
+          <p><strong>Email:</strong> ${email}</p>
+          <p><strong>Fecha:</strong> ${new Date().toLocaleString()}</p>
+          <p><strong>IP:</strong> ${ipAddress}</p>
+        `;
+        
+        await supabase.from('email_logs').insert({
+          to_email: emailConfig.admin_notification_email,
+          from_email: emailConfig.from_email || 'noreply@authsystem.com',
+          from_name: emailConfig.from_name || 'AuthSystem',
+          subject: `Nuevo registro en ${application.name}`,
+          html_content: adminHtml,
+          status: 'sent',
+          application_id: application.id,
+          sent_at: new Date().toISOString()
+        });
+      }
+      
       const response = {
         success: true,
         data: {
@@ -260,6 +412,24 @@ serve(async (req) => {
         }
       )
     }
+
+    // If no email verification required, log them in directly
+    const now = Math.floor(Date.now() / 1000)
+    const accessTokenPayload = {
+      sub: newUser.id,
+      email: newUser.email,
+      name: newUser.name,
+      app_id: application_id,
+      roles: ['user'],
+      permissions: ['read'],
+      iat: now,
+      exp: now + (24 * 60 * 60),
+      iss: 'AuthSystem',
+      aud: application.domain
+    }
+
+    const accessToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify(accessTokenPayload))}.signature`
+    const refreshToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify({...accessTokenPayload, type: 'refresh', exp: now + (30 * 24 * 60 * 60)}))}.signature`
 
     const response = {
       success: true,

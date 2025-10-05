@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Key, Lock, Users, Settings, AlertTriangle, CheckCircle, Save, RotateCcw } from 'lucide-react';
+import { Shield, Key, Lock, Users, Settings, AlertTriangle, CheckCircle, Save, RotateCcw, Mail } from 'lucide-react';
 import { applicationService } from '../../services/applicationService';
 import { supabase } from '../../lib/supabase';
 import { useNotification } from '../../hooks/useNotification';
@@ -45,7 +45,15 @@ export default function AuthenticationSettings() {
     // Configuración de callbacks
     allowed_callback_urls: '',
     allowed_logout_urls: '',
-    allowed_origins: ''
+    allowed_origins: '',
+
+    // Configuración de email
+    send_welcome_email: false,
+    send_password_reset_email: true,
+    notify_admin_new_user: false,
+    admin_notification_email: '',
+    from_name: 'AuthSystem',
+    from_email: ''
   });
 
   const {
@@ -81,10 +89,10 @@ export default function AuthenticationSettings() {
     try {
       setLoading(true);
 
-      // Get application with metadata and new auto_block fields
+      // Get application with metadata, auto_block fields, and email_config
       const { data: app, error } = await supabase
         .from('applications')
-        .select('*, max_failed_attempts, auto_block_enabled')
+        .select('*, max_failed_attempts, auto_block_enabled, email_config')
         .eq('id', selectedApp)
         .single();
 
@@ -93,9 +101,10 @@ export default function AuthenticationSettings() {
       if (app) {
         // Load settings from application metadata and columns
         const metadata = app.metadata || {};
+        const emailConfig = app.email_config || {};
         setAuthSettings(prev => ({
           ...prev,
-          require_email_verification: metadata.enable_email_verification ?? true,
+          require_email_verification: emailConfig.require_email_verification ?? metadata.enable_email_verification ?? true,
           allow_public_registration: metadata.allow_public_registration ?? true,
           enable_two_factor: metadata.enable_two_factor ?? false,
           password_min_length: metadata.password_min_length ?? 8,
@@ -124,7 +133,14 @@ export default function AuthenticationSettings() {
             : metadata.allowed_logout_urls || '',
           allowed_origins: Array.isArray(metadata.cors_origins)
             ? metadata.cors_origins.join('\n')
-            : metadata.cors_origins || ''
+            : metadata.cors_origins || '',
+          // Load email configuration
+          send_welcome_email: emailConfig.send_welcome_email ?? false,
+          send_password_reset_email: emailConfig.send_password_reset_email ?? true,
+          notify_admin_new_user: emailConfig.notify_admin_new_user ?? false,
+          admin_notification_email: emailConfig.admin_notification_email || '',
+          from_name: emailConfig.from_name || 'AuthSystem',
+          from_email: emailConfig.from_email || ''
         }));
       }
     } catch (error) {
@@ -183,13 +199,27 @@ export default function AuthenticationSettings() {
         ...authMetadata
       };
 
-      // Update application with new auth settings including auto-block config
+      // Prepare email configuration
+      const emailConfig = {
+        require_email_verification: authSettings.require_email_verification,
+        send_welcome_email: authSettings.send_welcome_email,
+        send_password_reset_email: authSettings.send_password_reset_email,
+        notify_admin_new_user: authSettings.notify_admin_new_user,
+        admin_notification_email: authSettings.admin_notification_email,
+        from_name: authSettings.from_name || 'AuthSystem',
+        from_email: authSettings.from_email || '',
+        email_provider: 'system',
+        email_provider_api_key: ''
+      };
+
+      // Update application with new auth settings including auto-block config and email config
       const { error: updateError } = await supabase
         .from('applications')
         .update({
           metadata: updatedMetadata,
           auto_block_enabled: authSettings.auto_block_enabled,
           max_failed_attempts: authSettings.max_failed_attempts,
+          email_config: emailConfig,
           updated_at: new Date().toISOString()
         })
         .eq('id', selectedApp);
@@ -236,7 +266,13 @@ export default function AuthenticationSettings() {
       include_user_metadata: true,
       allowed_callback_urls: '',
       allowed_logout_urls: '',
-      allowed_origins: ''
+      allowed_origins: '',
+      send_welcome_email: false,
+      send_password_reset_email: true,
+      notify_admin_new_user: false,
+      admin_notification_email: '',
+      from_name: 'AuthSystem',
+      from_email: ''
     });
   };
 
@@ -338,6 +374,132 @@ export default function AuthenticationSettings() {
                   />
                   <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                 </label>
+              </div>
+            </div>
+          </div>
+
+          {/* Email Configuration */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
+              <Mail className="w-5 h-5" />
+              <span>Configuración de Correo Electrónico</span>
+            </h3>
+
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-medium text-gray-900">Enviar email de bienvenida</h4>
+                  <p className="text-sm text-gray-600">Envía un email de bienvenida cuando se registre un nuevo usuario</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={authSettings.send_welcome_email}
+                    onChange={(e) => handleSettingChange('send_welcome_email', e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-medium text-gray-900">Enviar email de recuperación de contraseña</h4>
+                  <p className="text-sm text-gray-600">Envía un email cuando un usuario solicite recuperar su contraseña</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={authSettings.send_password_reset_email}
+                    onChange={(e) => handleSettingChange('send_password_reset_email', e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-medium text-gray-900">Notificar al administrador de nuevos registros</h4>
+                  <p className="text-sm text-gray-600">Envía un email al administrador cuando se registre un nuevo usuario</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={authSettings.notify_admin_new_user}
+                    onChange={(e) => handleSettingChange('notify_admin_new_user', e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+
+              {authSettings.notify_admin_new_user && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <label className="block text-sm font-medium text-blue-900 mb-2">
+                    Email del administrador
+                  </label>
+                  <input
+                    type="email"
+                    value={authSettings.admin_notification_email}
+                    onChange={(e) => handleSettingChange('admin_notification_email', e.target.value)}
+                    className="w-full px-3 py-2 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                    placeholder="admin@tudominio.com"
+                  />
+                  <p className="text-xs text-blue-700 mt-1">
+                    Los emails de notificación de nuevos registros se enviarán a esta dirección
+                  </p>
+                </div>
+              )}
+
+              <div className="border-t border-gray-200 pt-6">
+                <h4 className="text-sm font-medium text-gray-900 mb-4">Configuración del remitente</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Nombre del remitente
+                    </label>
+                    <input
+                      type="text"
+                      value={authSettings.from_name}
+                      onChange={(e) => handleSettingChange('from_name', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="AuthSystem"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Nombre que aparecerá en los emails enviados
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Email del remitente (opcional)
+                    </label>
+                    <input
+                      type="email"
+                      value={authSettings.from_email}
+                      onChange={(e) => handleSettingChange('from_email', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="noreply@tudominio.com"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Deja vacío para usar el email del sistema
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div className="flex items-start space-x-3">
+                  <AlertTriangle className="w-5 h-5 text-yellow-600 mt-0.5" />
+                  <div>
+                    <h5 className="text-sm font-medium text-yellow-900">Nota sobre los emails</h5>
+                    <p className="text-sm text-yellow-800 mt-1">
+                      Los emails se registran en la tabla de logs pero no se envían automáticamente en esta versión demo.
+                      Para enviar emails reales, debes configurar un proveedor de email (Resend, SendGrid, etc.) en las edge functions.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
