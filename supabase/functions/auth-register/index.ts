@@ -1,11 +1,11 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-forwarded-for, user-agent',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-}
+};
 
 interface RegisterRequest {
   email: string
@@ -37,14 +37,11 @@ function getVerificationEmailHTML(name: string, verificationUrl: string, appName
         <tr>
           <td align="center">
             <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-              <!-- Header -->
               <tr>
                 <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 30px; text-align: center; border-radius: 8px 8px 0 0;">
                   <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">Verifica tu Email</h1>
                 </td>
               </tr>
-              
-              <!-- Content -->
               <tr>
                 <td style="padding: 40px 30px;">
                   <p style="margin: 0 0 20px; color: #333333; font-size: 16px; line-height: 1.6;">
@@ -56,8 +53,6 @@ function getVerificationEmailHTML(name: string, verificationUrl: string, appName
                   <p style="margin: 0 0 30px; color: #666666; font-size: 14px; line-height: 1.6;">
                     Haz clic en el botón de abajo para verificar tu email:
                   </p>
-                  
-                  <!-- Button -->
                   <table width="100%" cellpadding="0" cellspacing="0">
                     <tr>
                       <td align="center" style="padding: 20px 0;">
@@ -67,27 +62,6 @@ function getVerificationEmailHTML(name: string, verificationUrl: string, appName
                       </td>
                     </tr>
                   </table>
-                  
-                  <p style="margin: 30px 0 0; padding: 20px; background-color: #f8f9fa; border-left: 4px solid #667eea; color: #666666; font-size: 13px; line-height: 1.6;">
-                    <strong>Nota de seguridad:</strong> Si no creaste esta cuenta, puedes ignorar este email de forma segura. El enlace expirará en 24 horas.
-                  </p>
-                  
-                  <p style="margin: 20px 0 0; color: #999999; font-size: 12px; line-height: 1.6;">
-                    Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
-                    <a href="${verificationUrl}" style="color: #667eea; word-break: break-all;">${verificationUrl}</a>
-                  </p>
-                </td>
-              </tr>
-              
-              <!-- Footer -->
-              <tr>
-                <td style="background-color: #f8f9fa; padding: 20px 30px; text-align: center; border-radius: 0 0 8px 8px;">
-                  <p style="margin: 0; color: #999999; font-size: 12px;">
-                    Este email fue enviado por <strong>${appName}</strong>
-                  </p>
-                  <p style="margin: 10px 0 0; color: #999999; font-size: 12px;">
-                    Powered by AuthSystem
-                  </p>
                 </td>
               </tr>
             </table>
@@ -137,7 +111,7 @@ async function sendVerificationEmail(
   }
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -201,10 +175,8 @@ serve(async (req) => {
       )
     }
 
-    // Get IP address
     const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0'
 
-    // Check if IP is blocked
     const { data: blockedIP } = await supabase
       .from('blocked_ips')
       .select('id, reason')
@@ -257,7 +229,7 @@ serve(async (req) => {
       .select('id')
       .eq('application_id', application.id)
       .eq('email', email)
-      .single()
+      .maybeSingle()
 
     if (existingUser) {
       return new Response(
@@ -332,24 +304,20 @@ serve(async (req) => {
       console.error('Exception logging registration:', logErr)
     }
 
-    // Send verification email if required
     if (requireEmailVerification) {
       const verificationToken = generateVerificationToken();
       const expiresAt = new Date();
-      expiresAt.setHours(expiresAt.getHours() + 24); // Token expires in 24 hours
+      expiresAt.setHours(expiresAt.getHours() + 24);
       
-      // Store verification token
       await supabase.from('email_verification_tokens').insert({
         app_user_id: newUser.id,
         token: verificationToken,
         expires_at: expiresAt.toISOString()
       });
       
-      // Generate verification URL
       const baseUrl = callback_url ? callback_url.split('/callback')[0] : 'https://yourdomain.com';
       const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}&email=${encodeURIComponent(email)}`;
       
-      // Send verification email
       await sendVerificationEmail(
         supabase,
         email,
@@ -361,7 +329,6 @@ serve(async (req) => {
         emailConfig
       );
 
-      // Notify admin if configured
       if (emailConfig.notify_admin_new_user && emailConfig.admin_notification_email) {
         const adminHtml = `
           <h2>Nuevo Registro en ${application.name}</h2>
@@ -413,7 +380,6 @@ serve(async (req) => {
       )
     }
 
-    // If no email verification required, log them in directly
     const now = Math.floor(Date.now() / 1000)
     const accessTokenPayload = {
       sub: newUser.id,

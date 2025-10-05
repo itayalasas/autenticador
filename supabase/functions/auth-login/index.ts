@@ -1,11 +1,11 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-forwarded-for, user-agent',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-}
+};
 
 interface LoginRequest {
   email: string
@@ -15,7 +15,7 @@ interface LoginRequest {
   client_ip?: string
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -79,11 +79,8 @@ serve(async (req) => {
       )
     }
 
-    // Get IP address from client_ip in body (preferred) or headers as fallback
     const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0'
-    console.log('🔍 Login attempt from IP:', ipAddress, 'source:', client_ip ? 'client_provided' : 'headers')
 
-    // Check if IP is blocked
     const { data: blockedIP } = await supabase
       .from('blocked_ips')
       .select('id, reason')
@@ -131,62 +128,23 @@ serve(async (req) => {
       )
     }
 
-    const { data: appUser, error: userError } = await supabase
+    const { data: user, error: userError } = await supabase
       .from('app_users')
-      .select(`
-        *,
-        user_roles(
-          role_name,
-          permissions
-        )
-      `)
+      .select('*')
       .eq('application_id', application.id)
       .eq('email', email)
-      .eq('status', 'active')
       .single()
 
-    if (userError || !appUser) {
-      const clientIp = ipAddress
-
-      try {
-        const { error: logError } = await supabase.from('auth_logs').insert({
-          application_id: application.id,
-          event_type: 'failed_login',
-          ip_address: clientIp,
-          user_agent: req.headers.get('user-agent') || 'unknown',
-          success: false,
-          error_message: 'Usuario no encontrado',
-          metadata: { email }
-        })
-        if (logError) console.error('Error logging failed login:', logError)
-
-        // Check and auto-block IP if threshold reached
-        const { data: wasBlocked, error: blockError } = await supabase.rpc('check_and_auto_block_ip', {
-          p_application_id: application.id,
-          p_ip_address: clientIp
-        })
-        if (blockError) console.error('Error checking auto-block:', blockError)
-
-        if (wasBlocked) {
-          console.log('IP auto-blocked:', clientIp)
-          return new Response(
-            JSON.stringify({
-              success: false,
-              error: {
-                code: 'IP_BLOCKED',
-                message: 'Su dirección IP ha sido bloqueada temporalmente debido a múltiples intentos fallidos. Intente más tarde.',
-                blocked: true
-              }
-            }),
-            {
-              status: 403,
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-            }
-          )
-        }
-      } catch (logErr) {
-        console.error('Exception logging failed login:', logErr)
-      }
+    if (userError || !user) {
+      await supabase.from('auth_logs').insert({
+        application_id: application.id,
+        event_type: 'login',
+        ip_address: ipAddress,
+        user_agent: req.headers.get('user-agent') || 'unknown',
+        success: false,
+        error_message: 'Usuario no encontrado',
+        metadata: { email }
+      })
 
       return new Response(
         JSON.stringify({
@@ -196,56 +154,63 @@ serve(async (req) => {
             message: 'Email o contraseña incorrectos'
           }
         }),
-        {
-          status: 401,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        { 
+          status: 401, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         }
       )
     }
 
-    if (appUser.status === 'pending') {
-      const clientIp = ipAddress
-
-      try {
-        const { error: logError } = await supabase.from('auth_logs').insert({
-          application_id: application.id,
-          app_user_id: appUser.id,
-          event_type: 'failed_login',
-          ip_address: clientIp,
-          user_agent: req.headers.get('user-agent') || 'unknown',
-          success: false,
-          error_message: 'Email no verificado',
-          metadata: { email, reason: 'email_not_verified' }
-        })
-        if (logError) console.error('Error logging unverified email:', logError)
-      } catch (logErr) {
-        console.error('Exception logging unverified email:', logErr)
-      }
-
-      const response = {
+    const passwordHash = btoa(password)
+    if (user.password_hash !== passwordHash) {
+      await supabase.from('auth_logs').insert({
+        application_id: application.id,
+        app_user_id: user.id,
+        event_type: 'login',
+        ip_address: ipAddress,
+        user_agent: req.headers.get('user-agent') || 'unknown',
         success: false,
-        error: {
-          code: 'EMAIL_NOT_VERIFIED',
-          message: 'Debes verificar tu email antes de iniciar sesión',
-          user_id: appUser.id,
-          email: appUser.email,
-          next_step: 'verify_email'
-        }
-      }
-
-      if (callback_url) {
-        const verifyParams = new URLSearchParams({
-          user_id: appUser.id,
-          email: appUser.email,
-          state: 'email_verification_required',
-          message: 'Debes verificar tu email antes de continuar'
-        })
-        
-        response.error.callback_url = `${callback_url.replace('/callback', '/verify-email')}?${verifyParams.toString()}`
-      }
+        error_message: 'Contraseña incorrecta',
+        metadata: { email }
+      })
 
       return new Response(
-        JSON.stringify(response),
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'INVALID_CREDENTIALS',
+            message: 'Email o contraseña incorrectos'
+          }
+        }),
+        { 
+          status: 401, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      )
+    }
+
+    if (user.status !== 'active') {
+      await supabase.from('auth_logs').insert({
+        application_id: application.id,
+        app_user_id: user.id,
+        event_type: 'login',
+        ip_address: ipAddress,
+        user_agent: req.headers.get('user-agent') || 'unknown',
+        success: false,
+        error_message: `Usuario en estado: ${user.status}`,
+        metadata: { email, status: user.status }
+      })
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'USER_NOT_ACTIVE',
+            message: user.status === 'pending' 
+              ? 'Por favor verifica tu email para activar tu cuenta'
+              : `Tu cuenta está ${user.status}. Contacta al administrador.`
+          }
+        }),
         { 
           status: 403, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -253,114 +218,40 @@ serve(async (req) => {
       )
     }
 
-    const isValidPassword = btoa(password) === appUser.password_hash
+    const { data: roles } = await supabase
+      .from('user_roles')
+      .select('role_name, permissions')
+      .eq('app_user_id', user.id)
 
-    if (!isValidPassword) {
-      const clientIp = ipAddress
+    const userRoles = roles?.map(r => r.role_name) || ['user']
+    const userPermissions = roles?.flatMap(r => r.permissions || []) || ['read']
 
-      try {
-        const { error: logError } = await supabase.from('auth_logs').insert({
-          application_id: application.id,
-          app_user_id: appUser.id,
-          event_type: 'failed_login',
-          ip_address: clientIp,
-          user_agent: req.headers.get('user-agent') || 'unknown',
-          success: false,
-          error_message: 'Contraseña incorrecta',
-          metadata: { email }
-        })
-        if (logError) console.error('Error logging wrong password:', logError)
-
-        // Check and auto-block IP if threshold reached
-        const { data: wasBlocked, error: blockError } = await supabase.rpc('check_and_auto_block_ip', {
-          p_application_id: application.id,
-          p_ip_address: clientIp
-        })
-        if (blockError) console.error('Error checking auto-block:', blockError)
-
-        if (wasBlocked) {
-          console.log('IP auto-blocked:', clientIp)
-          return new Response(
-            JSON.stringify({
-              success: false,
-              error: {
-                code: 'IP_BLOCKED',
-                message: 'Su dirección IP ha sido bloqueada temporalmente debido a múltiples intentos fallidos. Intente más tarde.',
-                blocked: true
-              }
-            }),
-            {
-              status: 403,
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-            }
-          )
-        }
-      } catch (logErr) {
-        console.error('Exception logging wrong password:', logErr)
-      }
-
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: {
-            code: 'INVALID_CREDENTIALS',
-            message: 'Email o contraseña incorrectos'
-          }
-        }),
-        {
-          status: 401,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        }
-      )
-    }
+    await supabase.from('auth_logs').insert({
+      application_id: application.id,
+      app_user_id: user.id,
+      event_type: 'login',
+      ip_address: ipAddress,
+      user_agent: req.headers.get('user-agent') || 'unknown',
+      success: true,
+      metadata: { email, method: 'email_password' }
+    })
 
     const now = Math.floor(Date.now() / 1000)
     const accessTokenPayload = {
-      sub: appUser.id,
-      email: appUser.email,
-      name: appUser.name,
+      sub: user.id,
+      email: user.email,
+      name: user.name,
       app_id: application_id,
-      roles: appUser.user_roles?.map(r => r.role_name) || [],
-      permissions: appUser.user_roles?.flatMap(r => r.permissions) || [],
+      roles: userRoles,
+      permissions: userPermissions,
       iat: now,
       exp: now + (24 * 60 * 60),
       iss: 'AuthSystem',
       aud: application.domain
     }
 
-    const refreshTokenPayload = {
-      sub: appUser.id,
-      app_id: application_id,
-      type: 'refresh',
-      iat: now,
-      exp: now + (30 * 24 * 60 * 60),
-      iss: 'AuthSystem'
-    }
-
     const accessToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify(accessTokenPayload))}.signature`
-    const refreshToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify(refreshTokenPayload))}.signature`
-
-    await supabase
-      .from('app_users')
-      .update({ last_login: new Date().toISOString() })
-      .eq('id', appUser.id)
-
-    const clientIp = ipAddress
-
-    try {
-      const { error: logError } = await supabase.from('auth_logs').insert({
-        application_id: application.id,
-        app_user_id: appUser.id,
-        event_type: 'login',
-        ip_address: clientIp,
-        user_agent: req.headers.get('user-agent') || 'unknown',
-        success: true,
-        metadata: { email, login_method: 'email_password' }
-      })
-      if (logError) console.error('Error logging successful login:', logError)
-    } catch (logErr) {
-      console.error('Exception logging successful login:', logErr)
-    }
+    const refreshToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify({...accessTokenPayload, type: 'refresh', exp: now + (30 * 24 * 60 * 60)}))}.signature`
 
     const response = {
       success: true,
@@ -370,13 +261,13 @@ serve(async (req) => {
         token_type: 'Bearer',
         expires_in: 86400,
         user: {
-          id: appUser.id,
-          email: appUser.email,
-          name: appUser.name,
-          roles: appUser.user_roles?.map(r => r.role_name) || [],
-          permissions: appUser.user_roles?.flatMap(r => r.permissions) || [],
-          metadata: appUser.metadata || {},
-          last_login: new Date().toISOString()
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          roles: userRoles,
+          permissions: userPermissions,
+          metadata: user.metadata || {},
+          created_at: user.created_at
         },
         application: {
           id: application_id,
@@ -390,8 +281,8 @@ serve(async (req) => {
       const callbackParams = new URLSearchParams({
         token: accessToken,
         refresh_token: refreshToken,
-        user_id: appUser.id,
-        state: 'success'
+        user_id: user.id,
+        state: 'authenticated'
       })
       
       response.data.callback_url = `${callback_url}?${callbackParams.toString()}`
