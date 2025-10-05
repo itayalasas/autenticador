@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -18,6 +19,115 @@ function generateResetToken(): string {
   const array = new Uint8Array(32);
   crypto.getRandomValues(array);
   return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+interface EmailConfig {
+  email_provider: 'system' | 'smtp' | 'resend' | 'sendgrid';
+  from_name: string;
+  from_email: string;
+  smtp_host?: string;
+  smtp_port?: number;
+  smtp_secure?: boolean;
+  smtp_user?: string;
+  smtp_password?: string;
+  api_key?: string;
+}
+
+async function sendWithSMTP(config: EmailConfig, to: string, subject: string, html: string): Promise<boolean> {
+  try {
+    const client = new SMTPClient({
+      connection: {
+        hostname: config.smtp_host || '',
+        port: config.smtp_port || 587,
+        tls: config.smtp_secure ?? true,
+        auth: {
+          username: config.smtp_user || '',
+          password: config.smtp_password || '',
+        },
+      },
+    });
+
+    await client.send({
+      from: `${config.from_name} <${config.from_email}>`,
+      to,
+      subject,
+      content: html,
+      html,
+    });
+
+    await client.close();
+    console.log('✅ Email sent successfully via SMTP');
+    return true;
+  } catch (error) {
+    console.error('❌ SMTP Error:', error);
+    throw error;
+  }
+}
+
+async function sendWithResend(apiKey: string, config: EmailConfig, to: string, subject: string, html: string): Promise<boolean> {
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        from: `${config.from_name} <${config.from_email}>`,
+        to: [to],
+        subject,
+        html,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Resend API error: ${error}`);
+    }
+
+    console.log('✅ Email sent successfully via Resend');
+    return true;
+  } catch (error) {
+    console.error('❌ Resend Error:', error);
+    throw error;
+  }
+}
+
+async function sendWithSendGrid(apiKey: string, config: EmailConfig, to: string, subject: string, html: string): Promise<boolean> {
+  try {
+    const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        personalizations: [{
+          to: [{ email: to }],
+        }],
+        from: {
+          email: config.from_email,
+          name: config.from_name,
+        },
+        subject,
+        content: [{
+          type: 'text/html',
+          value: html,
+        }],
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`SendGrid API error: ${error}`);
+    }
+
+    console.log('✅ Email sent successfully via SendGrid');
+    return true;
+  } catch (error) {
+    console.error('❌ SendGrid Error:', error);
+    throw error;
+  }
 }
 
 function getResetPasswordEmailHTML(name: string, resetUrl: string, appName: string): string {
@@ -104,77 +214,110 @@ async function sendResetPasswordEmail(
   appName: string,
   applicationId: string,
   userId: string,
-  emailConfig: any
+  emailConfig: EmailConfig
 ) {
   console.log('📧 Starting sendResetPasswordEmail function...');
-  console.log('📧 Parameters:', {
-    email,
-    name,
-    appName,
-    applicationId,
-    userId
+  console.log('📧 Email Config:', {
+    provider: emailConfig.email_provider,
+    from_email: emailConfig.from_email,
+    from_name: emailConfig.from_name
   });
 
   const html = getResetPasswordEmailHTML(name, resetUrl, appName);
   const subject = `Recupera tu contraseña - ${appName}`;
 
+  let status = 'sent';
+  let errorMessage = null;
+  let actuallySent = false;
+
   try {
-    // Call send-email edge function
-    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-    const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+    // Send email based on provider
+    console.log('📤 Attempting to send email using provider:', emailConfig.email_provider);
 
-    console.log('📧 Supabase URL:', supabaseUrl);
-    console.log('📧 Anon Key exists:', !!anonKey);
-    console.log('📧 Target URL:', `${supabaseUrl}/functions/v1/send-email`);
+    switch (emailConfig.email_provider) {
+      case 'smtp':
+        console.log('🔧 Using SMTP provider');
+        if (emailConfig.smtp_host && emailConfig.smtp_user && emailConfig.smtp_password) {
+          console.log('✅ SMTP configuration complete, sending email...');
+          await sendWithSMTP(emailConfig, email, subject, html);
+          actuallySent = true;
+        } else {
+          console.error('❌ SMTP configuration incomplete');
+          throw new Error('SMTP configuration incomplete');
+        }
+        break;
 
-    const payload = {
-      to: email,
-      subject: subject,
-      html: html,
-      application_id: applicationId,
-      app_user_id: userId
-    };
+      case 'resend':
+        console.log('🔧 Using Resend provider');
+        if (emailConfig.api_key) {
+          console.log('✅ Resend API key found, sending email...');
+          await sendWithResend(emailConfig.api_key, emailConfig, email, subject, html);
+          actuallySent = true;
+        } else {
+          console.error('❌ Resend API key not configured');
+          throw new Error('Resend API key not configured');
+        }
+        break;
 
-    console.log('📧 Request payload:', {
-      to: payload.to,
-      subject: payload.subject,
-      application_id: payload.application_id,
-      app_user_id: payload.app_user_id,
-      html_length: html.length
-    });
+      case 'sendgrid':
+        console.log('🔧 Using SendGrid provider');
+        if (emailConfig.api_key) {
+          console.log('✅ SendGrid API key found, sending email...');
+          await sendWithSendGrid(emailConfig.api_key, emailConfig, email, subject, html);
+          actuallySent = true;
+        } else {
+          console.error('❌ SendGrid API key not configured');
+          throw new Error('SendGrid API key not configured');
+        }
+        break;
 
-    console.log('📧 Making fetch request...');
-
-    const response = await fetch(`${supabaseUrl}/functions/v1/send-email`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${anonKey}`,
-        'apikey': anonKey,
-      },
-      body: JSON.stringify(payload)
-    });
-
-    console.log('📧 Response status:', response.status);
-    console.log('📧 Response ok:', response.ok);
-
-    const result = await response.json();
-
-    console.log('📧 Response body:', result);
-
-    if (result.success) {
-      console.log('✅ Reset password email sent successfully to:', email);
-    } else {
-      console.error('❌ Failed to send reset password email:', result.error);
+      case 'system':
+      default:
+        console.log('⚠️ Using SYSTEM mode - Email will be logged but NOT sent physically');
+        console.log('📧 Email logged (system mode):', {
+          to: email,
+          from: `${emailConfig.from_name} <${emailConfig.from_email}>`,
+          subject,
+        });
+        break;
     }
-  } catch (error) {
-    console.error('❌ EXCEPTION sending reset email:', error);
-    console.error('❌ Error details:', {
-      message: error.message,
-      stack: error.stack,
-      name: error.name
-    });
+  } catch (error: any) {
+    status = 'failed';
+    errorMessage = error.message;
+    console.error('❌ Email sending failed:', error);
   }
+
+  // Store email in database for tracking
+  console.log('💾 Saving email log to database...');
+  const emailLogData = {
+    to_email: email,
+    from_email: emailConfig.from_email,
+    from_name: emailConfig.from_name,
+    subject,
+    html_content: html,
+    status,
+    error_message: errorMessage,
+    application_id: applicationId || null,
+    app_user_id: userId || null,
+    sent_at: actuallySent ? new Date().toISOString() : null
+  };
+
+  const { data: insertedData, error: dbError } = await supabase
+    .from('email_logs')
+    .insert(emailLogData)
+    .select();
+
+  if (dbError) {
+    console.error('❌ ERROR logging email to database:', dbError);
+  } else {
+    console.log('✅ Email log saved successfully to database');
+  }
+
+  if (status === 'failed') {
+    throw new Error(`Failed to send email: ${errorMessage}`);
+  }
+
+  console.log('✅ Reset password email processed successfully');
 }
 
 serve(async (req) => {
@@ -395,7 +538,12 @@ serve(async (req) => {
       )
     }
 
-    const emailConfig = application.email_config || {}
+    const emailConfig: EmailConfig = {
+      email_provider: 'system',
+      from_name: 'AuthSystem',
+      from_email: 'noreply@authsystem.com',
+      ...(application.email_config || {})
+    }
     const shouldSendPasswordResetEmail = emailConfig.send_password_reset_email !== false // Default to true
 
     // Generate reset token
