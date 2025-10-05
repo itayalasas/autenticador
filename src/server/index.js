@@ -339,6 +339,13 @@ app.post('/api/auth/login', validateApiKey, dynamicRateLimit, async (req, res) =
 
     // Validate required fields
     if (!email || !password || !application_id) {
+      // Log missing fields error
+      await logAuthEvent(null, null, 'failed_login', req, false, 'Campos requeridos faltantes', { 
+        email: email || 'missing', 
+        application_id: application_id || 'missing',
+        error_type: 'validation_error'
+      });
+      
       return res.status(400).json({
         success: false,
         error: {
@@ -350,6 +357,14 @@ app.post('/api/auth/login', validateApiKey, dynamicRateLimit, async (req, res) =
 
     // Validate that API key belongs to the requested application
     if (req.application.application_id !== application_id) {
+      // Log application mismatch error
+      await logAuthEvent(null, null, 'failed_login', req, false, 'API key no pertenece a la aplicación', { 
+        email, 
+        application_id,
+        api_key_app: req.application.application_id,
+        error_type: 'authorization_error'
+      });
+      
       return res.status(403).json({
         success: false,
         error: {
@@ -367,7 +382,11 @@ app.post('/api/auth/login', validateApiKey, dynamicRateLimit, async (req, res) =
       .single();
 
     if (!application) {
-      await logAuthEvent(null, null, 'failed_login', req, false, 'Aplicación no encontrada', { application_id });
+      await logAuthEvent(null, null, 'failed_login', req, false, 'Aplicación no encontrada', { 
+        application_id,
+        email,
+        error_type: 'application_not_found'
+      });
       return res.status(404).json({
         success: false,
         error: {
@@ -379,6 +398,12 @@ app.post('/api/auth/login', validateApiKey, dynamicRateLimit, async (req, res) =
 
     if (appError) {
       console.error('Application lookup error:', appError);
+      await logAuthEvent(null, null, 'failed_login', req, false, 'Error de base de datos al buscar aplicación', { 
+        application_id,
+        email,
+        error_type: 'database_error',
+        db_error: appError.message
+      });
       return res.status(500).json({
         success: false,
         error: {
@@ -422,7 +447,11 @@ app.post('/api/auth/login', validateApiKey, dynamicRateLimit, async (req, res) =
       .single();
 
     if (userError || !appUser) {
-      await logAuthEvent(application.id, null, 'failed_login', req, false, 'Usuario no encontrado', { email });
+      await logAuthEvent(application.id, null, 'failed_login', req, false, 'Usuario no encontrado', { 
+        email,
+        error_type: 'user_not_found',
+        application_name: application.name
+      });
       
       return res.status(401).json({
         success: false,
@@ -435,7 +464,12 @@ app.post('/api/auth/login', validateApiKey, dynamicRateLimit, async (req, res) =
 
     // 3. Verificar si el usuario requiere verificación de email
     if (appUser.status === 'pending') {
-      await logAuthEvent(application.id, appUser.id, 'failed_login', req, false, 'Email no verificado', { email, reason: 'email_not_verified' });
+      await logAuthEvent(application.id, appUser.id, 'failed_login', req, false, 'Email no verificado', { 
+        email, 
+        user_name: appUser.name,
+        error_type: 'email_not_verified',
+        application_name: application.name
+      });
 
       const response = {
         success: false,
@@ -502,7 +536,13 @@ app.post('/api/auth/login', validateApiKey, dynamicRateLimit, async (req, res) =
     console.log('🔐 Final password validation result:', isValidPassword);
 
     if (!isValidPassword) {
-      await logAuthEvent(application.id, appUser.id, 'failed_login', req, false, 'Contraseña incorrecta', { email });
+      await logAuthEvent(application.id, appUser.id, 'failed_login', req, false, 'Contraseña incorrecta', { 
+        email,
+        user_name: appUser.name,
+        error_type: 'invalid_password',
+        application_name: application.name,
+        password_method: 'bcrypt_or_base64'
+      });
       
       return res.status(401).json({
         success: false,
@@ -515,7 +555,13 @@ app.post('/api/auth/login', validateApiKey, dynamicRateLimit, async (req, res) =
 
     // 5. Verificar que el usuario esté activo
     if (appUser.status !== 'active') {
-      await logAuthEvent(application.id, appUser.id, 'failed_login', req, false, 'Usuario inactivo', { email, status: appUser.status });
+      await logAuthEvent(application.id, appUser.id, 'failed_login', req, false, 'Usuario inactivo', { 
+        email,
+        user_name: appUser.name,
+        status: appUser.status,
+        error_type: 'user_inactive',
+        application_name: application.name
+      });
       
       return res.status(403).json({
         success: false,
@@ -536,7 +582,13 @@ app.post('/api/auth/login', validateApiKey, dynamicRateLimit, async (req, res) =
       .eq('id', appUser.id);
 
     // 8. Log login exitoso
-    await logAuthEvent(application.id, appUser.id, 'login', req, true, null, { email, login_method: 'email_password' });
+    await logAuthEvent(application.id, appUser.id, 'login', req, true, null, { 
+      email,
+      user_name: appUser.name,
+      login_method: 'email_password',
+      application_name: application.name,
+      environment: req.environment
+    });
 
     // 9. Preparar respuesta con formato exacto requerido
     const lastLoginTime = new Date().toISOString();
@@ -610,6 +662,14 @@ app.post('/api/auth/register', validateApiKey, dynamicRateLimit, async (req, res
 
     // Validate required fields
     if (!email || !password || !name || !application_id) {
+      // Log missing fields error
+      await logAuthEvent(null, null, 'failed_login', req, false, 'Campos requeridos faltantes en registro', { 
+        email: email || 'missing',
+        name: name || 'missing',
+        application_id: application_id || 'missing',
+        error_type: 'validation_error'
+      });
+      
       return res.status(400).json({
         success: false,
         error: {
@@ -621,6 +681,15 @@ app.post('/api/auth/register', validateApiKey, dynamicRateLimit, async (req, res
 
     // Validate that API key belongs to the requested application
     if (req.application.application_id !== application_id) {
+      // Log application mismatch error
+      await logAuthEvent(null, null, 'failed_login', req, false, 'API key no pertenece a la aplicación en registro', { 
+        email,
+        name,
+        application_id,
+        api_key_app: req.application.application_id,
+        error_type: 'authorization_error'
+      });
+      
       return res.status(403).json({
         success: false,
         error: {
@@ -638,6 +707,13 @@ app.post('/api/auth/register', validateApiKey, dynamicRateLimit, async (req, res
       .single();
 
     if (appError || !application) {
+      await logAuthEvent(null, null, 'failed_login', req, false, 'Aplicación no encontrada en registro', { 
+        application_id,
+        email,
+        name,
+        error_type: 'application_not_found'
+      });
+      
       return res.status(404).json({
         success: false,
         error: {
@@ -656,6 +732,13 @@ app.post('/api/auth/register', validateApiKey, dynamicRateLimit, async (req, res
       .single();
 
     if (existingUser) {
+      await logAuthEvent(application.id, null, 'failed_login', req, false, 'Email ya existe', { 
+        email,
+        name,
+        error_type: 'email_already_exists',
+        application_name: application.name
+      });
+      
       return res.status(409).json({
         success: false,
         error: {
@@ -682,6 +765,14 @@ app.post('/api/auth/register', validateApiKey, dynamicRateLimit, async (req, res
     // Validate password against policy
     const passwordValidation = validatePassword(password, passwordPolicy);
     if (!passwordValidation.valid) {
+      await logAuthEvent(application.id, null, 'failed_login', req, false, 'Política de contraseña no cumplida', { 
+        email,
+        name,
+        error_type: 'password_policy_violation',
+        policy_message: passwordValidation.message,
+        application_name: application.name
+      });
+      
       return res.status(400).json({
         success: false,
         error: {
@@ -709,6 +800,14 @@ app.post('/api/auth/register', validateApiKey, dynamicRateLimit, async (req, res
 
     if (createError) {
       console.error('Create user error:', createError);
+      await logAuthEvent(application.id, null, 'failed_login', req, false, 'Error al crear usuario', { 
+        email,
+        name,
+        error_type: 'database_error',
+        db_error: createError.message,
+        application_name: application.name
+      });
+      
       return res.status(500).json({
         success: false,
         error: {
@@ -759,7 +858,14 @@ app.post('/api/auth/register', validateApiKey, dynamicRateLimit, async (req, res
       });
 
     // 7. Log registro exitoso
-    await logAuthEvent(application.id, newUser.id, 'register', req, true, null, { email, registration_method: 'email_password' });
+    await logAuthEvent(application.id, newUser.id, 'register', req, true, null, { 
+      email,
+      user_name: newUser.name,
+      registration_method: 'email_password',
+      application_name: application.name,
+      environment: req.environment,
+      assigned_role: assignedRoleName
+    });
 
     // 8. Si requiere verificación de email, no generar tokens aún
     if (requireEmailVerification) {
@@ -847,6 +953,13 @@ app.post('/api/auth/reset-password', validateApiKey, dynamicRateLimit, async (re
 
     // Validate required fields
     if (!email || !application_id) {
+      // Log missing fields error
+      await logAuthEvent(null, null, 'failed_login', req, false, 'Campos requeridos faltantes en reset password', { 
+        email: email || 'missing',
+        application_id: application_id || 'missing',
+        error_type: 'validation_error'
+      });
+      
       return res.status(400).json({
         success: false,
         error: {
@@ -858,6 +971,14 @@ app.post('/api/auth/reset-password', validateApiKey, dynamicRateLimit, async (re
 
     // Validate that API key belongs to the requested application
     if (req.application.application_id !== application_id) {
+      // Log application mismatch error
+      await logAuthEvent(null, null, 'failed_login', req, false, 'API key no pertenece a la aplicación en reset password', { 
+        email,
+        application_id,
+        api_key_app: req.application.application_id,
+        error_type: 'authorization_error'
+      });
+      
       return res.status(403).json({
         success: false,
         error: {
@@ -875,6 +996,12 @@ app.post('/api/auth/reset-password', validateApiKey, dynamicRateLimit, async (re
       .single();
 
     if (appError || !application) {
+      await logAuthEvent(null, null, 'password_reset', req, false, 'Aplicación no encontrada en reset password', { 
+        application_id,
+        email,
+        error_type: 'application_not_found'
+      });
+      
       return res.status(404).json({
         success: false,
         error: {
@@ -923,6 +1050,14 @@ app.post('/api/auth/reset-password', validateApiKey, dynamicRateLimit, async (re
 
     if (updateError) {
       console.error('Error updating user with reset token:', updateError);
+      await logAuthEvent(application.id, appUser.id, 'password_reset', req, false, 'Error al generar token de reset', { 
+        email,
+        user_name: appUser.name,
+        error_type: 'database_error',
+        db_error: updateError.message,
+        application_name: application.name
+      });
+      
       return res.status(500).json({
         success: false,
         error: {
@@ -939,7 +1074,10 @@ app.post('/api/auth/reset-password', validateApiKey, dynamicRateLimit, async (re
 
     // 6. Log evento exitoso
     await logAuthEvent(application.id, appUser.id, 'password_reset', req, true, null, { 
-      email, 
+      email,
+      user_name: appUser.name,
+      application_name: application.name,
+      environment: req.environment,
       reset_token: resetToken,
       expires_at: expiresAt.toISOString(),
       reset_url: resetUrl
@@ -1013,6 +1151,13 @@ app.post('/api/auth/verify', validateApiKey, async (req, res) => {
     const { token, application_id } = req.body;
 
     if (!token || !application_id) {
+      // Log missing fields error
+      await logAuthEvent(null, null, 'failed_login', req, false, 'Campos requeridos faltantes en verify token', { 
+        application_id: application_id || 'missing',
+        has_token: !!token,
+        error_type: 'validation_error'
+      });
+      
       return res.status(400).json({
         success: false,
         error: {
@@ -1024,6 +1169,13 @@ app.post('/api/auth/verify', validateApiKey, async (req, res) => {
 
     // Validate that API key belongs to the requested application
     if (req.application.application_id !== application_id) {
+      // Log application mismatch error
+      await logAuthEvent(null, null, 'failed_login', req, false, 'API key no pertenece a la aplicación en verify token', { 
+        application_id,
+        api_key_app: req.application.application_id,
+        error_type: 'authorization_error'
+      });
+      
       return res.status(403).json({
         success: false,
         error: {
@@ -1039,6 +1191,12 @@ app.post('/api/auth/verify', validateApiKey, async (req, res) => {
       
       // Verify application matches
       if (decoded.app_id !== application_id) {
+        await logAuthEvent(null, null, 'failed_login', req, false, 'Token no válido para esta aplicación', { 
+          application_id,
+          token_app_id: decoded.app_id,
+          error_type: 'token_application_mismatch'
+        });
+        
         return res.status(401).json({
           success: false,
           error: {
@@ -1062,6 +1220,12 @@ app.post('/api/auth/verify', validateApiKey, async (req, res) => {
         .single();
 
       if (userError || !appUser) {
+        await logAuthEvent(null, null, 'failed_login', req, false, 'Usuario no encontrado para token', { 
+          application_id,
+          user_id: decoded.sub,
+          error_type: 'user_not_found_for_token'
+        });
+        
         return res.status(401).json({
           success: false,
           error: {
@@ -1087,6 +1251,12 @@ app.post('/api/auth/verify', validateApiKey, async (req, res) => {
       });
 
     } catch (jwtError) {
+      await logAuthEvent(null, null, 'failed_login', req, false, 'Token JWT inválido o expirado', { 
+        application_id,
+        error_type: 'invalid_jwt_token',
+        jwt_error: jwtError.message
+      });
+      
       return res.status(401).json({
         success: false,
         error: {
@@ -1098,6 +1268,11 @@ app.post('/api/auth/verify', validateApiKey, async (req, res) => {
 
   } catch (error) {
     console.error('Verify token error:', error);
+    await logAuthEvent(null, null, 'failed_login', req, false, 'Error interno en verify token', { 
+      error_type: 'internal_error',
+      error_message: error.message
+    });
+    
     res.status(500).json({
       success: false,
       error: {
@@ -1114,6 +1289,12 @@ app.get('/api/users', validateApiKey, async (req, res) => {
     const { application_id, page = 1, limit = 50, search } = req.query;
 
     if (!application_id) {
+      // Log missing application_id error
+      await logAuthEvent(null, null, 'failed_login', req, false, 'application_id requerido en get users', { 
+        error_type: 'validation_error',
+        endpoint: 'get_users'
+      });
+      
       return res.status(400).json({
         success: false,
         error: {
@@ -1125,6 +1306,14 @@ app.get('/api/users', validateApiKey, async (req, res) => {
 
     // Validate that API key belongs to the requested application
     if (req.application.application_id !== application_id) {
+      // Log application mismatch error
+      await logAuthEvent(null, null, 'failed_login', req, false, 'API key no pertenece a la aplicación en get users', { 
+        application_id,
+        api_key_app: req.application.application_id,
+        error_type: 'authorization_error',
+        endpoint: 'get_users'
+      });
+      
       return res.status(403).json({
         success: false,
         error: {
@@ -1142,6 +1331,12 @@ app.get('/api/users', validateApiKey, async (req, res) => {
       .single();
 
     if (appError || !application) {
+      await logAuthEvent(null, null, 'failed_login', req, false, 'Aplicación no encontrada en get users', { 
+        application_id,
+        error_type: 'application_not_found',
+        endpoint: 'get_users'
+      });
+      
       return res.status(404).json({
         success: false,
         error: {
@@ -1177,6 +1372,14 @@ app.get('/api/users', validateApiKey, async (req, res) => {
     const { data: users, error: usersError, count } = await query;
 
     if (usersError) {
+      await logAuthEvent(application.id, null, 'failed_login', req, false, 'Error al consultar usuarios', { 
+        application_id,
+        error_type: 'database_error',
+        db_error: usersError.message,
+        application_name: application.name,
+        endpoint: 'get_users'
+      });
+      
       throw usersError;
     }
 
@@ -1195,6 +1398,12 @@ app.get('/api/users', validateApiKey, async (req, res) => {
 
   } catch (error) {
     console.error('Get users error:', error);
+    await logAuthEvent(null, null, 'failed_login', req, false, 'Error interno en get users', { 
+      error_type: 'internal_error',
+      error_message: error.message,
+      endpoint: 'get_users'
+    });
+    
     res.status(500).json({
       success: false,
       error: {
@@ -1208,6 +1417,16 @@ app.get('/api/users', validateApiKey, async (req, res) => {
 // Error handling middleware
 app.use((error, req, res, next) => {
   console.error('Unhandled error:', error);
+  
+  // Log unhandled errors
+  logAuthEvent(null, null, 'failed_login', req, false, 'Error no manejado', { 
+    error_type: 'unhandled_error',
+    error_message: error.message,
+    error_stack: error.stack
+  }).catch(logError => {
+    console.error('Error logging unhandled error:', logError);
+  });
+  
   res.status(500).json({
     success: false,
     error: {
@@ -1219,6 +1438,15 @@ app.use((error, req, res, next) => {
 
 // 404 handler
 app.use((req, res) => {
+  // Log 404 errors
+  logAuthEvent(null, null, 'failed_login', req, false, 'Endpoint no encontrado', { 
+    error_type: 'not_found',
+    requested_path: req.path,
+    method: req.method
+  }).catch(logError => {
+    console.error('Error logging 404:', logError);
+  });
+  
   res.status(404).json({
     success: false,
     error: {

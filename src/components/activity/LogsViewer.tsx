@@ -445,7 +445,7 @@ export default function LogsViewer() {
       login: 'Login',
       register: 'Registro',
       password_reset: 'Reset Contraseña',
-      failed_login: 'Login Fallido'
+      failed_login: 'Error de Autenticación'
     };
     return labels[eventType] || eventType;
   };
@@ -581,7 +581,7 @@ export default function LogsViewer() {
           >
             <option value="all">Todos los eventos</option>
             <option value="login">Login</option>
-            <option value="failed_login">Login Fallido</option>
+            <option value="failed_login">Errores de Autenticación</option>
             <option value="register">Registro</option>
             <option value="password_reset">Reset Contraseña</option>
           </select>

@@ -222,7 +222,7 @@ export default function LogsViewer() {
       case 'register': return 'Registro';
       case 'logout': return 'Logout';
       case 'password_reset': return 'Reset Password';
-      case 'failed_login': return 'Login Fallido';
+      case 'failed_login': return 'Error de Autenticación';
       default: return eventType;
     }
   };
@@ -391,7 +391,7 @@ export default function LogsViewer() {
               <option value="register">Registro</option>
               <option value="logout">Logout</option>
               <option value="password_reset">Reset Password</option>
-              <option value="failed_login">Login Fallido</option>
+              <option value="failed_login">Errores de Autenticación</option>
             </select>
           </div>
 

@@ -64,6 +64,21 @@ Deno.serve(async (req) => {
     const { email, password, application_id, callback_url, client_ip }: LoginRequest = requestBody
 
     if (!email || !password || !application_id) {
+      // Log missing fields error
+      await supabase.from('auth_logs').insert({
+        application_id: null,
+        event_type: 'failed_login',
+        ip_address: ipAddress,
+        user_agent: req.headers.get('user-agent') || 'unknown',
+        success: false,
+        error_message: 'Campos requeridos faltantes',
+        metadata: { 
+          email: email || 'missing',
+          application_id: application_id || 'missing',
+          error_type: 'validation_error'
+        }
+      });
+      
       return new Response(
         JSON.stringify({
           success: false,
@@ -113,6 +128,21 @@ Deno.serve(async (req) => {
       .single()
 
     if (appError || !application) {
+      // Log application not found error
+      await supabase.from('auth_logs').insert({
+        application_id: null,
+        event_type: 'failed_login',
+        ip_address: ipAddress,
+        user_agent: req.headers.get('user-agent') || 'unknown',
+        success: false,
+        error_message: 'Aplicación no encontrada',
+        metadata: { 
+          email,
+          application_id,
+          error_type: 'application_not_found'
+        }
+      });
+      
       return new Response(
         JSON.stringify({
           success: false,
@@ -138,12 +168,16 @@ Deno.serve(async (req) => {
     if (userError || !user) {
       await supabase.from('auth_logs').insert({
         application_id: application.id,
-        event_type: 'login',
+        event_type: 'failed_login',
         ip_address: ipAddress,
         user_agent: req.headers.get('user-agent') || 'unknown',
         success: false,
         error_message: 'Usuario no encontrado',
-        metadata: { email }
+        metadata: { 
+          email,
+          error_type: 'user_not_found',
+          application_name: application.name
+        }
       })
 
       return new Response(
@@ -166,12 +200,17 @@ Deno.serve(async (req) => {
       await supabase.from('auth_logs').insert({
         application_id: application.id,
         app_user_id: user.id,
-        event_type: 'login',
+        event_type: 'failed_login',
         ip_address: ipAddress,
         user_agent: req.headers.get('user-agent') || 'unknown',
         success: false,
         error_message: 'Contraseña incorrecta',
-        metadata: { email }
+        metadata: { 
+          email,
+          user_name: user.name,
+          error_type: 'invalid_password',
+          application_name: application.name
+        }
       })
 
       return new Response(
@@ -193,12 +232,18 @@ Deno.serve(async (req) => {
       await supabase.from('auth_logs').insert({
         application_id: application.id,
         app_user_id: user.id,
-        event_type: 'login',
+        event_type: 'failed_login',
         ip_address: ipAddress,
         user_agent: req.headers.get('user-agent') || 'unknown',
         success: false,
-        error_message: `Usuario en estado: ${user.status}`,
-        metadata: { email, status: user.status }
+        error_message: user.status === 'pending' ? 'Email no verificado' : `Usuario en estado: ${user.status}`,
+        metadata: { 
+          email,
+          user_name: user.name,
+          status: user.status,
+          error_type: user.status === 'pending' ? 'email_not_verified' : 'user_inactive',
+          application_name: application.name
+        }
       })
 
       return new Response(
@@ -233,7 +278,14 @@ Deno.serve(async (req) => {
       ip_address: ipAddress,
       user_agent: req.headers.get('user-agent') || 'unknown',
       success: true,
-      metadata: { email, method: 'email_password' }
+      metadata: { 
+        email,
+        user_name: user.name,
+        method: 'email_password',
+        application_name: application.name,
+        roles: userRoles,
+        permissions: userPermissions
+      }
     })
 
     const now = Math.floor(Date.now() / 1000)
@@ -298,6 +350,24 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     console.error('Login error:', error)
+    
+    // Log internal server error
+    await supabase.from('auth_logs').insert({
+      application_id: null,
+      event_type: 'failed_login',
+      ip_address: req.headers.get('x-forwarded-for')?.split(',')[0].trim() || '0.0.0.0',
+      user_agent: req.headers.get('user-agent') || 'unknown',
+      success: false,
+      error_message: 'Error interno del servidor',
+      metadata: { 
+        error_type: 'internal_error',
+        error_message: error.message,
+        endpoint: 'auth-login'
+      }
+    }).catch(logError => {
+      console.error('Error logging internal error:', logError);
+    });
+    
     return new Response(
       JSON.stringify({
         success: false,
