@@ -164,10 +164,11 @@ Deno.serve(async (req: Request) => {
     if (application_id) {
       console.log('🔍 Looking for application config with ID:', application_id);
 
+      // Try to find application by numeric ID or by application_id string
       const { data: app, error: appError } = await supabase
         .from('applications')
         .select('email_config')
-        .eq('id', application_id)
+        .or(`id.eq.${application_id},application_id.eq.${application_id}`)
         .maybeSingle();
 
       if (appError) {
