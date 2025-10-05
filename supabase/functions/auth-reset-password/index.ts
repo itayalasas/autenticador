@@ -106,6 +106,15 @@ async function sendResetPasswordEmail(
   userId: string,
   emailConfig: any
 ) {
+  console.log('📧 Starting sendResetPasswordEmail function...');
+  console.log('📧 Parameters:', {
+    email,
+    name,
+    appName,
+    applicationId,
+    userId
+  });
+
   const html = getResetPasswordEmailHTML(name, resetUrl, appName);
   const subject = `Recupera tu contraseña - ${appName}`;
 
@@ -114,22 +123,43 @@ async function sendResetPasswordEmail(
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
+    console.log('📧 Supabase URL:', supabaseUrl);
+    console.log('📧 Service Key exists:', !!serviceKey);
+    console.log('📧 Target URL:', `${supabaseUrl}/functions/v1/send-email`);
+
+    const payload = {
+      to: email,
+      subject: subject,
+      html: html,
+      application_id: applicationId,
+      app_user_id: userId
+    };
+
+    console.log('📧 Request payload:', {
+      to: payload.to,
+      subject: payload.subject,
+      application_id: payload.application_id,
+      app_user_id: payload.app_user_id,
+      html_length: html.length
+    });
+
+    console.log('📧 Making fetch request...');
+
     const response = await fetch(`${supabaseUrl}/functions/v1/send-email`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${serviceKey}`,
       },
-      body: JSON.stringify({
-        to: email,
-        subject: subject,
-        html: html,
-        application_id: applicationId,
-        app_user_id: userId
-      })
+      body: JSON.stringify(payload)
     });
 
+    console.log('📧 Response status:', response.status);
+    console.log('📧 Response ok:', response.ok);
+
     const result = await response.json();
+
+    console.log('📧 Response body:', result);
 
     if (result.success) {
       console.log('✅ Reset password email sent successfully to:', email);
@@ -137,7 +167,12 @@ async function sendResetPasswordEmail(
       console.error('❌ Failed to send reset password email:', result.error);
     }
   } catch (error) {
-    console.error('Error sending reset email:', error);
+    console.error('❌ EXCEPTION sending reset email:', error);
+    console.error('❌ Error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
   }
 }
 
