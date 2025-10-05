@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -11,8 +12,117 @@ interface EmailRequest {
   to: string;
   subject: string;
   html: string;
-  from_name?: string;
-  from_email?: string;
+  application_id?: string;
+  app_user_id?: string;
+}
+
+interface EmailConfig {
+  email_provider: 'system' | 'smtp' | 'resend' | 'sendgrid';
+  from_name: string;
+  from_email: string;
+  smtp_host?: string;
+  smtp_port?: number;
+  smtp_secure?: boolean;
+  smtp_user?: string;
+  smtp_password?: string;
+  api_key?: string;
+}
+
+async function sendWithSMTP(config: EmailConfig, to: string, subject: string, html: string): Promise<boolean> {
+  try {
+    const client = new SMTPClient({
+      connection: {
+        hostname: config.smtp_host || '',
+        port: config.smtp_port || 587,
+        tls: config.smtp_secure ?? true,
+        auth: {
+          username: config.smtp_user || '',
+          password: config.smtp_password || '',
+        },
+      },
+    });
+
+    await client.send({
+      from: `${config.from_name} <${config.from_email}>`,
+      to,
+      subject,
+      content: html,
+      html,
+    });
+
+    await client.close();
+    console.log('✅ Email sent successfully via SMTP');
+    return true;
+  } catch (error) {
+    console.error('❌ SMTP Error:', error);
+    throw error;
+  }
+}
+
+async function sendWithResend(apiKey: string, config: EmailConfig, to: string, subject: string, html: string): Promise<boolean> {
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        from: `${config.from_name} <${config.from_email}>`,
+        to: [to],
+        subject,
+        html,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Resend API error: ${error}`);
+    }
+
+    console.log('✅ Email sent successfully via Resend');
+    return true;
+  } catch (error) {
+    console.error('❌ Resend Error:', error);
+    throw error;
+  }
+}
+
+async function sendWithSendGrid(apiKey: string, config: EmailConfig, to: string, subject: string, html: string): Promise<boolean> {
+  try {
+    const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        personalizations: [{
+          to: [{ email: to }],
+        }],
+        from: {
+          email: config.from_email,
+          name: config.from_name,
+        },
+        subject,
+        content: [{
+          type: 'text/html',
+          value: html,
+        }],
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`SendGrid API error: ${error}`);
+    }
+
+    console.log('✅ Email sent successfully via SendGrid');
+    return true;
+  } catch (error) {
+    console.error('❌ SendGrid Error:', error);
+    throw error;
+  }
 }
 
 Deno.serve(async (req: Request) => {
@@ -29,7 +139,7 @@ Deno.serve(async (req: Request) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { to, subject, html, from_name = 'AuthSystem', from_email = 'noreply@authsystem.com' }: EmailRequest = await req.json();
+    const { to, subject, html, application_id, app_user_id }: EmailRequest = await req.json();
 
     if (!to || !subject || !html) {
       return new Response(
@@ -44,43 +154,88 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // For now, we'll log the email instead of actually sending it
-    // In production, you would integrate with Resend, SendGrid, or another email provider
-    console.log('📧 Email would be sent:', {
-      to,
-      from: `${from_name} <${from_email}>`,
-      subject,
-      html: html.substring(0, 100) + '...'
-    });
+    // Get email configuration from application
+    let emailConfig: EmailConfig = {
+      email_provider: 'system',
+      from_name: 'AuthSystem',
+      from_email: 'noreply@authsystem.com',
+    };
 
-    // TODO: Integrate with actual email provider
-    // Example with Resend:
-    // const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
-    // const res = await fetch('https://api.resend.com/emails', {
-    //   method: 'POST',
-    //   headers: {
-    //     'Content-Type': 'application/json',
-    //     'Authorization': `Bearer ${RESEND_API_KEY}`
-    //   },
-    //   body: JSON.stringify({
-    //     from: `${from_name} <${from_email}>`,
-    //     to: [to],
-    //     subject,
-    //     html
-    //   })
-    // });
+    if (application_id) {
+      const { data: app } = await supabase
+        .from('applications')
+        .select('email_config')
+        .eq('id', application_id)
+        .single();
+
+      if (app?.email_config) {
+        emailConfig = { ...emailConfig, ...app.email_config };
+      }
+    }
+
+    let status = 'sent';
+    let errorMessage = null;
+    let actuallySent = false;
+
+    // Send email based on provider
+    try {
+      switch (emailConfig.email_provider) {
+        case 'smtp':
+          if (emailConfig.smtp_host && emailConfig.smtp_user && emailConfig.smtp_password) {
+            await sendWithSMTP(emailConfig, to, subject, html);
+            actuallySent = true;
+          } else {
+            throw new Error('SMTP configuration incomplete');
+          }
+          break;
+
+        case 'resend':
+          if (emailConfig.api_key) {
+            await sendWithResend(emailConfig.api_key, emailConfig, to, subject, html);
+            actuallySent = true;
+          } else {
+            throw new Error('Resend API key not configured');
+          }
+          break;
+
+        case 'sendgrid':
+          if (emailConfig.api_key) {
+            await sendWithSendGrid(emailConfig.api_key, emailConfig, to, subject, html);
+            actuallySent = true;
+          } else {
+            throw new Error('SendGrid API key not configured');
+          }
+          break;
+
+        case 'system':
+        default:
+          console.log('📧 Email logged (system mode - not sent physically):', {
+            to,
+            from: `${emailConfig.from_name} <${emailConfig.from_email}>`,
+            subject,
+          });
+          break;
+      }
+    } catch (error: any) {
+      status = 'failed';
+      errorMessage = error.message;
+      console.error('Email sending failed:', error);
+    }
 
     // Store email in database for tracking
     const { error: dbError } = await supabase
       .from('email_logs')
       .insert({
         to_email: to,
-        from_email,
-        from_name,
+        from_email: emailConfig.from_email,
+        from_name: emailConfig.from_name,
         subject,
         html_content: html,
-        status: 'sent',
-        sent_at: new Date().toISOString()
+        status,
+        error_message: errorMessage,
+        application_id: application_id || null,
+        app_user_id: app_user_id || null,
+        sent_at: actuallySent ? new Date().toISOString() : null
       });
 
     if (dbError) {
@@ -89,11 +244,15 @@ Deno.serve(async (req: Request) => {
 
     return new Response(
       JSON.stringify({
-        success: true,
-        message: 'Email sent successfully'
+        success: status === 'sent',
+        message: actuallySent 
+          ? 'Email sent successfully' 
+          : 'Email logged (not sent - configure email provider)',
+        provider: emailConfig.email_provider,
+        actually_sent: actuallySent
       }),
       {
-        status: 200,
+        status: status === 'sent' ? 200 : 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       }
     );

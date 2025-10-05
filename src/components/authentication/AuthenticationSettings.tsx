@@ -48,12 +48,23 @@ export default function AuthenticationSettings() {
     allowed_origins: '',
 
     // Configuración de email
+    email_provider: 'system',
     send_welcome_email: false,
     send_password_reset_email: true,
     notify_admin_new_user: false,
     admin_notification_email: '',
     from_name: 'AuthSystem',
-    from_email: ''
+    from_email: '',
+
+    // Configuración SMTP
+    smtp_host: '',
+    smtp_port: 587,
+    smtp_secure: true,
+    smtp_user: '',
+    smtp_password: '',
+
+    // API Keys para proveedores externos
+    api_key: ''
   });
 
   const {
@@ -135,12 +146,21 @@ export default function AuthenticationSettings() {
             ? metadata.cors_origins.join('\n')
             : metadata.cors_origins || '',
           // Load email configuration
+          email_provider: emailConfig.email_provider || 'system',
           send_welcome_email: emailConfig.send_welcome_email ?? false,
           send_password_reset_email: emailConfig.send_password_reset_email ?? true,
           notify_admin_new_user: emailConfig.notify_admin_new_user ?? false,
           admin_notification_email: emailConfig.admin_notification_email || '',
           from_name: emailConfig.from_name || 'AuthSystem',
-          from_email: emailConfig.from_email || ''
+          from_email: emailConfig.from_email || '',
+          // Load SMTP configuration
+          smtp_host: emailConfig.smtp_host || '',
+          smtp_port: emailConfig.smtp_port || 587,
+          smtp_secure: emailConfig.smtp_secure ?? true,
+          smtp_user: emailConfig.smtp_user || '',
+          smtp_password: emailConfig.smtp_password || '',
+          // Load API key
+          api_key: emailConfig.api_key || ''
         }));
       }
     } catch (error) {
@@ -201,6 +221,7 @@ export default function AuthenticationSettings() {
 
       // Prepare email configuration
       const emailConfig = {
+        email_provider: authSettings.email_provider || 'system',
         require_email_verification: authSettings.require_email_verification,
         send_welcome_email: authSettings.send_welcome_email,
         send_password_reset_email: authSettings.send_password_reset_email,
@@ -208,8 +229,14 @@ export default function AuthenticationSettings() {
         admin_notification_email: authSettings.admin_notification_email,
         from_name: authSettings.from_name || 'AuthSystem',
         from_email: authSettings.from_email || '',
-        email_provider: 'system',
-        email_provider_api_key: ''
+        // SMTP Configuration
+        smtp_host: authSettings.smtp_host || '',
+        smtp_port: authSettings.smtp_port || 587,
+        smtp_secure: authSettings.smtp_secure ?? true,
+        smtp_user: authSettings.smtp_user || '',
+        smtp_password: authSettings.smtp_password || '',
+        // API Key for external providers
+        api_key: authSettings.api_key || ''
       };
 
       // Update application with new auth settings including auto-block config and email config
@@ -267,12 +294,19 @@ export default function AuthenticationSettings() {
       allowed_callback_urls: '',
       allowed_logout_urls: '',
       allowed_origins: '',
+      email_provider: 'system',
       send_welcome_email: false,
       send_password_reset_email: true,
       notify_admin_new_user: false,
       admin_notification_email: '',
       from_name: 'AuthSystem',
-      from_email: ''
+      from_email: '',
+      smtp_host: '',
+      smtp_port: 587,
+      smtp_secure: true,
+      smtp_user: '',
+      smtp_password: '',
+      api_key: ''
     });
   };
 
@@ -386,6 +420,28 @@ export default function AuthenticationSettings() {
             </h3>
 
             <div className="space-y-6">
+              {/* Email Provider Selection */}
+              <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4">
+                <label className="block text-sm font-medium text-gray-900 mb-3">
+                  Proveedor de Email
+                </label>
+                <select
+                  value={authSettings.email_provider}
+                  onChange={(e) => handleSettingChange('email_provider', e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                >
+                  <option value="system">Sistema por Defecto (Solo Logs)</option>
+                  <option value="smtp">Servidor SMTP Personalizado</option>
+                  <option value="resend">Resend</option>
+                  <option value="sendgrid">SendGrid</option>
+                </select>
+                <p className="text-xs text-gray-600 mt-2">
+                  {authSettings.email_provider === 'system' && 'Los emails se registrarán pero no se enviarán físicamente'}
+                  {authSettings.email_provider === 'smtp' && 'Configura tu propio servidor SMTP para enviar emails'}
+                  {authSettings.email_provider === 'resend' && 'Usa Resend para enviar emails (requiere API key)'}
+                  {authSettings.email_provider === 'sendgrid' && 'Usa SendGrid para enviar emails (requiere API key)'}
+                </p>
+              </div>
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="font-medium text-gray-900">Enviar email de bienvenida</h4>
@@ -489,18 +545,154 @@ export default function AuthenticationSettings() {
                 </div>
               </div>
 
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                <div className="flex items-start space-x-3">
-                  <AlertTriangle className="w-5 h-5 text-yellow-600 mt-0.5" />
-                  <div>
-                    <h5 className="text-sm font-medium text-yellow-900">Nota sobre los emails</h5>
-                    <p className="text-sm text-yellow-800 mt-1">
-                      Los emails se registran en la tabla de logs pero no se envían automáticamente en esta versión demo.
-                      Para enviar emails reales, debes configurar un proveedor de email (Resend, SendGrid, etc.) en las edge functions.
-                    </p>
+              {/* SMTP Configuration */}
+              {authSettings.email_provider === 'smtp' && (
+                <div className="border-t border-gray-200 pt-6">
+                  <h4 className="text-sm font-medium text-gray-900 mb-4 flex items-center gap-2">
+                    <Settings className="w-4 h-4" />
+                    Configuración del Servidor SMTP
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Host SMTP <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={authSettings.smtp_host}
+                        onChange={(e) => handleSettingChange('smtp_host', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="smtp.gmail.com"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Puerto SMTP <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        value={authSettings.smtp_port}
+                        onChange={(e) => handleSettingChange('smtp_port', parseInt(e.target.value))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="587"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Común: 587 (TLS), 465 (SSL), 25 (sin cifrar)
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Usuario SMTP <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={authSettings.smtp_user}
+                        onChange={(e) => handleSettingChange('smtp_user', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="usuario@gmail.com"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Contraseña SMTP <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="password"
+                        value={authSettings.smtp_password}
+                        onChange={(e) => handleSettingChange('smtp_password', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="••••••••"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Para Gmail, usa una contraseña de aplicación
+                      </p>
+                    </div>
+
+                    <div className="col-span-2">
+                      <label className="flex items-center space-x-3">
+                        <input
+                          type="checkbox"
+                          checked={authSettings.smtp_secure}
+                          onChange={(e) => handleSettingChange('smtp_secure', e.target.checked)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <div>
+                          <span className="text-sm font-medium text-gray-900">Usar conexión segura (TLS/SSL)</span>
+                          <p className="text-xs text-gray-500">Recomendado para mayor seguridad</p>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-4">
+                    <h5 className="text-sm font-medium text-blue-900 mb-2">Ejemplos de configuración SMTP</h5>
+                    <div className="space-y-2 text-xs text-blue-800">
+                      <p><strong>Gmail:</strong> smtp.gmail.com:587 (TLS) - Requiere contraseña de aplicación</p>
+                      <p><strong>Outlook:</strong> smtp-mail.outlook.com:587 (TLS)</p>
+                      <p><strong>SendGrid:</strong> smtp.sendgrid.net:587 (TLS) - Usuario: apikey</p>
+                      <p><strong>Mailgun:</strong> smtp.mailgun.org:587 (TLS)</p>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
+
+              {/* API Key Configuration for Resend/SendGrid */}
+              {(authSettings.email_provider === 'resend' || authSettings.email_provider === 'sendgrid') && (
+                <div className="border-t border-gray-200 pt-6">
+                  <h4 className="text-sm font-medium text-gray-900 mb-4 flex items-center gap-2">
+                    <Key className="w-4 h-4" />
+                    Configuración de API Key
+                  </h4>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      API Key de {authSettings.email_provider === 'resend' ? 'Resend' : 'SendGrid'} <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="password"
+                      value={authSettings.api_key}
+                      onChange={(e) => handleSettingChange('api_key', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="re_xxxxxxxxxxxxx"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      {authSettings.email_provider === 'resend' && 'Obtén tu API key desde https://resend.com/api-keys'}
+                      {authSettings.email_provider === 'sendgrid' && 'Obtén tu API key desde https://app.sendgrid.com/settings/api_keys'}
+                    </p>
+                  </div>
+
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4 mt-4">
+                    <h5 className="text-sm font-medium text-green-900 mb-2">
+                      Ventajas de usar {authSettings.email_provider === 'resend' ? 'Resend' : 'SendGrid'}
+                    </h5>
+                    <ul className="space-y-1 text-xs text-green-800 list-disc list-inside">
+                      <li>Entrega garantizada y alta tasa de éxito</li>
+                      <li>Estadísticas detalladas de emails enviados</li>
+                      <li>Gestión automática de rebotes y quejas</li>
+                      <li>Plantillas HTML y personalización avanzada</li>
+                      {authSettings.email_provider === 'resend' && <li>API simple y moderna, perfecta para desarrolladores</li>}
+                      {authSettings.email_provider === 'sendgrid' && <li>Infraestructura robusta usada por empresas Fortune 500</li>}
+                    </ul>
+                  </div>
+                </div>
+              )}
+
+              {authSettings.email_provider === 'system' && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <div className="flex items-start space-x-3">
+                    <AlertTriangle className="w-5 h-5 text-yellow-600 mt-0.5" />
+                    <div>
+                      <h5 className="text-sm font-medium text-yellow-900">Modo Demo - Solo Logs</h5>
+                      <p className="text-sm text-yellow-800 mt-1">
+                        Los emails se registrarán en la tabla de logs pero no se enviarán físicamente.
+                        Para enviar emails reales, selecciona un proveedor de email y configura sus credenciales.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
