@@ -239,6 +239,13 @@ export default function AuthenticationSettings() {
         api_key: authSettings.api_key || ''
       };
 
+      console.log('💾 Guardando configuración de email:', {
+        email_provider: emailConfig.email_provider,
+        from_email: emailConfig.from_email,
+        has_smtp_host: !!emailConfig.smtp_host,
+        has_api_key: !!emailConfig.api_key
+      });
+
       // Update application with new auth settings including auto-block config and email config
       const { error: updateError } = await supabase
         .from('applications')
@@ -252,6 +259,8 @@ export default function AuthenticationSettings() {
         .eq('id', selectedApp);
 
       if (updateError) throw updateError;
+
+      console.log('✅ Configuración guardada exitosamente');
 
       showSuccess(
         'Configuración guardada',
@@ -705,12 +714,34 @@ export default function AuthenticationSettings() {
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                   <div className="flex items-start space-x-3">
                     <AlertTriangle className="w-5 h-5 text-yellow-600 mt-0.5" />
-                    <div>
+                    <div className="flex-1">
                       <h5 className="text-sm font-medium text-yellow-900">Modo Demo - Solo Logs</h5>
                       <p className="text-sm text-yellow-800 mt-1">
                         Los emails se registrarán en la tabla de logs pero no se enviarán físicamente.
                         Para enviar emails reales, selecciona un proveedor de email y configura sus credenciales.
                       </p>
+                      <button
+                        onClick={async () => {
+                          try {
+                            const response = await fetch(
+                              `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/debug-email-config?application_id=${selectedApp}`,
+                              {
+                                headers: {
+                                  'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+                                }
+                              }
+                            );
+                            const result = await response.json();
+                            console.log('📧 Email Configuration Diagnosis:', result);
+                            alert('Ver diagnóstico en la consola del navegador (F12)');
+                          } catch (error) {
+                            console.error('Error checking email config:', error);
+                          }
+                        }}
+                        className="mt-2 text-xs text-yellow-900 underline hover:text-yellow-700"
+                      >
+                        Ver diagnóstico completo en consola
+                      </button>
                     </div>
                   </div>
                 </div>
