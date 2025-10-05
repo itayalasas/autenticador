@@ -64,6 +64,8 @@ Deno.serve(async (req) => {
     const { email, password, application_id, callback_url, client_ip }: LoginRequest = requestBody
 
     if (!email || !password || !application_id) {
+      const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0'
+      
       // Log missing fields error
       await supabase.from('auth_logs').insert({
         application_id: null,
@@ -95,6 +97,13 @@ Deno.serve(async (req) => {
     }
 
     const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0'
+    
+    console.log('🔍 Processing login request:', {
+      email,
+      application_id,
+      ip_address: ipAddress,
+      has_password: !!password
+    });
 
     const { data: blockedIP } = await supabase
       .from('blocked_ips')
@@ -105,6 +114,24 @@ Deno.serve(async (req) => {
       .maybeSingle()
 
     if (blockedIP) {
+      console.log('🚫 IP is blocked:', ipAddress, blockedIP.reason);
+      
+      // Log blocked IP attempt
+      await supabase.from('auth_logs').insert({
+        application_id: null,
+        event_type: 'failed_login',
+        ip_address: ipAddress,
+        user_agent: req.headers.get('user-agent') || 'unknown',
+        success: false,
+        error_message: 'IP bloqueada',
+        metadata: { 
+          email,
+          application_id,
+          error_type: 'ip_blocked',
+          block_reason: blockedIP.reason
+        }
+      });
+      
       return new Response(
         JSON.stringify({
           success: false,
@@ -128,6 +155,8 @@ Deno.serve(async (req) => {
       .single()
 
     if (appError || !application) {
+      console.log('❌ Application not found:', application_id);
+      
       // Log application not found error
       await supabase.from('auth_logs').insert({
         application_id: null,
@@ -166,6 +195,8 @@ Deno.serve(async (req) => {
       .single()
 
     if (userError || !user) {
+      console.log('❌ User not found:', email, 'in application:', application.name);
+      
       await supabase.from('auth_logs').insert({
         application_id: application.id,
         event_type: 'failed_login',
@@ -195,8 +226,11 @@ Deno.serve(async (req) => {
       )
     }
 
+    console.log('🔐 Checking password for user:', user.email);
     const passwordHash = btoa(password)
     if (user.password_hash !== passwordHash) {
+      console.log('❌ Invalid password for user:', user.email);
+      
       await supabase.from('auth_logs').insert({
         application_id: application.id,
         app_user_id: user.id,
@@ -229,6 +263,8 @@ Deno.serve(async (req) => {
     }
 
     if (user.status !== 'active') {
+      console.log('❌ User not active:', user.email, 'status:', user.status);
+      
       await supabase.from('auth_logs').insert({
         application_id: application.id,
         app_user_id: user.id,
@@ -271,6 +307,8 @@ Deno.serve(async (req) => {
     const userRoles = roles?.map(r => r.role_name) || ['user']
     const userPermissions = roles?.flatMap(r => r.permissions || []) || ['read']
 
+    console.log('✅ Login successful for user:', user.email);
+    
     await supabase.from('auth_logs').insert({
       application_id: application.id,
       app_user_id: user.id,
@@ -336,7 +374,8 @@ Deno.serve(async (req) => {
         user_id: user.id,
         state: 'authenticated'
       })
-      
+      })
+    } catch (logError) {
       response.data.callback_url = `${callback_url}?${callbackParams.toString()}`
     }
 
@@ -351,8 +390,16 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('Login error:', error)
     
+    const ipAddress = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0'
+    
     // Log internal server error
-    await supabase.from('auth_logs').insert({
+    try {
+      const supabase = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      )
+      
+      await supabase.from('auth_logs').insert({
       application_id: null,
       event_type: 'failed_login',
       ip_address: req.headers.get('x-forwarded-for')?.split(',')[0].trim() || '0.0.0.0',
@@ -368,7 +415,7 @@ Deno.serve(async (req) => {
       console.error('Error logging internal error:', logError);
     });
     
-    return new Response(
+        ip_address: ipAddress,
       JSON.stringify({
         success: false,
         error: {

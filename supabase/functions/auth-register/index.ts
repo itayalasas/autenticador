@@ -160,6 +160,8 @@ Deno.serve(async (req) => {
     const { email, password, name, application_id, callback_url, client_ip, metadata }: RegisterRequest = requestBody
 
     if (!email || !password || !name || !application_id) {
+      const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0'
+      
       // Log missing fields error
       await supabase.from('auth_logs').insert({
         application_id: null,
@@ -192,6 +194,14 @@ Deno.serve(async (req) => {
     }
 
     const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0'
+    
+    console.log('🔍 Processing register request:', {
+      email,
+      name,
+      application_id,
+      ip_address: ipAddress,
+      has_password: !!password
+    });
 
     const { data: blockedIP } = await supabase
       .from('blocked_ips')
@@ -202,6 +212,25 @@ Deno.serve(async (req) => {
       .maybeSingle()
 
     if (blockedIP) {
+      console.log('🚫 IP is blocked:', ipAddress, blockedIP.reason);
+      
+      // Log blocked IP attempt
+      await supabase.from('auth_logs').insert({
+        application_id: null,
+        event_type: 'failed_login',
+        ip_address: ipAddress,
+        user_agent: req.headers.get('user-agent') || 'unknown',
+        success: false,
+        error_message: 'IP bloqueada',
+        metadata: { 
+          email,
+          name,
+          application_id,
+          error_type: 'ip_blocked',
+          block_reason: blockedIP.reason
+        }
+      });
+      
       return new Response(
         JSON.stringify({
           success: false,
@@ -225,6 +254,8 @@ Deno.serve(async (req) => {
       .single()
 
     if (appError || !application) {
+      console.log('❌ Application not found:', application_id);
+      
       // Log application not found error
       await supabase.from('auth_logs').insert({
         application_id: null,
@@ -264,6 +295,8 @@ Deno.serve(async (req) => {
       .maybeSingle()
 
     if (existingUser) {
+      console.log('❌ Email already exists:', email, 'in application:', application.name);
+      
       // Log email already exists error
       await supabase.from('auth_logs').insert({
         application_id: application.id,
@@ -314,6 +347,8 @@ Deno.serve(async (req) => {
       .single()
 
     if (createError) {
+      console.log('❌ Error creating user:', createError.message);
+      
       // Log user creation error
       await supabase.from('auth_logs').insert({
         application_id: application.id,
@@ -354,6 +389,8 @@ Deno.serve(async (req) => {
         permissions: ['read']
       })
 
+    console.log('✅ Registration successful for user:', newUser.email);
+    
     try {
       const { error: logError } = await supabase.from('auth_logs').insert({
         application_id: application.id,
@@ -500,7 +537,8 @@ Deno.serve(async (req) => {
         user_id: newUser.id,
         state: 'registered_and_logged_in'
       })
-      
+      })
+    } catch (logError) {
       response.data.callback_url = `${callback_url}?${callbackParams.toString()}`
     }
 
@@ -515,8 +553,16 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('Register error:', error)
     
+    const ipAddress = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0'
+    
     // Log internal server error
-    await supabase.from('auth_logs').insert({
+    try {
+      const supabase = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      )
+      
+      await supabase.from('auth_logs').insert({
       application_id: null,
       event_type: 'failed_login',
       ip_address: req.headers.get('x-forwarded-for')?.split(',')[0].trim() || '0.0.0.0',
@@ -532,7 +578,7 @@ Deno.serve(async (req) => {
       console.error('Error logging internal error:', logError);
     });
     
-    return new Response(
+        ip_address: ipAddress,
       JSON.stringify({
         success: false,
         error: {
