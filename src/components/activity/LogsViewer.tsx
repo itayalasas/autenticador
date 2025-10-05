@@ -68,11 +68,20 @@ export default function LogsViewer() {
     uniqueIPs: 0
   });
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const logsPerPage = 100;
+
   useEffect(() => {
     loadApplications();
     loadLogs();
     loadBlockedIPs();
+    setCurrentPage(1);
   }, [appFilter, eventFilter, timeFilter]);
+
+  useEffect(() => {
+    loadLogs();
+  }, [currentPage]);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -142,6 +151,49 @@ export default function LogsViewer() {
 
   const loadLogs = async () => {
     try {
+      // First, get total count for pagination
+      let countQuery = supabase
+        .from('auth_logs')
+        .select('*', { count: 'exact', head: true });
+
+      if (appFilter !== 'all') {
+        countQuery = countQuery.eq('application_id', appFilter);
+      }
+
+      if (eventFilter !== 'all') {
+        countQuery = countQuery.eq('event_type', eventFilter);
+      }
+
+      if (timeFilter !== 'all') {
+        const now = new Date();
+        let startDate = new Date();
+
+        switch (timeFilter) {
+          case '1h':
+            startDate.setHours(now.getHours() - 1);
+            break;
+          case '24h':
+            startDate.setHours(now.getHours() - 24);
+            break;
+          case '7d':
+            startDate.setDate(now.getDate() - 7);
+            break;
+          case '30d':
+            startDate.setDate(now.getDate() - 30);
+            break;
+        }
+
+        countQuery = countQuery.gte('created_at', startDate.toISOString());
+      }
+
+      const { count } = await countQuery;
+      const totalCount = count || 0;
+      setTotalPages(Math.ceil(totalCount / logsPerPage));
+
+      // Now get the actual data with pagination
+      const from = (currentPage - 1) * logsPerPage;
+      const to = from + logsPerPage - 1;
+
       let query = supabase
         .from('auth_logs')
         .select(`
@@ -150,7 +202,7 @@ export default function LogsViewer() {
           app_user:app_users(name, email)
         `)
         .order('created_at', { ascending: false })
-        .limit(100);
+        .range(from, to);
 
       if (appFilter !== 'all') {
         query = query.eq('application_id', appFilter);
@@ -199,14 +251,51 @@ export default function LogsViewer() {
 
       setLogs(groupedData);
 
-      if (filteredData) {
-        const uniqueUsers = new Set(filteredData.map(l => l.app_user_id).filter(Boolean));
-        const uniqueIPs = new Set(filteredData.map(l => l.ip_address));
+      // Get stats for ALL data (not just current page)
+      let statsQuery = supabase
+        .from('auth_logs')
+        .select('success, app_user_id, ip_address');
+
+      if (appFilter !== 'all') {
+        statsQuery = statsQuery.eq('application_id', appFilter);
+      }
+
+      if (eventFilter !== 'all') {
+        statsQuery = statsQuery.eq('event_type', eventFilter);
+      }
+
+      if (timeFilter !== 'all') {
+        const now = new Date();
+        let startDate = new Date();
+
+        switch (timeFilter) {
+          case '1h':
+            startDate.setHours(now.getHours() - 1);
+            break;
+          case '24h':
+            startDate.setHours(now.getHours() - 24);
+            break;
+          case '7d':
+            startDate.setDate(now.getDate() - 7);
+            break;
+          case '30d':
+            startDate.setDate(now.getDate() - 30);
+            break;
+        }
+
+        statsQuery = statsQuery.gte('created_at', startDate.toISOString());
+      }
+
+      const { data: statsData } = await statsQuery;
+
+      if (statsData) {
+        const uniqueUsers = new Set(statsData.map(l => l.app_user_id).filter(Boolean));
+        const uniqueIPs = new Set(statsData.map(l => l.ip_address));
 
         setStats({
-          total: filteredData.length,
-          successful: filteredData.filter(l => l.success).length,
-          failed: filteredData.filter(l => !l.success).length,
+          total: totalCount,
+          successful: statsData.filter(l => l.success).length,
+          failed: statsData.filter(l => !l.success).length,
           uniqueUsers: uniqueUsers.size,
           uniqueIPs: uniqueIPs.size
         });
@@ -648,6 +737,76 @@ export default function LogsViewer() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between bg-gray-50">
+            <div className="text-sm text-gray-600">
+              Mostrando página {currentPage} de {totalPages}
+              <span className="ml-2 text-gray-500">
+                ({(currentPage - 1) * logsPerPage + 1} - {Math.min(currentPage * logsPerPage, stats.total)} de {stats.total} registros)
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage === 1}
+                className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+              >
+                Primera
+              </button>
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+              >
+                Anterior
+              </button>
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      className={`px-3 py-2 border rounded-lg text-sm ${
+                        currentPage === pageNum
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'border-gray-300 hover:bg-gray-100'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+              >
+                Siguiente
+              </button>
+              <button
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={currentPage === totalPages}
+                className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+              >
+                Última
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {showBlockIPModal && ipToBlock && (
