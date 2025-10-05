@@ -121,10 +121,10 @@ async function sendResetPasswordEmail(
   try {
     // Call send-email edge function
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
 
     console.log('📧 Supabase URL:', supabaseUrl);
-    console.log('📧 Service Key exists:', !!serviceKey);
+    console.log('📧 Anon Key exists:', !!anonKey);
     console.log('📧 Target URL:', `${supabaseUrl}/functions/v1/send-email`);
 
     const payload = {
@@ -149,7 +149,8 @@ async function sendResetPasswordEmail(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${serviceKey}`,
+        'Authorization': `Bearer ${anonKey}`,
+        'apikey': anonKey,
       },
       body: JSON.stringify(payload)
     });
