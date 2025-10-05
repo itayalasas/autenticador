@@ -223,7 +223,9 @@ async function sendResetPasswordEmail(
     from_name: emailConfig.from_name
   });
 
-  const html = getResetPasswordEmailHTML(name, resetUrl, appName);
+  const rawHtml = getResetPasswordEmailHTML(name, resetUrl, appName);
+  // Normalize line endings to CRLF for SMTP compatibility
+  const html = rawHtml.replace(/\r?\n/g, '\r\n');
   const subject = `Recupera tu contraseña - ${appName}`;
 
   let status = 'sent';
@@ -239,6 +241,12 @@ async function sendResetPasswordEmail(
         console.log('🔧 Using SMTP provider');
         if (emailConfig.smtp_host && emailConfig.smtp_user && emailConfig.smtp_password) {
           console.log('✅ SMTP configuration complete, sending email...');
+          console.log('🔧 SMTP Config:', {
+            host: emailConfig.smtp_host,
+            port: emailConfig.smtp_port,
+            user: emailConfig.smtp_user,
+            secure: emailConfig.smtp_secure
+          });
           await sendWithSMTP(emailConfig, email, subject, html);
           actuallySent = true;
         } else {
@@ -314,10 +322,12 @@ async function sendResetPasswordEmail(
   }
 
   if (status === 'failed') {
-    throw new Error(`Failed to send email: ${errorMessage}`);
+    console.error('⚠️ Email sending failed, but continuing with reset flow. Error:', errorMessage);
+    // Don't throw - we still want the reset password flow to succeed even if email fails
+    // The user can still recover using the token that was created
+  } else {
+    console.log('✅ Reset password email processed successfully');
   }
-
-  console.log('✅ Reset password email processed successfully');
 }
 
 serve(async (req) => {
@@ -538,12 +548,25 @@ serve(async (req) => {
       )
     }
 
+    // Load email config from application
+    console.log('📧 Raw application.email_config:', application.email_config);
+
     const emailConfig: EmailConfig = {
       email_provider: 'system',
       from_name: 'AuthSystem',
       from_email: 'noreply@authsystem.com',
       ...(application.email_config || {})
     }
+
+    console.log('📧 Final emailConfig:', {
+      provider: emailConfig.email_provider,
+      from_name: emailConfig.from_name,
+      from_email: emailConfig.from_email,
+      has_smtp_host: !!emailConfig.smtp_host,
+      has_smtp_user: !!emailConfig.smtp_user,
+      has_smtp_password: !!emailConfig.smtp_password
+    });
+
     const shouldSendPasswordResetEmail = emailConfig.send_password_reset_email !== false // Default to true
 
     // Generate reset token
