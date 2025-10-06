@@ -19,7 +19,7 @@ Deno.serve(async (req) => {
   // Handle CORS preflight request
   if (req.method === "OPTIONS") {
     return new Response(null, {
-      status: 204,
+      status: 200,
       headers: corsHeaders,
     });
   }
@@ -55,7 +55,7 @@ Deno.serve(async (req) => {
           success: false,
           error: {
             code: "INVALID_JSON",
-            message: "Request body must be valid JSON",
+            message: "Invalid JSON in request body",
           },
         }),
         {
@@ -138,7 +138,7 @@ Deno.serve(async (req) => {
         JSON.stringify({
           success: false,
           error: {
-            code: "TOKEN_USED",
+            code: "TOKEN_ALREADY_USED",
             message: "Este token ya ha sido utilizado",
           },
         }),
@@ -267,83 +267,12 @@ Deno.serve(async (req) => {
       console.error("⚠️ Error marking token as used:", markUsedError);
     }
 
-    const ipAddress =
-      req.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
-      req.headers.get("x-real-ip") ||
-      "0.0.0.0";
-
-    await supabase.from("auth_logs").insert({
-      application_id: appUser.application_id,
-      app_user_id: appUser.id,
-      event_type: "password_reset",
-      ip_address: ipAddress,
-      user_agent: req.headers.get("user-agent") || "unknown",
-      success: true,
-      metadata: {
-        email: email,
-        action: "password_changed",
-      },
-    });
-
-    console.log("✅ Password reset successful for:", email);
-
-    // Get application details for token generation
-    const { data: application } = await supabase
-      .from("applications")
-      .select("application_id, name, domain")
-      .eq("id", appUser.application_id)
-      .maybeSingle();
-
-    // Get user roles
-    const { data: userRoles } = await supabase
-      .from("user_roles")
-      .select("role_name, permissions")
-      .eq("app_user_id", appUser.id);
-
-    const roles = userRoles?.map((r) => r.role_name) || ["user"];
-    const permissions = userRoles?.flatMap((r) => r.permissions) || ["read"];
-
-    // Generate access and refresh tokens
-    const now = Math.floor(Date.now() / 1000);
-    const accessTokenPayload = {
-      sub: appUser.id,
-      email: appUser.email,
-      name: appUser.name,
-      app_id: application?.application_id,
-      roles: roles,
-      permissions: permissions,
-      iat: now,
-      exp: now + 24 * 60 * 60, // 24 hours
-      iss: "AuthSystem",
-      aud: application?.domain,
-    };
-
-    const accessToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify(accessTokenPayload))}.signature`;
-    const refreshToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify({ ...accessTokenPayload, type: "refresh", exp: now + 30 * 24 * 60 * 60 }))}.signature`;
+    console.log("✅ Password updated successfully");
 
     return new Response(
       JSON.stringify({
         success: true,
-        data: {
-          message: "Contraseña actualizada exitosamente",
-          access_token: accessToken,
-          refresh_token: refreshToken,
-          token_type: "Bearer",
-          expires_in: 86400,
-          user: {
-            id: appUser.id,
-            email: appUser.email,
-            name: appUser.name,
-            roles: roles,
-            permissions: permissions,
-            metadata: appUser.metadata || {},
-          },
-          application: {
-            id: application?.application_id,
-            name: application?.name,
-            domain: application?.domain,
-          },
-        },
+        message: "Contraseña actualizada exitosamente",
       }),
       {
         status: 200,
@@ -351,8 +280,7 @@ Deno.serve(async (req) => {
       }
     );
   } catch (error) {
-    console.error("Reset password confirm error:", error);
-
+    console.error("❌ Unexpected error:", error);
     return new Response(
       JSON.stringify({
         success: false,
