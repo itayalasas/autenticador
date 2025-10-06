@@ -267,21 +267,21 @@ export default function SettingsPage() {
     // Si es plan gratuito (precio 0), crear directamente
     if (plan.price === 0) {
       try {
-        setUpgradeLoading(true);
+        setSpecificPlanLoading(planId);
         await subscriptionService.createSubscription(planId);
         await loadSubscriptionData();
         showSuccess(
           'Plan actualizado',
           `Has cambiado al plan ${plan.name} exitosamente.`
         );
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error upgrading to free plan:', error);
         showError(
           'Error al actualizar plan',
-          'Ha ocurrido un error al cambiar al plan gratuito.'
+          error?.message || 'Ha ocurrido un error al cambiar al plan gratuito.'
         );
       } finally {
-        setUpgradeLoading(false);
+        setSpecificPlanLoading(null);
       }
       return;
     }

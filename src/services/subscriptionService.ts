@@ -103,6 +103,68 @@ export const subscriptionService = {
     return data;
   },
 
+  // Ensure basic plan exists in database
+  async ensureBasicPlanExists(): Promise<string> {
+    const basicPlanId = '00000000-0000-0000-0000-000000000000';
+
+    // Check if basic plan exists
+    const { data: existingPlan, error: checkError } = await supabase
+      .from('subscription_plans')
+      .select('id')
+      .eq('id', basicPlanId)
+      .maybeSingle();
+
+    if (checkError) {
+      console.error('Error checking for basic plan:', checkError);
+      throw checkError;
+    }
+
+    // If plan exists, return its ID
+    if (existingPlan) {
+      return basicPlanId;
+    }
+
+    // If plan doesn't exist, create it
+    console.log('📝 Creating basic plan in database...');
+    const { data: newPlan, error: createError } = await supabase
+      .from('subscription_plans')
+      .insert({
+        id: basicPlanId,
+        name: 'Básico',
+        description: 'Perfecto para comenzar y desarrollo',
+        price: 0,
+        currency: 'USD',
+        interval: 'month',
+        features: [
+          'Ambiente Development únicamente',
+          '1 aplicación',
+          'Hasta 100 usuarios',
+          '10,000 requests API por mes',
+          'Soporte comunitario'
+        ],
+        limits: {
+          applications: 1,
+          users_per_app: 100,
+          api_requests_per_month: 10000,
+          environments: ['development'],
+          support_level: 'basic'
+        },
+        is_popular: false,
+        trial_days: 0,
+        is_active: true
+      })
+      .select('id')
+      .single();
+
+    if (createError) {
+      console.error('❌ Error creating basic plan:', createError);
+      throw createError;
+    }
+
+    console.log('✅ Basic plan created in database');
+    return newPlan.id;
+  },
+
   // Create basic subscription automatically for new users
   async createBasicSubscription(): Promise<Subscription> {
     const { data: { user } } = await supabase.auth.getUser();
@@ -110,61 +172,15 @@ export const subscriptionService = {
 
     console.log('🔄 Creating basic subscription for user:', user.id);
 
-    // Get or create basic plan in database
-    let { data: basicPlan, error: planError } = await supabase
-      .from('subscription_plans')
-      .select('*')
-      .eq('name', 'Básico')
-      .eq('price', 0)
-      .single();
-
-    if (planError || !basicPlan) {
-      console.log('📝 Creating basic plan in database...');
-      // Create basic plan if it doesn't exist
-      const { data: newPlan, error: createPlanError } = await supabase
-        .from('subscription_plans')
-        .insert({
-          name: 'Básico',
-          description: 'Perfecto para comenzar y desarrollo',
-          price: 0,
-          currency: 'USD',
-          interval: 'month',
-          features: [
-            'Ambiente Development únicamente',
-            '1 aplicación',
-            'Hasta 100 usuarios',
-            '10,000 requests API por mes',
-            'Soporte comunitario'
-          ],
-          limits: {
-            applications: 1,
-            users_per_app: 100,
-            api_requests_per_month: 10000,
-            environments: ['development'],
-            support_level: 'basic'
-          },
-          is_popular: false,
-          trial_days: 0,
-          is_active: true
-        })
-        .select()
-        .single();
-
-      if (createPlanError) {
-        console.error('❌ Error creating basic plan:', createPlanError);
-        throw createPlanError;
-      }
-      
-      basicPlan = newPlan;
-      console.log('✅ Basic plan created in database:', basicPlan);
-    }
+    // Ensure basic plan exists
+    const basicPlanId = await this.ensureBasicPlanExists();
 
     // Create subscription
     const { data: subscription, error: subError } = await supabase
       .from('subscriptions')
       .insert({
         user_id: user.id,
-        plan_id: basicPlan.id,
+        plan_id: basicPlanId,
         status: 'active',
         current_period_start: new Date().toISOString(),
         current_period_end: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(), // 1 year
@@ -203,6 +219,9 @@ export const subscriptionService = {
     if (plan.price === 0) {
       console.log('Creating free basic subscription for user:', user.id);
 
+      // Ensure basic plan exists in database
+      const basicPlanId = await this.ensureBasicPlanExists();
+
       // Cancel any existing subscriptions first
       const { error: cancelError } = await supabase
         .from('subscriptions')
@@ -222,7 +241,7 @@ export const subscriptionService = {
         .from('subscriptions')
         .insert({
           user_id: user.id,
-          plan_id: '00000000-0000-0000-0000-000000000000', // Fixed ID for basic plan
+          plan_id: basicPlanId,
           status: 'active',
           current_period_start: new Date().toISOString(),
           current_period_end: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(), // 1 year for free plan
