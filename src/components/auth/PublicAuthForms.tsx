@@ -442,23 +442,18 @@ export default function PublicAuthForms({
               {appInfo?.name?.charAt(0) || 'A'}
             </div>
           )}
-          <h1 
+          <h1
             className="text-3xl font-bold mb-2"
             style={{ color: defaultBranding.text_color }}
           >
             {getFormTitle()}
           </h1>
-          <p 
-            className="text-gray-600 mb-4"
+          <p
+            className="text-gray-600"
             style={{ color: defaultBranding.text_color }}
           >
             {getFormSubtitle()}
           </p>
-          {appInfo && (
-            <p className="text-sm text-gray-500 mt-2">
-              {appInfo.name}
-            </p>
-          )}
         </div>
 
         {/* Auth Card */}
