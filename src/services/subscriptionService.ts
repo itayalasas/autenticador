@@ -6,88 +6,79 @@ export const subscriptionService = {
   // Get all available subscription plans
   async getSubscriptionPlans(): Promise<SubscriptionPlan[]> {
     try {
-      // First try to get plans from DLocal API
+      // Plan básico gratuito (siempre disponible, manejado internamente)
+      const freePlan: SubscriptionPlan = {
+        id: '00000000-0000-0000-0000-000000000000',
+        name: 'Básico',
+        description: 'Perfecto para comenzar y desarrollo',
+        price: 0,
+        currency: 'USD',
+        interval: 'month',
+        trial_days: 0,
+        is_active: true,
+        is_popular: false,
+        features: [
+          'Ambiente Development únicamente',
+          '1 aplicación',
+          'Hasta 100 usuarios',
+          '10,000 requests API por mes',
+          'Soporte comunitario'
+        ],
+        limits: {
+          applications: 1,
+          users_per_app: 100,
+          api_requests_per_month: 10000,
+          environments: ['development'],
+          support_level: 'basic'
+        }
+      };
+
+      // Try to get paid plans from DLocal API
       try {
         const dLocalPlans = await dLocalService.getSubscriptionPlans();
-        
-        // Convert DLocal plans to internal format
         const convertedPlans = dLocalPlans.map(plan => dLocalService.convertToInternalPlan(plan));
-        
-        // Add free plan
-        const freePlan = {
-          id: '00000000-0000-0000-0000-000000000000',
-          name: 'Básico',
-          description: 'Perfecto para comenzar y desarrollo',
-          price: 0,
-          currency: 'USD',
-          interval: 'month',
-          trial_days: 0,
-          is_active: true,
-          is_popular: false,
-          features: [
-            'Ambiente Development únicamente',
-            '1 aplicación',
-            'Hasta 100 usuarios',
-            '10,000 requests API por mes',
-            'Soporte comunitario'
-          ],
-          limits: {
-            applications: 1,
-            users_per_app: 100,
-            api_requests_per_month: 10000,
-            environments: ['development'],
-            support_level: 'basic'
-          }
-        };
-        
+
+        // Return free plan + DLocal plans
         return [freePlan, ...convertedPlans];
       } catch (dLocalError) {
-        console.warn('DLocal API not available, using fallback plans');
-        // Return only free plan and fallback plans if DLocal fails
-        const freePlan = {
-          id: '00000000-0000-0000-0000-000000000000',
-          name: 'Básico',
-          description: 'Perfecto para comenzar y desarrollo',
-          price: 0,
-          currency: 'USD',
-          interval: 'month',
-          trial_days: 0,
-          is_active: true,
-          is_popular: false,
-          features: [
-            'Ambiente Development únicamente',
-            '1 aplicación',
-            'Hasta 100 usuarios',
-            '10,000 requests API por mes',
-            'Soporte comunitario'
-          ],
-          limits: {
-            applications: 1,
-            users_per_app: 100,
-            api_requests_per_month: 10000,
-            environments: ['development'],
-            support_level: 'basic'
-          }
-        };
+        console.warn('DLocal API not available, using fallback plans:', dLocalError);
 
         // Use fallback DLocal plans
         const fallbackDLocalPlans = dLocalService.getFallbackPlans();
         const convertedFallbackPlans = fallbackDLocalPlans.map(plan => dLocalService.convertToInternalPlan(plan));
-        
+
+        // Return free plan + fallback plans
         return [freePlan, ...convertedFallbackPlans];
       }
     } catch (error) {
-      console.error('Error loading DLocal plans, using fallback:', error);
-      
-      // Fallback to database plans if DLocal fails
-      const { data, error: dbError } = await supabase
-        .from('subscription_plans')
-        .select('*')
-        .eq('is_active', true)
-        .order('price', { ascending: true });
+      console.error('Error loading subscription plans:', error);
 
-      if (dbError) throw dbError;
-      return data || [];
+      // Ultimate fallback: return only free plan
+      return [{
+        id: '00000000-0000-0000-0000-000000000000',
+        name: 'Básico',
+        description: 'Perfecto para comenzar y desarrollo',
+        price: 0,
+        currency: 'USD',
+        interval: 'month',
+        trial_days: 0,
+        is_active: true,
+        is_popular: false,
+        features: [
+          'Ambiente Development únicamente',
+          '1 aplicación',
+          'Hasta 100 usuarios',
+          '10,000 requests API por mes',
+          'Soporte comunitario'
+        ],
+        limits: {
+          applications: 1,
+          users_per_app: 100,
+          api_requests_per_month: 10000,
+          environments: ['development'],
+          support_level: 'basic'
+        }
+      }];
     }
   },
 
@@ -208,40 +199,51 @@ export const subscriptionService = {
 
     if (!plan) throw new Error('Plan not found');
 
-    // For free plan, create subscription directly
+    // For free plan (Basic), create subscription directly without DLocal
     if (plan.price === 0) {
+      console.log('Creating free basic subscription for user:', user.id);
+
       // Cancel any existing subscriptions first
       const { error: cancelError } = await supabase
         .from('subscriptions')
-        .update({ 
+        .update({
           status: 'cancelled',
           cancelled_at: new Date().toISOString()
         })
         .eq('user_id', user.id)
-        .in('status', ['active', 'trialing']);
+        .in('status', ['active', 'trialing', 'pending']);
 
       if (cancelError) {
         console.warn('Could not cancel existing subscriptions:', cancelError);
       }
 
-      const trialEnd = plan.trial_days > 0 
-        ? new Date(Date.now() + plan.trial_days * 24 * 60 * 60 * 1000)
-        : null;
-
+      // Create new basic subscription
       const { data: subscription, error: subError } = await supabase
         .from('subscriptions')
         .insert({
           user_id: user.id,
-          plan_id: planId,
-          status: plan.trial_days > 0 ? 'trialing' : 'active',
+          plan_id: '00000000-0000-0000-0000-000000000000', // Fixed ID for basic plan
+          status: 'active',
           current_period_start: new Date().toISOString(),
           current_period_end: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(), // 1 year for free plan
-          trial_end: trialEnd?.toISOString()
+          metadata: {
+            plan_name: 'Básico',
+            internal: true,
+            created_via: 'manual_selection'
+          }
         })
-        .select()
+        .select(`
+          *,
+          subscription_plans(*)
+        `)
         .single();
 
-      if (subError) throw subError;
+      if (subError) {
+        console.error('Error creating basic subscription:', subError);
+        throw subError;
+      }
+
+      console.log('Basic subscription created successfully:', subscription);
       return subscription;
     }
 
