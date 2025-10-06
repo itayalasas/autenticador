@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, useLocation, useSearchParams, u
 import { useAuth } from './hooks/useAuth';
 import AuthPage from './components/auth/AuthPage';
 import PublicAuthRouter from './components/auth/PublicAuthRouter';
+import ResetPasswordForm from './components/auth/ResetPasswordForm';
 import Sidebar from './components/layout/Sidebar';
 import Header from './components/layout/Header';
 import DashboardOverview from './components/dashboard/DashboardOverview';
@@ -204,6 +205,7 @@ function App() {
   return (
     <Router>
       <Routes>
+        <Route path="/reset-password" element={<ResetPasswordForm />} />
         <Route path="/:action" element={<PublicAuthRoute />} />
         <Route path="/*" element={<MainApp />} />
       </Routes>
