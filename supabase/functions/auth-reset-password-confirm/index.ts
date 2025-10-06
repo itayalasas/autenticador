@@ -238,11 +238,62 @@ Deno.serve(async (req) => {
 
     console.log("✅ Password reset successful for:", email);
 
+    // Get application details for token generation
+    const { data: application } = await supabase
+      .from("applications")
+      .select("application_id, name, domain")
+      .eq("id", appUser.application_id)
+      .maybeSingle();
+
+    // Get user roles
+    const { data: userRoles } = await supabase
+      .from("user_roles")
+      .select("role_name, permissions")
+      .eq("app_user_id", appUser.id);
+
+    const roles = userRoles?.map((r) => r.role_name) || ["user"];
+    const permissions = userRoles?.flatMap((r) => r.permissions) || ["read"];
+
+    // Generate access and refresh tokens
+    const now = Math.floor(Date.now() / 1000);
+    const accessTokenPayload = {
+      sub: appUser.id,
+      email: appUser.email,
+      name: appUser.name,
+      app_id: application?.application_id,
+      roles: roles,
+      permissions: permissions,
+      iat: now,
+      exp: now + 24 * 60 * 60, // 24 hours
+      iss: "AuthSystem",
+      aud: application?.domain,
+    };
+
+    const accessToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify(accessTokenPayload))}.signature`;
+    const refreshToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify({ ...accessTokenPayload, type: "refresh", exp: now + 30 * 24 * 60 * 60 }))}.signature`;
+
     return new Response(
       JSON.stringify({
         success: true,
         data: {
           message: "Contraseña actualizada exitosamente",
+          access_token: accessToken,
+          refresh_token: refreshToken,
+          token_type: "Bearer",
+          expires_in: 86400,
+          user: {
+            id: appUser.id,
+            email: appUser.email,
+            name: appUser.name,
+            roles: roles,
+            permissions: permissions,
+            metadata: appUser.metadata || {},
+          },
+          application: {
+            id: application?.application_id,
+            name: application?.name,
+            domain: application?.domain,
+          },
         },
       }),
       {

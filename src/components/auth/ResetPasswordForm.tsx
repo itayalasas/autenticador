@@ -259,11 +259,26 @@ export default function ResetPasswordForm() {
 
       setSuccess(true);
 
-      setTimeout(() => {
-        if (application) {
-          window.location.href = `/login?app_id=${application.application_id}${apiKey ? `&api_key=${apiKey}` : ''}${callbackUrl ? `&callback_url=${encodeURIComponent(callbackUrl)}` : ''}`;
-        }
-      }, 3000);
+      // If we have tokens and a callback URL, redirect with authentication
+      if (data.data?.access_token && callbackUrl) {
+        const params = new URLSearchParams({
+          token: data.data.access_token,
+          refresh_token: data.data.refresh_token,
+          user_id: data.data.user.id,
+          state: 'password_reset_success',
+        });
+
+        setTimeout(() => {
+          window.location.href = `${callbackUrl}?${params.toString()}`;
+        }, 2000);
+      } else {
+        // Otherwise redirect to login page
+        setTimeout(() => {
+          if (application) {
+            window.location.href = `/login?app_id=${application.application_id}${apiKey ? `&api_key=${apiKey}` : ''}${callbackUrl ? `&callback_url=${encodeURIComponent(callbackUrl)}` : ''}`;
+          }
+        }, 3000);
+      }
     } catch (err: any) {
       setError(err.message || 'Error al restablecer la contraseña. Por favor intenta nuevamente.');
     } finally {
@@ -304,7 +319,7 @@ export default function ResetPasswordForm() {
             Tu contraseña ha sido actualizada exitosamente.
           </p>
           <p className="text-sm text-gray-500">
-            Serás redirigido a la página de inicio de sesión...
+            {callbackUrl ? 'Redirigiendo a tu aplicación...' : 'Serás redirigido a la página de inicio de sesión...'}
           </p>
         </div>
       </div>
