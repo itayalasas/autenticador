@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import bcrypt from "npm:bcryptjs@2.4.3";
+import { create, getNumericDate } from "https://deno.land/x/djwt@v2.8/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,6 +14,39 @@ interface ResetPasswordConfirmRequest {
   token: string;
   email: string;
   new_password: string;
+}
+
+async function generateAuthTokens(userId: string, applicationId: string, jwtSecret: string) {
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(jwtSecret);
+  const key = await crypto.subtle.importKey(
+    "raw",
+    keyData,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"]
+  );
+
+  const accessTokenPayload = {
+    sub: userId,
+    app_id: applicationId,
+    type: "access",
+    exp: getNumericDate(60 * 60), // 1 hour
+    iat: getNumericDate(0),
+  };
+
+  const refreshTokenPayload = {
+    sub: userId,
+    app_id: applicationId,
+    type: "refresh",
+    exp: getNumericDate(60 * 60 * 24 * 30), // 30 days
+    iat: getNumericDate(0),
+  };
+
+  const accessToken = await create({ alg: "HS256", typ: "JWT" }, accessTokenPayload, key);
+  const refreshToken = await create({ alg: "HS256", typ: "JWT" }, refreshTokenPayload, key);
+
+  return { accessToken, refreshToken };
 }
 
 Deno.serve(async (req) => {
@@ -269,10 +303,42 @@ Deno.serve(async (req) => {
 
     console.log("✅ Password updated successfully");
 
+    // Get application JWT secret
+    const { data: appData } = await supabase
+      .from("applications")
+      .select("jwt_secret")
+      .eq("id", appUser.application_id)
+      .maybeSingle();
+
+    let authTokens = null;
+    if (appData?.jwt_secret) {
+      try {
+        const tokens = await generateAuthTokens(
+          appUser.id,
+          appUser.application_id,
+          appData.jwt_secret
+        );
+
+        authTokens = {
+          access_token: tokens.accessToken,
+          refresh_token: tokens.refreshToken,
+          user: {
+            id: appUser.id,
+            email: appUser.email,
+          },
+        };
+
+        console.log("✅ Auth tokens generated for auto-login");
+      } catch (tokenError) {
+        console.error("⚠️ Error generating auth tokens:", tokenError);
+      }
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
         message: "Contraseña actualizada exitosamente",
+        data: authTokens,
       }),
       {
         status: 200,
