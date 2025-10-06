@@ -35,11 +35,22 @@ interface EmailConfig {
 
 async function sendWithSMTP(config: EmailConfig, to: string, subject: string, html: string): Promise<boolean> {
   try {
+    const port = config.smtp_port || 587;
+    const useTLS = config.smtp_secure ?? (port === 465);
+
+    console.log('📧 SMTP Connection Details:', {
+      host: config.smtp_host,
+      port: port,
+      useTLS: useTLS,
+      user: config.smtp_user,
+      from: config.from_email
+    });
+
     const client = new SMTPClient({
       connection: {
         hostname: config.smtp_host || '',
-        port: config.smtp_port || 587,
-        tls: config.smtp_secure ?? true,
+        port: port,
+        tls: useTLS,
         auth: {
           username: config.smtp_user || '',
           password: config.smtp_password || '',
@@ -47,7 +58,9 @@ async function sendWithSMTP(config: EmailConfig, to: string, subject: string, ht
       },
     });
 
-    await client.send({
+    console.log('📤 Sending email to:', to);
+
+    const result = await client.send({
       from: `${config.from_name} <${config.from_email}>`,
       to,
       subject,
@@ -55,11 +68,17 @@ async function sendWithSMTP(config: EmailConfig, to: string, subject: string, ht
       html,
     });
 
+    console.log('📬 SMTP Send Result:', result);
+
     await client.close();
     console.log('✅ Email sent successfully via SMTP');
     return true;
-  } catch (error) {
-    console.error('❌ SMTP Error:', error);
+  } catch (error: any) {
+    console.error('❌ SMTP Error Details:', {
+      message: error.message,
+      name: error.name,
+      stack: error.stack
+    });
     throw error;
   }
 }
