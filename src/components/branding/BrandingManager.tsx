@@ -63,6 +63,17 @@ export default function BrandingManager() {
     reset_success_message: 'Email de recuperación enviado',
     reset_error_message: 'Error al enviar email de recuperación',
 
+    // Confirm reset password form texts
+    confirm_reset_title: 'Nueva Contraseña',
+    confirm_reset_subtitle: 'Ingresa tu nueva contraseña',
+    confirm_reset_password_label: 'Nueva Contraseña',
+    confirm_reset_password_placeholder: '••••••••',
+    confirm_reset_confirm_password_label: 'Confirmar Nueva Contraseña',
+    confirm_reset_confirm_password_placeholder: '••••••••',
+    confirm_reset_button_text: 'Cambiar Contraseña',
+    confirm_reset_success_message: 'Contraseña actualizada exitosamente',
+    confirm_reset_error_message: 'Error al actualizar la contraseña',
+
     // Common texts
     loading_text: 'Cargando...',
     processing_text: 'Procesando...',
@@ -204,6 +215,17 @@ export default function BrandingManager() {
       reset_login_link_text: '¿Recordaste tu contraseña? Inicia sesión',
       reset_success_message: 'Email de recuperación enviado',
       reset_error_message: 'Error al enviar email de recuperación',
+
+      // Confirm reset password form texts
+      confirm_reset_title: 'Nueva Contraseña',
+      confirm_reset_subtitle: 'Ingresa tu nueva contraseña',
+      confirm_reset_password_label: 'Nueva Contraseña',
+      confirm_reset_password_placeholder: '••••••••',
+      confirm_reset_confirm_password_label: 'Confirmar Nueva Contraseña',
+      confirm_reset_confirm_password_placeholder: '••••••••',
+      confirm_reset_button_text: 'Cambiar Contraseña',
+      confirm_reset_success_message: 'Contraseña actualizada exitosamente',
+      confirm_reset_error_message: 'Error al actualizar la contraseña',
 
       // Common texts
       loading_text: 'Cargando...',
@@ -571,6 +593,91 @@ export default function BrandingManager() {
           </div>
         );
 
+      case 'confirm-reset':
+        return (
+          <div
+            className="w-full max-w-md p-8 rounded-lg shadow-lg"
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: `${branding.border_radius}px`
+            }}
+          >
+            {/* Logo */}
+            <div className="text-center mb-8">
+              {branding.logo_url ? (
+                <img src={branding.logo_url} alt="Logo" className="h-12 mx-auto mb-4" />
+              ) : (
+                <div
+                  className="w-16 h-16 rounded-lg mx-auto mb-4 flex items-center justify-center text-white font-bold text-xl"
+                  style={{ backgroundColor: branding.primary_color }}
+                >
+                  L
+                </div>
+              )}
+              <h2
+                className="text-2xl font-bold"
+                style={{ color: branding.text_color }}
+              >
+                {texts.confirm_reset_title}
+              </h2>
+              <p className="text-gray-500 mt-1">
+                {texts.confirm_reset_subtitle}
+              </p>
+            </div>
+
+            {/* Form */}
+            <div className="space-y-4">
+              <div>
+                <label
+                  className="block text-sm font-medium mb-2"
+                  style={{ color: branding.text_color }}
+                >
+                  {texts.confirm_reset_password_label}
+                </label>
+                <input
+                  type="password"
+                  placeholder={texts.confirm_reset_password_placeholder}
+                  className="w-full px-3 py-2 border border-gray-300 focus:ring-2 focus:border-transparent"
+                  style={{
+                    borderRadius: `${branding.border_radius}px`,
+                    '--tw-ring-color': branding.primary_color
+                  } as React.CSSProperties}
+                />
+              </div>
+
+              <div>
+                <label
+                  className="block text-sm font-medium mb-2"
+                  style={{ color: branding.text_color }}
+                >
+                  {texts.confirm_reset_confirm_password_label}
+                </label>
+                <input
+                  type="password"
+                  placeholder={texts.confirm_reset_confirm_password_placeholder}
+                  className="w-full px-3 py-2 border border-gray-300 focus:ring-2 focus:border-transparent"
+                  style={{
+                    borderRadius: `${branding.border_radius}px`,
+                    '--tw-ring-color': branding.primary_color
+                  } as React.CSSProperties}
+                />
+              </div>
+
+              <button
+                className="w-full py-3 font-medium text-white transition-colors"
+                style={{
+                  backgroundColor: branding.primary_color,
+                  borderRadius: branding.button_style === 'rounded'
+                    ? `${branding.border_radius}px`
+                    : '4px'
+                }}
+              >
+                {texts.confirm_reset_button_text}
+              </button>
+            </div>
+          </div>
+        );
+
       default:
         return null;
     }
@@ -877,6 +984,16 @@ export default function BrandingManager() {
                   >
                     Recuperar
                   </button>
+                  <button
+                    onClick={() => setPreviewMode('confirm-reset')}
+                    className={`px-3 py-1.5 rounded text-sm ${
+                      previewMode === 'confirm-reset'
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    Nueva Contraseña
+                  </button>
                 </div>
               </div>
 
@@ -1126,6 +1243,62 @@ export default function BrandingManager() {
                       type="text"
                       value={texts.reset_login_link_text}
                       onChange={(e) => handleTextChange('reset_login_link_text', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {previewMode === 'confirm-reset' && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Título</label>
+                      <input
+                        type="text"
+                        value={texts.confirm_reset_title}
+                        onChange={(e) => handleTextChange('confirm_reset_title', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Subtítulo</label>
+                      <input
+                        type="text"
+                        value={texts.confirm_reset_subtitle}
+                        onChange={(e) => handleTextChange('confirm_reset_subtitle', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Etiqueta Nueva Contraseña</label>
+                      <input
+                        type="text"
+                        value={texts.confirm_reset_password_label}
+                        onChange={(e) => handleTextChange('confirm_reset_password_label', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Etiqueta Confirmar Contraseña</label>
+                      <input
+                        type="text"
+                        value={texts.confirm_reset_confirm_password_label}
+                        onChange={(e) => handleTextChange('confirm_reset_confirm_password_label', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Texto del Botón</label>
+                    <input
+                      type="text"
+                      value={texts.confirm_reset_button_text}
+                      onChange={(e) => handleTextChange('confirm_reset_button_text', e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
