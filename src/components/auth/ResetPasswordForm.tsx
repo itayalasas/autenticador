@@ -6,6 +6,7 @@ import { supabase } from '../../lib/supabase';
 interface BrandingConfig {
   primary_color: string;
   secondary_color: string;
+  accent_color?: string;
   logo_url?: string;
   custom_texts?: {
     reset_password_title?: string;
@@ -464,7 +465,7 @@ export default function ResetPasswordForm() {
               <a
                 href={`/login?app_id=${appId}${apiKey ? `&api_key=${apiKey}` : ''}${callbackUrl ? `&callback_url=${encodeURIComponent(callbackUrl)}` : ''}`}
                 className="inline-flex items-center gap-2 text-sm hover:underline"
-                style={{ color: primaryColor }}
+                style={{ color: branding.accent_color || primaryColor }}
               >
                 <ArrowLeft className="w-4 h-4" />
                 Volver al inicio de sesión

@@ -14,6 +14,7 @@ interface PublicAuthFormsProps {
   branding?: {
     primary_color?: string;
     secondary_color?: string;
+    accent_color?: string;
     background_color?: string;
     text_color?: string;
     font_family?: string;
@@ -57,6 +58,7 @@ export default function PublicAuthForms({
   const defaultBranding = {
     primary_color: '#3B82F6',
     secondary_color: '#1E40AF',
+    accent_color: '#F59E0B',
     background_color: '#FFFFFF',
     text_color: '#1F2937',
     font_family: 'Inter',
@@ -665,19 +667,19 @@ export default function PublicAuthForms({
           <div className="mt-6 text-center space-y-2">
             {formType === 'login' && (
               <>
-                <a 
+                <a
                   href={`/reset-password?app_id=${applicationId}&api_key=${urlParams.get('api_key') || ''}&callback_url=${encodeURIComponent(urlParams.get('callback_url') || '')}`}
                   className="text-sm hover:underline"
-                  style={{ color: defaultBranding.primary_color }}
+                  style={{ color: defaultBranding.accent_color }}
                 >
                   {getText('login_forgot_password_text', '¿Olvidaste tu contraseña?')}
                 </a>
                 <p className="text-sm text-gray-600">
                   {getText('login_register_link_text', '¿No tienes cuenta? Regístrate aquí').split('Regístrate aquí')[0]}
-                  <a 
+                  <a
                     href={`/register?app_id=${applicationId}&api_key=${urlParams.get('api_key') || ''}&callback_url=${encodeURIComponent(urlParams.get('callback_url') || '')}`}
                     className="hover:underline"
-                    style={{ color: defaultBranding.primary_color }}
+                    style={{ color: defaultBranding.accent_color }}
                   >
                     {getText('login_register_link_text', '¿No tienes cuenta? Regístrate aquí').split('? ')[1] || 'Regístrate aquí'}
                   </a>
@@ -687,10 +689,10 @@ export default function PublicAuthForms({
             {formType === 'register' && (
               <p className="text-sm text-gray-600">
                 {getText('register_login_link_text', '¿Ya tienes cuenta? Inicia sesión').split('Inicia sesión')[0]}
-                <a 
+                <a
                   href={`/login?app_id=${applicationId}&api_key=${urlParams.get('api_key') || ''}&callback_url=${encodeURIComponent(urlParams.get('callback_url') || '')}`}
                   className="hover:underline"
-                  style={{ color: defaultBranding.primary_color }}
+                  style={{ color: defaultBranding.accent_color }}
                 >
                   {getText('register_login_link_text', '¿Ya tienes cuenta? Inicia sesión').split('? ')[1] || 'Inicia sesión'}
                 </a>
@@ -699,10 +701,10 @@ export default function PublicAuthForms({
             {formType === 'reset-password' && (
               <p className="text-sm text-gray-600">
                 {getText('reset_login_link_text', '¿Recordaste tu contraseña? Inicia sesión').split('Inicia sesión')[0]}
-                <a 
+                <a
                   href={`/login?app_id=${applicationId}&api_key=${urlParams.get('api_key') || ''}&callback_url=${encodeURIComponent(urlParams.get('callback_url') || '')}`}
                   className="hover:underline"
-                  style={{ color: defaultBranding.primary_color }}
+                  style={{ color: defaultBranding.accent_color }}
                 >
                   {getText('reset_login_link_text', '¿Recordaste tu contraseña? Inicia sesión').split('? ')[1] || 'Inicia sesión'}
                 </a>
