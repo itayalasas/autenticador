@@ -233,20 +233,15 @@ Deno.serve(async (req) => {
     }
 
     console.log('🔐 Checking password for user:', user.email);
-    
-    // Import bcrypt for proper password verification
-    const bcrypt = await import('https://deno.land/x/bcrypt@v0.4.1/mod.ts');
-    
-    let passwordValid = false;
-    try {
-      // Try bcrypt first (proper hashing)
-      passwordValid = await bcrypt.compare(password, user.password_hash);
-    } catch (bcryptError) {
-      console.log('⚠️ Bcrypt failed, trying base64 fallback:', bcryptError.message);
-      // Fallback to base64 for existing users
-      const passwordHash = btoa(password);
-      passwordValid = user.password_hash === passwordHash;
-    }
+
+    // Use Web Crypto API for password verification (compatible with Deno Deploy)
+    const encoder = new TextEncoder();
+    const data = encoder.encode(password);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const passwordHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+    const passwordValid = user.password_hash === passwordHash;
     
     if (!passwordValid) {
       console.log('❌ Invalid password for user:', user.email);

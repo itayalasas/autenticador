@@ -515,8 +515,12 @@ Deno.serve(async (req) => {
       );
     }
 
-    const bcrypt = await import('https://deno.land/x/bcrypt@v0.4.1/mod.ts');
-    const passwordHash = await bcrypt.hash(password, 10);
+    // Use Web Crypto API for password hashing (compatible with Deno Deploy)
+    const encoder = new TextEncoder();
+    const data = encoder.encode(password);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const passwordHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
     
     console.log('📧 Raw application.email_config:', application.email_config);
 
