@@ -189,7 +189,6 @@ Deno.serve(async (req) => {
       .from("app_users")
       .update({
         password_hash: hashedPassword,
-        updated_at: new Date().toISOString(),
       })
       .eq("id", appUser.id);
 
