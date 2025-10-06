@@ -133,7 +133,13 @@ async function sendWithSendGrid(apiKey: string, config: EmailConfig, to: string,
   }
 }
 
-function getVerificationEmailHTML(name: string, verificationUrl: string, appName: string): string {
+function getVerificationEmailHTML(
+  name: string,
+  verificationUrl: string,
+  appName: string,
+  logoUrl?: string,
+  primaryColor: string = '#3B82F6'
+): string {
   return `
     <!DOCTYPE html>
     <html>
@@ -142,45 +148,94 @@ function getVerificationEmailHTML(name: string, verificationUrl: string, appName
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>Verifica tu email</title>
     </head>
-    <body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f4;">
-      <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 20px;">
+    <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f5f7fa;">
+      <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f7fa; padding: 40px 20px;">
         <tr>
           <td align="center">
-            <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07); overflow: hidden;">
+
+              <!-- Header with Logo -->
               <tr>
-                <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 30px; text-align: center; border-radius: 8px 8px 0 0;">
-                  <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">Verifica tu Email</h1>
+                <td style="background-color: ${primaryColor}; padding: 48px 40px; text-align: center;">
+                  ${logoUrl ? `<img src="${logoUrl}" alt="${appName}" style="max-width: 180px; height: auto; margin-bottom: 20px;">` : ''}
+                  <h1 style="margin: 0; color: #ffffff; font-size: 32px; font-weight: 700; letter-spacing: -0.5px;">¡Bienvenido a ${appName}!</h1>
                 </td>
               </tr>
+
+              <!-- Content -->
               <tr>
-                <td style="padding: 40px 30px;">
-                  <p style="margin: 0 0 20px; color: #333333; font-size: 16px; line-height: 1.6;">
-                    Hola <strong>${name}</strong>,
+                <td style="padding: 48px 40px;">
+                  <p style="margin: 0 0 24px; color: #1f2937; font-size: 18px; font-weight: 600;">
+                    Hola ${name},
                   </p>
-                  <p style="margin: 0 0 20px; color: #666666; font-size: 14px; line-height: 1.6;">
-                    Gracias por registrarte en <strong>${appName}</strong>. Para completar tu registro y activar tu cuenta, necesitamos verificar tu dirección de email.
+                  <p style="margin: 0 0 16px; color: #4b5563; font-size: 16px; line-height: 1.6;">
+                    Gracias por registrarte en <strong style="color: #1f2937;">${appName}</strong>. Estamos emocionados de tenerte con nosotros.
                   </p>
-                  <p style="margin: 0 0 30px; color: #666666; font-size: 14px; line-height: 1.6;">
-                    Haz clic en el botón de abajo para verificar tu email:
+                  <p style="margin: 0 0 32px; color: #4b5563; font-size: 16px; line-height: 1.6;">
+                    Para completar tu registro y activar tu cuenta, solo necesitas verificar tu dirección de email haciendo clic en el botón de abajo:
                   </p>
+
+                  <!-- Button -->
                   <table width="100%" cellpadding="0" cellspacing="0">
                     <tr>
-                      <td align="center" style="padding: 20px 0;">
-                        <a href="${verificationUrl}" style="display: inline-block; padding: 16px 40px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; border-radius: 6px; box-shadow: 0 4px 6px rgba(102, 126, 234, 0.4);">
+                      <td align="center" style="padding: 0 0 32px 0;">
+                        <a href="${verificationUrl}" style="display: inline-block; padding: 16px 48px; background-color: ${primaryColor}; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; border-radius: 8px; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); transition: all 0.3s;">
                           Verificar Email
                         </a>
                       </td>
                     </tr>
                   </table>
+
+                  <!-- Info Note -->
+                  <table width="100%" cellpadding="0" cellspacing="0">
+                    <tr>
+                      <td style="padding: 20px; background-color: #dbeafe; border-radius: 8px; border-left: 4px solid ${primaryColor};">
+                        <p style="margin: 0; color: #1e40af; font-size: 14px; line-height: 1.6;">
+                          <strong>ℹ️ Nota:</strong> Este enlace de verificación expirará en 24 horas. Si no verificas tu email, no podrás acceder a todas las funciones de tu cuenta.
+                        </p>
+                      </td>
+                    </tr>
+                  </table>
+
+                  <!-- Alternative Link -->
+                  <p style="margin: 32px 0 0; padding-top: 24px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 13px; line-height: 1.6;">
+                    Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
+                    <a href="${verificationUrl}" style="color: ${primaryColor}; word-break: break-all; text-decoration: underline;">${verificationUrl}</a>
+                  </p>
+                </td>
+              </tr>
+
+              <!-- Footer -->
+              <tr>
+                <td style="background-color: #f9fafb; padding: 32px 40px; text-align: center; border-top: 1px solid #e5e7eb;">
+                  <p style="margin: 0 0 8px; color: #6b7280; font-size: 14px;">
+                    Este email fue enviado por <strong style="color: #1f2937;">${appName}</strong>
+                  </p>
+                  <p style="margin: 0; color: #9ca3af; font-size: 12px;">
+                    Powered by AuthSystem
+                  </p>
                 </td>
               </tr>
             </table>
+
+            <!-- Footer Text -->
+            <p style="margin: 24px 0 0; color: #9ca3af; font-size: 12px; text-align: center;">
+              © ${new Date().getFullYear()} ${appName}. Todos los derechos reservados.
+            </p>
           </td>
         </tr>
       </table>
     </body>
     </html>
   `;
+}
+
+function adjustColor(color: string, amount: number): string {
+  const hex = color.replace('#', '');
+  const r = Math.max(0, Math.min(255, parseInt(hex.substring(0, 2), 16) + amount));
+  const g = Math.max(0, Math.min(255, parseInt(hex.substring(2, 4), 16) + amount));
+  const b = Math.max(0, Math.min(255, parseInt(hex.substring(4, 6), 16) + amount));
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
 }
 
 async function sendVerificationEmail(
@@ -200,7 +255,19 @@ async function sendVerificationEmail(
     from_name: emailConfig.from_name
   });
 
-  const rawHtml = getVerificationEmailHTML(name, verificationUrl, appName);
+  // Get branding config
+  const { data: branding } = await supabase
+    .from('branding_configs')
+    .select('primary_color, secondary_color, logo_url')
+    .eq('application_id', applicationId)
+    .maybeSingle();
+
+  const primaryColor = branding?.primary_color || '#3B82F6';
+  const logoUrl = branding?.logo_url;
+
+  console.log('🎨 Branding config:', { primaryColor, hasLogo: !!logoUrl });
+
+  const rawHtml = getVerificationEmailHTML(name, verificationUrl, appName, logoUrl, primaryColor);
   const html = rawHtml.replace(/\r?\n/g, '\r\n');
   const subject = `Verifica tu email - ${appName}`;
 
