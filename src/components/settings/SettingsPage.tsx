@@ -5,6 +5,7 @@ import { useNotification } from '../../hooks/useNotification';
 import NotificationModal from '../ui/NotificationModal';
 import ConfirmationModal from '../ui/ConfirmationModal';
 import { supabase } from '../../lib/supabase';
+import { notificationService } from '../../services/notificationService';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('profile');
@@ -37,7 +38,8 @@ export default function SettingsPage() {
       email_updates: true,
       security_alerts: true,
       billing_notifications: true,
-      product_updates: false
+      product_updates: false,
+      email_frequency: 'immediate' as 'immediate' | 'daily' | 'weekly'
     }
   });
 
@@ -52,36 +54,31 @@ export default function SettingsPage() {
   useEffect(() => {
     loadUserData();
     loadSubscriptionData();
+    loadNotificationPreferences();
   }, []);
 
   const loadUserData = async () => {
     try {
       const { data: { user }, error } = await supabase.auth.getUser();
       if (error) throw error;
-      
+
       setCurrentUser(user);
-      
+
       if (user) {
-        // Load user profile
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
           .select('*')
           .eq('user_id', user.id)
           .single();
-        
+
         if (!profileError && profile) {
           setUserProfile(profile);
-          setProfileData({
+          setProfileData(prev => ({
+            ...prev,
             name: profile.name || '',
             email: profile.email || user.email || '',
-            avatar_url: profile.avatar_url || '',
-            notifications: {
-              email_updates: true,
-              security_alerts: true,
-              billing_notifications: true,
-              product_updates: false
-            }
-          });
+            avatar_url: profile.avatar_url || ''
+          }));
         } else {
           setProfileData(prev => ({
             ...prev,
@@ -91,6 +88,26 @@ export default function SettingsPage() {
       }
     } catch (error) {
       console.error('Error loading user data:', error);
+    }
+  };
+
+  const loadNotificationPreferences = async () => {
+    try {
+      const preferences = await notificationService.getPreferences();
+      if (preferences) {
+        setProfileData(prev => ({
+          ...prev,
+          notifications: {
+            email_updates: preferences.email_updates,
+            security_alerts: preferences.security_alerts,
+            billing_notifications: preferences.billing_notifications,
+            product_updates: preferences.product_updates,
+            email_frequency: preferences.email_frequency
+          }
+        }));
+      }
+    } catch (error) {
+      console.error('Error loading notification preferences:', error);
     }
   };
 
@@ -175,9 +192,8 @@ export default function SettingsPage() {
   const handleSaveProfile = async () => {
     try {
       setSaveLoading(true);
-      
+
       if (userProfile) {
-        // Update existing profile
         const { error } = await supabase
           .from('profiles')
           .update({
@@ -185,10 +201,9 @@ export default function SettingsPage() {
             avatar_url: profileData.avatar_url
           })
           .eq('user_id', currentUser.id);
-        
+
         if (error) throw error;
       } else {
-        // Create new profile
         const { error } = await supabase
           .from('profiles')
           .insert({
@@ -197,21 +212,48 @@ export default function SettingsPage() {
             email: profileData.email,
             avatar_url: profileData.avatar_url
           });
-        
+
         if (error) throw error;
       }
-      
+
       showSuccess(
         'Perfil actualizado',
         'Tu perfil ha sido actualizado exitosamente.'
       );
-      
+
       await loadUserData();
     } catch (error) {
       console.error('Error saving profile:', error);
       showError(
         'Error al guardar',
         'Ha ocurrido un error al guardar tu perfil.'
+      );
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
+  const handleSaveNotificationPreferences = async () => {
+    try {
+      setSaveLoading(true);
+
+      await notificationService.updatePreferences({
+        email_updates: profileData.notifications.email_updates,
+        security_alerts: profileData.notifications.security_alerts,
+        billing_notifications: profileData.notifications.billing_notifications,
+        product_updates: profileData.notifications.product_updates,
+        email_frequency: profileData.notifications.email_frequency
+      });
+
+      showSuccess(
+        'Preferencias guardadas',
+        'Tus preferencias de notificaciones han sido actualizadas.'
+      );
+    } catch (error) {
+      console.error('Error saving notification preferences:', error);
+      showError(
+        'Error al guardar',
+        'Ha ocurrido un error al guardar tus preferencias.'
       );
     } finally {
       setSaveLoading(false);
@@ -836,7 +878,7 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <div className="bg-white rounded-lg border border-gray-200 p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Preferencias de Notificaciones</h3>
-        
+
         <div className="space-y-4">
           <label className="flex items-center justify-between">
             <div>
@@ -856,7 +898,7 @@ export default function SettingsPage() {
               className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
           </label>
-          
+
           <label className="flex items-center justify-between">
             <div>
               <span className="text-sm font-medium text-gray-900">Alertas de Seguridad</span>
@@ -875,7 +917,7 @@ export default function SettingsPage() {
               className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
           </label>
-          
+
           <label className="flex items-center justify-between">
             <div>
               <span className="text-sm font-medium text-gray-900">Notificaciones de Facturación</span>
@@ -894,11 +936,74 @@ export default function SettingsPage() {
               className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
           </label>
+
+          <div className="border-t border-gray-200 pt-4 mt-4">
+            <h4 className="text-sm font-medium text-gray-900 mb-3">Frecuencia de Emails</h4>
+            <div className="space-y-2">
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="email_frequency"
+                  checked={profileData.notifications.email_frequency === 'immediate'}
+                  onChange={() => setProfileData(prev => ({
+                    ...prev,
+                    notifications: {
+                      ...prev.notifications,
+                      email_frequency: 'immediate'
+                    }
+                  }))}
+                  className="mr-3 text-blue-600 focus:ring-blue-500"
+                />
+                <div>
+                  <span className="text-sm font-medium text-gray-900">Inmediato</span>
+                  <p className="text-xs text-gray-500">Recibe emails al instante</p>
+                </div>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="email_frequency"
+                  checked={profileData.notifications.email_frequency === 'daily'}
+                  onChange={() => setProfileData(prev => ({
+                    ...prev,
+                    notifications: {
+                      ...prev.notifications,
+                      email_frequency: 'daily'
+                    }
+                  }))}
+                  className="mr-3 text-blue-600 focus:ring-blue-500"
+                />
+                <div>
+                  <span className="text-sm font-medium text-gray-900">Diario</span>
+                  <p className="text-xs text-gray-500">Resumen diario de notificaciones</p>
+                </div>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="email_frequency"
+                  checked={profileData.notifications.email_frequency === 'weekly'}
+                  onChange={() => setProfileData(prev => ({
+                    ...prev,
+                    notifications: {
+                      ...prev.notifications,
+                      email_frequency: 'weekly'
+                    }
+                  }))}
+                  className="mr-3 text-blue-600 focus:ring-blue-500"
+                />
+                <div>
+                  <span className="text-sm font-medium text-gray-900">Semanal</span>
+                  <p className="text-xs text-gray-500">Resumen semanal de notificaciones</p>
+                </div>
+              </label>
+            </div>
+          </div>
         </div>
-        
+
         <div className="flex justify-end mt-6">
           <button
-            onClick={handleSaveProfile}
+            onClick={handleSaveNotificationPreferences}
             disabled={saveLoading}
             className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-lg flex items-center space-x-2 transition-colors disabled:opacity-50"
           >

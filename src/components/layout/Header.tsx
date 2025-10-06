@@ -1,7 +1,8 @@
 import React from 'react';
-import { Search, Bell, User, ChevronDown, LogOut, Settings as SettingsIcon, Menu } from 'lucide-react';
+import { Search, Bell, User, ChevronDown, LogOut, Settings as SettingsIcon, Menu, Check, Trash2, CheckCheck, AlertCircle, Info, CheckCircle, AlertTriangle, X } from 'lucide-react';
 import { signOut, getCurrentUser } from '../../lib/supabase';
 import { supabase } from '../../lib/supabase';
+import { notificationService, Notification } from '../../services/notificationService';
 
 interface HeaderProps {
   title: string;
@@ -11,11 +12,24 @@ interface HeaderProps {
 
 export default function Header({ title, subtitle, onMenuClick }: HeaderProps) {
   const [showUserDropdown, setShowUserDropdown] = React.useState(false);
+  const [showNotifications, setShowNotifications] = React.useState(false);
   const [currentUser, setCurrentUser] = React.useState<any>(null);
   const [userProfile, setUserProfile] = React.useState<any>(null);
+  const [notifications, setNotifications] = React.useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = React.useState(0);
   
   React.useEffect(() => {
     loadCurrentUser();
+    loadNotifications();
+
+    const unsubscribe = notificationService.subscribeToNotifications((notification) => {
+      setNotifications(prev => [notification, ...prev]);
+      setUnreadCount(prev => prev + 1);
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   const loadCurrentUser = async () => {
@@ -78,6 +92,84 @@ export default function Header({ title, subtitle, onMenuClick }: HeaderProps) {
     const name = getUserDisplayName();
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
+
+  const loadNotifications = async () => {
+    try {
+      const [notifs, count] = await Promise.all([
+        notificationService.getNotifications(10),
+        notificationService.getUnreadCount()
+      ]);
+      setNotifications(notifs);
+      setUnreadCount(count);
+    } catch (error) {
+      console.error('Error loading notifications:', error);
+    }
+  };
+
+  const handleMarkAsRead = async (notificationId: string) => {
+    try {
+      await notificationService.markAsRead(notificationId);
+      setNotifications(prev =>
+        prev.map(n => n.id === notificationId ? { ...n, is_read: true } : n)
+      );
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    } catch (error) {
+      console.error('Error marking as read:', error);
+    }
+  };
+
+  const handleMarkAllAsRead = async () => {
+    try {
+      await notificationService.markAllAsRead();
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+      setUnreadCount(0);
+    } catch (error) {
+      console.error('Error marking all as read:', error);
+    }
+  };
+
+  const handleDeleteNotification = async (notificationId: string) => {
+    try {
+      await notificationService.deleteNotification(notificationId);
+      setNotifications(prev => prev.filter(n => n.id !== notificationId));
+      const notification = notifications.find(n => n.id === notificationId);
+      if (notification && !notification.is_read) {
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      }
+    } catch (error) {
+      console.error('Error deleting notification:', error);
+    }
+  };
+
+  const getNotificationIcon = (type: Notification['type']) => {
+    switch (type) {
+      case 'success':
+        return <CheckCircle className="w-5 h-5 text-green-500" />;
+      case 'warning':
+        return <AlertTriangle className="w-5 h-5 text-yellow-500" />;
+      case 'error':
+        return <AlertCircle className="w-5 h-5 text-red-500" />;
+      default:
+        return <Info className="w-5 h-5 text-blue-500" />;
+    }
+  };
+
+  const formatTimeAgo = (date: string) => {
+    const now = new Date();
+    const notifDate = new Date(date);
+    const diffInMinutes = Math.floor((now.getTime() - notifDate.getTime()) / 60000);
+
+    if (diffInMinutes < 1) return 'Hace un momento';
+    if (diffInMinutes < 60) return `Hace ${diffInMinutes} min`;
+
+    const diffInHours = Math.floor(diffInMinutes / 60);
+    if (diffInHours < 24) return `Hace ${diffInHours}h`;
+
+    const diffInDays = Math.floor(diffInHours / 24);
+    if (diffInDays < 7) return `Hace ${diffInDays}d`;
+
+    return notifDate.toLocaleDateString();
+  };
   
   return (
     <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-4">
@@ -108,10 +200,110 @@ export default function Header({ title, subtitle, onMenuClick }: HeaderProps) {
           </div>
 
           {/* Notifications */}
-          <button className="p-2 text-gray-400 hover:text-gray-600 relative">
-            <Bell className="w-5 h-5" />
-            <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full text-xs"></span>
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => setShowNotifications(!showNotifications)}
+              className="p-2 text-gray-400 hover:text-gray-600 relative"
+            >
+              <Bell className="w-5 h-5" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-xs text-white flex items-center justify-center font-medium">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+
+            {/* Notifications Dropdown */}
+            {showNotifications && (
+              <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white rounded-lg shadow-lg border border-gray-200 z-50 max-h-[500px] flex flex-col">
+                {/* Header */}
+                <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+                  <h3 className="font-semibold text-gray-900">Notificaciones</h3>
+                  {unreadCount > 0 && (
+                    <button
+                      onClick={handleMarkAllAsRead}
+                      className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                    >
+                      <CheckCheck className="w-3 h-3" />
+                      Marcar todas
+                    </button>
+                  )}
+                </div>
+
+                {/* Notifications List */}
+                <div className="overflow-y-auto flex-1">
+                  {notifications.length === 0 ? (
+                    <div className="p-8 text-center text-gray-500">
+                      <Bell className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                      <p className="text-sm">No tienes notificaciones</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-gray-100">
+                      {notifications.map((notification) => (
+                        <div
+                          key={notification.id}
+                          className={`p-4 hover:bg-gray-50 transition-colors ${
+                            !notification.is_read ? 'bg-blue-50' : ''
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="flex-shrink-0 mt-1">
+                              {getNotificationIcon(notification.type)}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between gap-2">
+                                <h4 className="text-sm font-medium text-gray-900">
+                                  {notification.title}
+                                </h4>
+                                <button
+                                  onClick={() => handleDeleteNotification(notification.id)}
+                                  className="text-gray-400 hover:text-red-600 transition-colors"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                              <p className="text-xs text-gray-600 mt-1">
+                                {notification.message}
+                              </p>
+                              <div className="flex items-center justify-between mt-2">
+                                <span className="text-xs text-gray-500">
+                                  {formatTimeAgo(notification.created_at)}
+                                </span>
+                                {!notification.is_read && (
+                                  <button
+                                    onClick={() => handleMarkAsRead(notification.id)}
+                                    className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                                  >
+                                    <Check className="w-3 h-3" />
+                                    Marcar leída
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer */}
+                {notifications.length > 0 && (
+                  <div className="px-4 py-3 border-t border-gray-200 text-center">
+                    <button
+                      onClick={() => {
+                        handleQuickAction('settings');
+                        setShowNotifications(false);
+                      }}
+                      className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                    >
+                      Ver todas las notificaciones
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* User Menu */}
           <div className="relative">
@@ -186,11 +378,14 @@ export default function Header({ title, subtitle, onMenuClick }: HeaderProps) {
         </div>
       </div>
       
-      {/* Click outside to close dropdown */}
-      {showUserDropdown && (
-        <div 
-          className="fixed inset-0 z-10" 
-          onClick={() => setShowUserDropdown(false)}
+      {/* Click outside to close dropdowns */}
+      {(showUserDropdown || showNotifications) && (
+        <div
+          className="fixed inset-0 z-10"
+          onClick={() => {
+            setShowUserDropdown(false);
+            setShowNotifications(false);
+          }}
         ></div>
       )}
     </header>
