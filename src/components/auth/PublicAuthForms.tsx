@@ -66,9 +66,6 @@ export default function PublicAuthForms({
     ...branding
   };
 
-  // Get environment from URL parameters or default to development
-  const environment = searchParams.get('env') || 'development';
-  
 
   useEffect(() => {
     // Check IP status first
@@ -721,19 +718,6 @@ export default function PublicAuthForms({
             <span>{getText('security_badge_text', 'Protegido por AuthSystem')}</span>
           </div>
         </div>
-
-        {/* Development Info */}
-        {environment === 'development' && (
-          <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <h4 className="text-sm font-medium text-blue-900 mb-2">🔧 Información de Desarrollo</h4>
-            <div className="text-xs text-blue-800 space-y-1">
-              <p><strong>Ambiente:</strong> {environment}</p>
-              <p><strong>App ID:</strong> {applicationId}</p>
-              <p><strong>API Key:</strong> {urlParams.get('api_key')?.substring(0, 20)}...</p>
-              <p><strong>Callback URL:</strong> {urlParams.get('callback_url') || 'No configurado'}</p>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
