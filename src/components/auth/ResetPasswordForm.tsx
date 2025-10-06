@@ -18,6 +18,13 @@ interface Application {
   name: string;
   application_id: string;
   domain: string;
+  email_config?: {
+    password_min_length?: number;
+    password_require_uppercase?: boolean;
+    password_require_lowercase?: boolean;
+    password_require_numbers?: boolean;
+    password_require_symbols?: boolean;
+  };
 }
 
 export default function ResetPasswordForm() {
@@ -83,6 +90,7 @@ export default function ResetPasswordForm() {
         name: app.name,
         application_id: app.application_id,
         domain: app.domain,
+        email_config: app.email_config,
       });
 
       const { data: brandingData } = await supabase
@@ -160,6 +168,7 @@ export default function ResetPasswordForm() {
           name: app.name,
           application_id: app.application_id,
           domain: app.domain,
+          email_config: app.email_config,
         });
 
         const { data: brandingData } = await supabase
@@ -222,8 +231,39 @@ export default function ResetPasswordForm() {
     e.preventDefault();
     setError('');
 
-    if (password.length < 8) {
-      setError('La contraseña debe tener al menos 8 caracteres.');
+    // Get password policies from application config
+    const emailConfig = application?.email_config || {};
+    const passwordMinLength = emailConfig.password_min_length || 8;
+    const requireUppercase = emailConfig.password_require_uppercase !== false;
+    const requireLowercase = emailConfig.password_require_lowercase !== false;
+    const requireNumbers = emailConfig.password_require_numbers !== false;
+    const requireSymbols = emailConfig.password_require_symbols || false;
+
+    // Validate password against policies
+    const validationErrors: string[] = [];
+
+    if (password.length < passwordMinLength) {
+      validationErrors.push(`La contraseña debe tener al menos ${passwordMinLength} caracteres`);
+    }
+
+    if (requireUppercase && !/[A-Z]/.test(password)) {
+      validationErrors.push('Debe contener al menos una letra mayúscula');
+    }
+
+    if (requireLowercase && !/[a-z]/.test(password)) {
+      validationErrors.push('Debe contener al menos una letra minúscula');
+    }
+
+    if (requireNumbers && !/[0-9]/.test(password)) {
+      validationErrors.push('Debe contener al menos un número');
+    }
+
+    if (requireSymbols && !/[@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+      validationErrors.push('Debe contener al menos un carácter especial');
+    }
+
+    if (validationErrors.length > 0) {
+      setError(validationErrors.join('. '));
       return;
     }
 
@@ -511,6 +551,41 @@ export default function ResetPasswordForm() {
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
+              {application?.email_config && (
+                <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-xs font-medium text-blue-900 mb-2">La contraseña debe cumplir con:</p>
+                  <ul className="text-xs text-blue-800 space-y-1">
+                    <li className="flex items-center gap-2">
+                      <span className="w-1 h-1 bg-blue-600 rounded-full"></span>
+                      Mínimo {application.email_config.password_min_length || 8} caracteres
+                    </li>
+                    {(application.email_config.password_require_uppercase !== false) && (
+                      <li className="flex items-center gap-2">
+                        <span className="w-1 h-1 bg-blue-600 rounded-full"></span>
+                        Al menos una letra mayúscula
+                      </li>
+                    )}
+                    {(application.email_config.password_require_lowercase !== false) && (
+                      <li className="flex items-center gap-2">
+                        <span className="w-1 h-1 bg-blue-600 rounded-full"></span>
+                        Al menos una letra minúscula
+                      </li>
+                    )}
+                    {(application.email_config.password_require_numbers !== false) && (
+                      <li className="flex items-center gap-2">
+                        <span className="w-1 h-1 bg-blue-600 rounded-full"></span>
+                        Al menos un número
+                      </li>
+                    )}
+                    {application.email_config.password_require_symbols && (
+                      <li className="flex items-center gap-2">
+                        <span className="w-1 h-1 bg-blue-600 rounded-full"></span>
+                        Al menos un carácter especial (@#$%^&*...)
+                      </li>
+                    )}
+                  </ul>
+                </div>
+              )}
             </div>
 
             <div>

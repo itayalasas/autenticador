@@ -81,22 +81,6 @@ Deno.serve(async (req) => {
       );
     }
 
-    if (new_password.length < 8) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: {
-            code: "PASSWORD_TOO_SHORT",
-            message: "Password must be at least 8 characters",
-          },
-        }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
-
     console.log("🔍 Validating reset token for:", email);
 
     const { data: tokenData, error: tokenError } = await supabase
@@ -181,7 +165,70 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log("✅ Token valid, updating password...");
+    // Get application password policies
+    const { data: application } = await supabase
+      .from("applications")
+      .select("email_config")
+      .eq("id", appUser.application_id)
+      .maybeSingle();
+
+    const emailConfig = application?.email_config || {};
+    const passwordMinLength = emailConfig.password_min_length || 8;
+    const requireUppercase = emailConfig.password_require_uppercase !== false;
+    const requireLowercase = emailConfig.password_require_lowercase !== false;
+    const requireNumbers = emailConfig.password_require_numbers !== false;
+    const requireSymbols = emailConfig.password_require_symbols || false;
+
+    console.log("🔒 Validating password against policies:", {
+      minLength: passwordMinLength,
+      requireUppercase,
+      requireLowercase,
+      requireNumbers,
+      requireSymbols,
+    });
+
+    // Validate password against policies
+    const validationErrors: string[] = [];
+
+    if (new_password.length < passwordMinLength) {
+      validationErrors.push(`La contraseña debe tener al menos ${passwordMinLength} caracteres`);
+    }
+
+    if (requireUppercase && !/[A-Z]/.test(new_password)) {
+      validationErrors.push("La contraseña debe contener al menos una letra mayúscula");
+    }
+
+    if (requireLowercase && !/[a-z]/.test(new_password)) {
+      validationErrors.push("La contraseña debe contener al menos una letra minúscula");
+    }
+
+    if (requireNumbers && !/[0-9]/.test(new_password)) {
+      validationErrors.push("La contraseña debe contener al menos un número");
+    }
+
+    if (requireSymbols && !/[@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(new_password)) {
+      validationErrors.push("La contraseña debe contener al menos un carácter especial");
+    }
+
+    if (validationErrors.length > 0) {
+      console.log("❌ Password validation failed:", validationErrors);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: "PASSWORD_POLICY_VIOLATION",
+            message: validationErrors.join(". "),
+            validation_errors: validationErrors,
+          },
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    console.log("✅ Password validation passed, updating password...");
 
     const hashedPassword = await bcrypt.hash(new_password, 10);
 
