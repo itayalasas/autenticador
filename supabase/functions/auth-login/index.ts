@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import bcrypt from "npm:bcryptjs@2.4.3";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -234,14 +235,8 @@ Deno.serve(async (req) => {
 
     console.log('🔐 Checking password for user:', user.email);
 
-    // Use Web Crypto API for password verification (compatible with Deno Deploy)
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const passwordHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
-    const passwordValid = user.password_hash === passwordHash;
+    // Use bcrypt for secure password verification
+    const passwordValid = await bcrypt.compare(password, user.password_hash);
     
     if (!passwordValid) {
       console.log('❌ Invalid password for user:', user.email);

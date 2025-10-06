@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'jsr:@supabase/supabase-js@2';
-import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts"
+import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
+import bcrypt from "npm:bcryptjs@2.4.3";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -582,12 +583,8 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Use Web Crypto API for password hashing (compatible with Deno Deploy)
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const passwordHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    // Use bcrypt for secure password hashing
+    const passwordHash = await bcrypt.hash(password, 10);
     
     console.log('📧 Raw application.email_config:', application.email_config);
 
