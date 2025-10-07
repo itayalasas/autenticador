@@ -25,6 +25,7 @@ export default function ApiKeysManager() {
     keyName: null
   });
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [apiKeyLimits, setApiKeyLimits] = useState<{ current: number; limit: number } | null>(null);
 
   const {
     notification,
@@ -82,6 +83,7 @@ export default function ApiKeysManager() {
   useEffect(() => {
     if (selectedApp) {
       loadApiKeys();
+      loadApiKeyLimits();
     }
   }, [selectedApp, currentEnvironment]);
 
@@ -94,6 +96,18 @@ export default function ApiKeysManager() {
       }
     } catch (error) {
       console.error('Error loading applications:', error);
+    }
+  };
+
+  const loadApiKeyLimits = async () => {
+    try {
+      const validation = await subscriptionService.canCreateApiKey(selectedApp, currentEnvironment);
+      setApiKeyLimits({
+        current: validation.current,
+        limit: validation.limit
+      });
+    } catch (error) {
+      console.error('Error loading API key limits:', error);
     }
   };
 
@@ -150,10 +164,22 @@ export default function ApiKeysManager() {
     e.preventDefault();
     try {
       setCreateLoading(true);
-      
+
+      // Verificar límites del plan antes de crear
+      const validation = await subscriptionService.canCreateApiKey(selectedApp, currentEnvironment);
+
+      if (!validation.allowed) {
+        showError(
+          'Límite alcanzado',
+          validation.reason || 'No puedes crear más API keys en este ambiente.'
+        );
+        setShowCreateModal(false);
+        return;
+      }
+
       const newKey = generateApiKey();
       const keyPreview = `${newKey.substring(0, 12)}...${newKey.substring(newKey.length - 6)}`;
-      
+
       // Crear API key en la base de datos
       const { data: apiKeyData, error: apiKeyError } = await supabase
         .from('api_keys')
@@ -192,6 +218,14 @@ export default function ApiKeysManager() {
       setShowKeyModal(apiKey.id);
       setShowCreateModal(false);
       setNewApiKey({ name: '', permissions: ['read'], expires_at: '' });
+
+      // Actualizar límites
+      await loadApiKeyLimits();
+
+      showSuccess(
+        'API Key creada',
+        'La API key ha sido creada exitosamente. Guárdala en un lugar seguro.'
+      );
     } catch (error) {
       console.error('Error creating API key:', error);
       showError(
@@ -226,6 +260,10 @@ export default function ApiKeysManager() {
       }
 
       setApiKeys(prev => prev.filter(key => key.id !== deleteConfirmation.keyId));
+
+      // Actualizar límites
+      await loadApiKeyLimits();
+
       showSuccess(
         'API Key eliminada',
         'La API key ha sido eliminada exitosamente.'
@@ -279,8 +317,13 @@ export default function ApiKeysManager() {
         <div>
           <h2 className="text-2xl font-bold text-gray-900">API Keys</h2>
           <p className="text-gray-600">Administra claves de API para integración externa</p>
+          {apiKeyLimits && (
+            <p className="text-sm text-gray-500 mt-1">
+              {apiKeyLimits.current} de {apiKeyLimits.limit === -1 ? 'ilimitadas' : apiKeyLimits.limit} API keys activas en {currentEnvironment}
+            </p>
+          )}
         </div>
-        <button 
+        <button
           onClick={() => setShowCreateModal(true)}
           disabled={!selectedApp}
           className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors disabled:opacity-50"

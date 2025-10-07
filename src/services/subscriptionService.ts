@@ -28,6 +28,7 @@ export const subscriptionService = {
           applications: 1,
           users_per_app: 100,
           api_requests_per_month: 10000,
+          api_keys_per_environment: 1,
           environments: ['development'],
           support_level: 'basic'
         }
@@ -75,6 +76,7 @@ export const subscriptionService = {
           applications: 1,
           users_per_app: 100,
           api_requests_per_month: 10000,
+          api_keys_per_environment: 1,
           environments: ['development'],
           support_level: 'basic'
         }
@@ -146,6 +148,7 @@ export const subscriptionService = {
           applications: 1,
           users_per_app: 100,
           api_requests_per_month: 10000,
+          api_keys_per_environment: 1,
           environments: ['development'],
           support_level: 'basic'
         },
@@ -592,5 +595,49 @@ export const subscriptionService = {
 
   // Track usage
   async trackUsage(metric: string, value: number = 1): Promise<void> {
+  },
+
+  // Check if user can create more API keys in the specified environment
+  async canCreateApiKey(applicationId: string, environment: string): Promise<{ allowed: boolean; reason?: string; current: number; limit: number }> {
+    const subscription = await this.getCurrentSubscription();
+    if (!subscription) {
+      return { allowed: false, reason: 'No active subscription', current: 0, limit: 0 };
+    }
+
+    const plan = subscription.subscription_plans;
+    if (!plan) {
+      return { allowed: false, reason: 'No plan found', current: 0, limit: 0 };
+    }
+
+    // Check if user can access this environment
+    const canAccess = await this.canAccessEnvironment(environment);
+    if (!canAccess) {
+      return {
+        allowed: false,
+        reason: `El ambiente ${environment} no está disponible en tu plan. Actualiza a un plan superior para acceder.`,
+        current: 0,
+        limit: 0
+      };
+    }
+
+    // Get current API key count for this application and environment
+    const { count: currentKeys, error } = await supabase
+      .from('api_keys')
+      .select('id', { count: 'exact' })
+      .eq('application_id', applicationId)
+      .eq('environment', environment)
+      .eq('is_active', true);
+
+    if (error) throw error;
+
+    const current = currentKeys || 0;
+    const limit = plan.limits.api_keys_per_environment || -1;
+
+    return {
+      allowed: limit === -1 || current < limit,
+      current,
+      limit,
+      reason: limit !== -1 && current >= limit ? `Has alcanzado el límite de ${limit} API key${limit > 1 ? 's' : ''} por ambiente en el plan ${plan.name}. Actualiza tu plan para crear más.` : undefined
+    };
   }
 }
