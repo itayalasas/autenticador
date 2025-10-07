@@ -617,6 +617,165 @@ export default function ApiKeysManager() {
         </>
       )}
 
+      {/* Create API Key Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-xl font-bold text-gray-900 mb-4">Crear Nueva API Key</h3>
+
+            <form onSubmit={handleCreateApiKey}>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Nombre
+                  </label>
+                  <input
+                    type="text"
+                    value={newApiKey.name}
+                    onChange={(e) => setNewApiKey({ ...newApiKey, name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Ej: Frontend App"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Permisos
+                  </label>
+                  <div className="space-y-2">
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={newApiKey.permissions.includes('read')}
+                        onChange={(e) => {
+                          const perms = e.target.checked
+                            ? [...newApiKey.permissions, 'read']
+                            : newApiKey.permissions.filter(p => p !== 'read');
+                          setNewApiKey({ ...newApiKey, permissions: perms });
+                        }}
+                        className="mr-2"
+                      />
+                      <span className="text-sm">Lectura (read)</span>
+                    </label>
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={newApiKey.permissions.includes('write')}
+                        onChange={(e) => {
+                          const perms = e.target.checked
+                            ? [...newApiKey.permissions, 'write']
+                            : newApiKey.permissions.filter(p => p !== 'write');
+                          setNewApiKey({ ...newApiKey, permissions: perms });
+                        }}
+                        className="mr-2"
+                      />
+                      <span className="text-sm">Escritura (write)</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Fecha de expiración (opcional)
+                  </label>
+                  <input
+                    type="date"
+                    value={newApiKey.expires_at}
+                    onChange={(e) => setNewApiKey({ ...newApiKey, expires_at: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    min={new Date().toISOString().split('T')[0]}
+                  />
+                </div>
+
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <p className="text-sm text-blue-900">
+                    <strong>Ambiente:</strong> {currentEnvironment}
+                  </p>
+                  <p className="text-xs text-blue-800 mt-1">
+                    Esta API key solo funcionará en el ambiente {currentEnvironment}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-3 mt-6">
+                <button
+                  type="submit"
+                  disabled={createLoading || !newApiKey.name}
+                  className="flex-1 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
+                >
+                  {createLoading ? 'Creando...' : 'Crear API Key'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCreateModal(false);
+                    setNewApiKey({ name: '', permissions: ['read'], expires_at: '' });
+                  }}
+                  className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-900 px-4 py-2 rounded-lg font-medium transition-colors"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Show API Key Modal (after creation) */}
+      {showKeyModal && apiKeys.find(k => k.id === showKeyModal) && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-gray-900">API Key Creada</h3>
+              <button
+                onClick={() => setShowKeyModal(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+              <div className="flex items-start space-x-3">
+                <AlertTriangle className="w-5 h-5 text-yellow-600 mt-0.5 flex-shrink-0" />
+                <div>
+                  <h4 className="font-medium text-yellow-900">Importante</h4>
+                  <p className="text-sm text-yellow-800 mt-1">
+                    Esta es la única vez que verás la API key completa. Guárdala en un lugar seguro.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 rounded-lg p-4 mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                API Key
+              </label>
+              <div className="flex items-center space-x-2">
+                <code className="flex-1 text-sm font-mono bg-white border border-gray-300 rounded px-3 py-2 break-all">
+                  {apiKeys.find(k => k.id === showKeyModal)?.key}
+                </code>
+                <button
+                  onClick={() => copyToClipboard(apiKeys.find(k => k.id === showKeyModal)?.key || '')}
+                  className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                  title="Copiar"
+                >
+                  <Copy className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowKeyModal(null)}
+              className="w-full bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+            >
+              Entendido
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Notification Modal */}
       <NotificationModal
         notification={notification}
