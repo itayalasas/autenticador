@@ -2,12 +2,15 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 // Validate required environment variables
-if (!process.env.VITE_SUPABASE_URL) {
-  console.error('❌ VITE_SUPABASE_URL is required in .env file');
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!SUPABASE_URL) {
+  console.error('❌ SUPABASE_URL or VITE_SUPABASE_URL is required in .env file');
   process.exit(1);
 }
 
-if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+if (!SUPABASE_SERVICE_ROLE_KEY) {
   console.error('❌ SUPABASE_SERVICE_ROLE_KEY is required in .env file');
   process.exit(1);
 }
@@ -27,7 +30,8 @@ console.log(`🔧 Starting server with PORT: ${PORT}`);
 console.log(`🔧 Environment variables:`, {
   PORT: process.env.PORT,
   NODE_ENV: process.env.NODE_ENV,
-  VITE_SUPABASE_URL: !!process.env.VITE_SUPABASE_URL
+  SUPABASE_URL: !!SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY: !!SUPABASE_SERVICE_ROLE_KEY
 });
 
 // Store active tunnels
@@ -35,8 +39,8 @@ let activeTunnels = new Map();
 
 // Supabase client
 const supabase = createClient(
-  process.env.VITE_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
+  SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY,
   {
     auth: {
       autoRefreshToken: false,
