@@ -76,7 +76,7 @@ export default function ApiKeysManager() {
     if (selectedApp) {
       loadApiKeys();
     }
-  }, [selectedApp]);
+  }, [selectedApp, currentEnvironment]);
 
   const loadApplications = async () => {
     try {
@@ -93,12 +93,13 @@ export default function ApiKeysManager() {
   const loadApiKeys = async () => {
     try {
       setLoading(true);
-      
+
       // Cargar API keys reales de la base de datos
       const { data: apiKeysData, error } = await supabase
         .from('api_keys')
         .select('*')
         .eq('application_id', selectedApp)
+        .eq('environment', currentEnvironment)
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -113,6 +114,7 @@ export default function ApiKeysManager() {
         key_preview: key.key_preview,
         application_id: key.application_id,
         permissions: key.permissions || [],
+        environment: key.environment || 'development',
         created_at: key.created_at,
         last_used: key.last_used,
         is_active: key.is_active,
@@ -154,6 +156,7 @@ export default function ApiKeysManager() {
           key_hash: newKey, // Guardamos la key completa para validación
           key_preview: keyPreview,
           permissions: newApiKey.permissions,
+          environment: currentEnvironment,
           is_active: true,
           expires_at: newApiKey.expires_at || null
         })
@@ -171,6 +174,7 @@ export default function ApiKeysManager() {
         key_preview: keyPreview,
         application_id: selectedApp,
         permissions: newApiKey.permissions,
+        environment: currentEnvironment,
         created_at: apiKeyData.created_at,
         last_used: null,
         is_active: true,

@@ -109,6 +109,7 @@ export interface ApiKey {
   key_preview: string;
   application_id: string;
   permissions: string[];
+  environment: string;
   created_at: string;
   last_used?: string;
   is_active: boolean;
