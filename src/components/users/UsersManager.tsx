@@ -7,9 +7,10 @@ import { subscriptionService } from '../../services/subscriptionService';
 import { supabase } from '../../lib/supabase';
 import { useNotification } from '../../hooks/useNotification';
 import ConfirmationModal from '../ui/ConfirmationModal';
+import NotificationModal from '../ui/NotificationModal';
 
 export default function UsersManager() {
-  const { showNotification } = useNotification();
+  const { notification, showSuccess, showError, closeNotification } = useNotification();
   const [applications, setApplications] = useState<any[]>([]);
   const [selectedApp, setSelectedApp] = useState('');
   const [users, setUsers] = useState<AppUser[]>([]);
@@ -105,10 +106,9 @@ export default function UsersManager() {
       // Check subscription limits before creating user
       const canCreate = await subscriptionService.canCreateUser(selectedApp);
       if (!canCreate.allowed) {
-        showNotification(
+        showError(
           'Límite de usuarios alcanzado',
-          canCreate.reason || 'No tienes una suscripción activa o has alcanzado el límite de usuarios de tu plan.',
-          'error'
+          canCreate.reason || 'No tienes una suscripción activa o has alcanzado el límite de usuarios de tu plan.'
         );
         return;
       }
@@ -134,10 +134,10 @@ export default function UsersManager() {
       setShowCreateModal(false);
       setNewUser({ email: '', name: '', password: '', roles: [], metadata: {} });
       await loadUsers();
-      showNotification('Usuario creado', 'El usuario ha sido creado exitosamente.', 'success');
+      showSuccess('Usuario creado', 'El usuario ha sido creado exitosamente.');
     } catch (error) {
       console.error('Error creating user:', error);
-      showNotification('Error', 'No se pudo crear el usuario. Por favor, intenta nuevamente.', 'error');
+      showError('Error', 'No se pudo crear el usuario. Por favor, intenta nuevamente.');
     } finally {
       setCreateLoading(false);
     }
@@ -160,10 +160,10 @@ export default function UsersManager() {
       setShowEditModal(false);
       setEditingUser(null);
       await loadUsers();
-      showNotification('Usuario actualizado', 'Los datos del usuario han sido actualizados exitosamente.', 'success');
+      showSuccess('Usuario actualizado', 'Los datos del usuario han sido actualizados exitosamente.');
     } catch (error) {
       console.error('Error updating user:', error);
-      showNotification('Error', 'No se pudo actualizar el usuario. Por favor, intenta nuevamente.', 'error');
+      showError('Error', 'No se pudo actualizar el usuario. Por favor, intenta nuevamente.');
     } finally {
       setEditLoading(false);
     }
@@ -174,14 +174,13 @@ export default function UsersManager() {
       const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
       await userService.updateAppUser(userId, { status: newStatus });
       await loadUsers();
-      showNotification(
+      showSuccess(
         'Estado actualizado',
-        `El usuario ha sido ${newStatus === 'active' ? 'activado' : 'desactivado'} exitosamente.`,
-        'success'
+        `El usuario ha sido ${newStatus === 'active' ? 'activado' : 'desactivado'} exitosamente.`
       );
     } catch (error) {
       console.error('Error updating user status:', error);
-      showNotification('Error', 'No se pudo actualizar el estado del usuario.', 'error');
+      showError('Error', 'No se pudo actualizar el estado del usuario.');
     }
   };
 
@@ -197,10 +196,10 @@ export default function UsersManager() {
       await userService.deleteAppUser(deleteConfirm.userId);
       await loadUsers();
       setDeleteConfirm({ show: false, userId: null });
-      showNotification('Usuario eliminado', 'El usuario ha sido eliminado exitosamente.', 'success');
+      showSuccess('Usuario eliminado', 'El usuario ha sido eliminado exitosamente.');
     } catch (error) {
       console.error('Error deleting user:', error);
-      showNotification('Error', 'No se pudo eliminar el usuario.', 'error');
+      showError('Error', 'No se pudo eliminar el usuario.');
     } finally {
       setDeleteLoading(false);
     }
@@ -771,6 +770,17 @@ export default function UsersManager() {
         cancelText="Cancelar"
         type="danger"
         loading={deleteLoading}
+      />
+
+      {/* Notification Modal */}
+      <NotificationModal
+        isOpen={notification.isOpen}
+        onClose={closeNotification}
+        type={notification.type}
+        title={notification.title}
+        message={notification.message}
+        confirmText={notification.confirmText}
+        onConfirm={notification.onConfirm}
       />
     </div>
   );
