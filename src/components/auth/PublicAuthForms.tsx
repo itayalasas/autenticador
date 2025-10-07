@@ -223,19 +223,35 @@ export default function PublicAuthForms({
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${supabaseAnonKey}`,
-          'apikey': supabaseAnonKey
+          'apikey': supabaseAnonKey,
+          'X-Client-Info': 'authsystem-public-form/1.0'
         },
         body: JSON.stringify(payload)
       });
 
       const result = await response.json();
-      console.log('📥 API Response:', result);
+      console.log('📥 API Response:', {
+        success: result.success,
+        status: response.status,
+        error: result.error?.code,
+        message: result.error?.message
+      });
 
       // Log the response status for debugging
       console.log('📊 Response status:', response.status, response.ok);
       
       if (!result.success) {
         console.log('❌ Authentication failed:', result.error);
+        
+        // Show more detailed error for debugging
+        if (result.error?.code === 'DATABASE_ERROR' || result.error?.message?.includes('Database error')) {
+          console.error('🔍 Database error details:', result.error);
+          setMessage({ 
+            type: 'error', 
+            text: 'Error de base de datos. Por favor contacta al administrador del sistema.' 
+          });
+          return;
+        }
         
         // Manejar caso especial de email no verificado
         if (result.error?.code === 'EMAIL_NOT_VERIFIED') {

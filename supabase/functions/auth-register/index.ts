@@ -622,7 +622,12 @@ Deno.serve(async (req) => {
       .single();
 
     if (createError) {
-      console.log('❌ Error creating user:', createError.message);
+      console.log('❌ Error creating user:', {
+        message: createError.message,
+        code: createError.code,
+        details: createError.details,
+        hint: createError.hint
+      });
       
       const { error: logError } = await supabase.from('auth_logs').insert({
         application_id: application.id,
@@ -630,12 +635,12 @@ Deno.serve(async (req) => {
         ip_address: ipAddress,
         user_agent: req.headers.get('user-agent') || 'unknown',
         success: false,
-        error_message: 'Error al crear usuario',
+        error_message: `Database error: ${createError.message}`,
         metadata: { 
           email,
           name,
           error_type: 'database_error',
-          db_error: createError.message,
+          db_error: createError,
           application_name: application.name
         }
       });
@@ -650,8 +655,9 @@ Deno.serve(async (req) => {
         JSON.stringify({
           success: false,
           error: {
-            code: 'CREATE_USER_FAILED',
-            message: 'Error al crear el usuario'
+            code: 'DATABASE_ERROR',
+            message: 'Database error saving new user',
+            details: createError.message
           }
         }),
         { 
@@ -661,13 +667,23 @@ Deno.serve(async (req) => {
       );
     }
 
-    await supabase
+    console.log('✅ User created successfully, assigning default role...');
+    
+    // Assign default user role
+    const { error: roleError } = await supabase
       .from('user_roles')
       .insert({
         app_user_id: newUser.id,
         role_name: 'user',
         permissions: ['read']
       });
+    
+    if (roleError) {
+      console.error('⚠️ Error assigning default role:', roleError);
+      // Continue without role assignment if it fails
+    } else {
+      console.log('✅ Default role assigned successfully');
+    }
 
     console.log('✅ Registration successful for user:', newUser.email);
     
@@ -698,25 +714,35 @@ Deno.serve(async (req) => {
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + 24);
       
-      await supabase.from('email_verification_tokens').insert({
+      const { error: tokenError } = await supabase.from('email_verification_tokens').insert({
         app_user_id: newUser.id,
         token: verificationToken,
         expires_at: expiresAt.toISOString()
       });
       
+      if (tokenError) {
+        console.error('Error creating verification token:', tokenError);
+        // Continue without email verification if token creation fails
+      } else {
       const baseUrl = callback_url ? callback_url.split('/callback')[0] : 'https://yourdomain.com';
       const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}&email=${encodeURIComponent(email)}`;
       
-      await sendVerificationEmail(
-        supabase,
-        email,
-        name,
-        verificationUrl,
-        application.name,
-        application.id,
-        newUser.id,
-        emailConfig
-      );
+        try {
+          await sendVerificationEmail(
+            supabase,
+            email,
+            name,
+            verificationUrl,
+            application.name,
+            application.id,
+            newUser.id,
+            emailConfig
+          );
+        } catch (emailError) {
+          console.error('Error sending verification email:', emailError);
+          // Continue without sending email if it fails
+        }
+      }
       
       const response = {
         success: true,
@@ -748,14 +774,23 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Get user roles for token generation
+    const { data: userRoles } = await supabase
+      .from('user_roles')
+      .select('role_name, permissions')
+      .eq('app_user_id', newUser.id);
+
+    const roles = userRoles?.map(r => r.role_name) || ['user'];
+    const permissions = userRoles?.flatMap(r => r.permissions || []) || ['read'];
+
     const now = Math.floor(Date.now() / 1000);
     const accessTokenPayload = {
       sub: newUser.id,
       email: newUser.email,
       name: newUser.name,
       app_id: application_id,
-      roles: ['user'],
-      permissions: ['read'],
+      roles: roles,
+      permissions: permissions,
       iat: now,
       exp: now + (24 * 60 * 60),
       iss: 'AuthSystem',
@@ -776,8 +811,8 @@ Deno.serve(async (req) => {
           id: newUser.id,
           email: newUser.email,
           name: newUser.name,
-          roles: ['user'],
-          permissions: ['read'],
+          roles: roles,
+          permissions: permissions,
           metadata: newUser.metadata || {},
           created_at: newUser.created_at
         },
