@@ -5,8 +5,11 @@ import { userService } from '../../services/userService';
 import { applicationService } from '../../services/applicationService';
 import { subscriptionService } from '../../services/subscriptionService';
 import { supabase } from '../../lib/supabase';
+import { useNotification } from '../../hooks/useNotification';
+import ConfirmationModal from '../ui/ConfirmationModal';
 
 export default function UsersManager() {
+  const { showNotification } = useNotification();
   const [applications, setApplications] = useState<any[]>([]);
   const [selectedApp, setSelectedApp] = useState('');
   const [users, setUsers] = useState<AppUser[]>([]);
@@ -19,6 +22,8 @@ export default function UsersManager() {
   const [editingUser, setEditingUser] = useState<AppUser | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ show: boolean; userId: string | null }>({ show: false, userId: null });
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const [newUser, setNewUser] = useState({
     email: '',
@@ -100,7 +105,11 @@ export default function UsersManager() {
       // Check subscription limits before creating user
       const canCreate = await subscriptionService.canCreateUser(selectedApp);
       if (!canCreate.allowed) {
-        alert(`Límite alcanzado: ${canCreate.reason}`);
+        showNotification(
+          'Límite de usuarios alcanzado',
+          canCreate.reason || 'No tienes una suscripción activa o has alcanzado el límite de usuarios de tu plan.',
+          'error'
+        );
         return;
       }
 
@@ -125,9 +134,10 @@ export default function UsersManager() {
       setShowCreateModal(false);
       setNewUser({ email: '', name: '', password: '', roles: [], metadata: {} });
       await loadUsers();
+      showNotification('Usuario creado', 'El usuario ha sido creado exitosamente.', 'success');
     } catch (error) {
       console.error('Error creating user:', error);
-      alert('Error al crear el usuario');
+      showNotification('Error', 'No se pudo crear el usuario. Por favor, intenta nuevamente.', 'error');
     } finally {
       setCreateLoading(false);
     }
@@ -150,9 +160,10 @@ export default function UsersManager() {
       setShowEditModal(false);
       setEditingUser(null);
       await loadUsers();
+      showNotification('Usuario actualizado', 'Los datos del usuario han sido actualizados exitosamente.', 'success');
     } catch (error) {
       console.error('Error updating user:', error);
-      alert('Error al actualizar el usuario');
+      showNotification('Error', 'No se pudo actualizar el usuario. Por favor, intenta nuevamente.', 'error');
     } finally {
       setEditLoading(false);
     }
@@ -163,19 +174,35 @@ export default function UsersManager() {
       const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
       await userService.updateAppUser(userId, { status: newStatus });
       await loadUsers();
+      showNotification(
+        'Estado actualizado',
+        `El usuario ha sido ${newStatus === 'active' ? 'activado' : 'desactivado'} exitosamente.`,
+        'success'
+      );
     } catch (error) {
       console.error('Error updating user status:', error);
+      showNotification('Error', 'No se pudo actualizar el estado del usuario.', 'error');
     }
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (confirm('¿Estás seguro de que deseas eliminar este usuario?')) {
-      try {
-        await userService.deleteAppUser(userId);
-        await loadUsers();
-      } catch (error) {
-        console.error('Error deleting user:', error);
-      }
+    setDeleteConfirm({ show: true, userId });
+  };
+
+  const confirmDeleteUser = async () => {
+    if (!deleteConfirm.userId) return;
+
+    try {
+      setDeleteLoading(true);
+      await userService.deleteAppUser(deleteConfirm.userId);
+      await loadUsers();
+      setDeleteConfirm({ show: false, userId: null });
+      showNotification('Usuario eliminado', 'El usuario ha sido eliminado exitosamente.', 'success');
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      showNotification('Error', 'No se pudo eliminar el usuario.', 'error');
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -732,6 +759,19 @@ export default function UsersManager() {
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={deleteConfirm.show}
+        onClose={() => setDeleteConfirm({ show: false, userId: null })}
+        onConfirm={confirmDeleteUser}
+        title="Eliminar Usuario"
+        message="¿Estás seguro de que deseas eliminar este usuario? Esta acción no se puede deshacer y se eliminarán todos los datos asociados."
+        confirmText="Eliminar"
+        cancelText="Cancelar"
+        type="danger"
+        loading={deleteLoading}
+      />
     </div>
   );
 }
