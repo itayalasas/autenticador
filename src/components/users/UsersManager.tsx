@@ -3,6 +3,7 @@ import { Users, Plus, Search, MoreVertical, Shield, Mail, Calendar, Filter, Cred
 import { AppUser } from '../../types';
 import { userService } from '../../services/userService';
 import { applicationService } from '../../services/applicationService';
+import { subscriptionService } from '../../services/subscriptionService';
 import { supabase } from '../../lib/supabase';
 
 export default function UsersManager() {
