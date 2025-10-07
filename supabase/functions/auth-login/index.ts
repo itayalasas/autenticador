@@ -43,7 +43,9 @@ Deno.serve(async (req) => {
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    )
+    );
+    
+    console.log('🔧 Supabase client initialized with service role');
 
     let requestBody;
     try {

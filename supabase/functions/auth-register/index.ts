@@ -669,20 +669,30 @@ Deno.serve(async (req) => {
 
     console.log('✅ User created successfully, assigning default role...');
     
-    // Assign default user role
+    // Get default role for this application or assign basic user role
+    const { data: defaultRole } = await supabase
+      .from('application_roles')
+      .select('name, permissions')
+      .eq('application_id', application.id)
+      .eq('is_default', true)
+      .maybeSingle();
+    
+    const roleToAssign = defaultRole || { name: 'user', permissions: ['read'] };
+    
+    // Assign role to user
     const { error: roleError } = await supabase
       .from('user_roles')
       .insert({
         app_user_id: newUser.id,
-        role_name: 'user',
-        permissions: ['read']
+        role_name: roleToAssign.name,
+        permissions: roleToAssign.permissions || ['read']
       });
     
     if (roleError) {
-      console.error('⚠️ Error assigning default role:', roleError);
+      console.error('⚠️ Error assigning role:', roleError);
       // Continue without role assignment if it fails
     } else {
-      console.log('✅ Default role assigned successfully');
+      console.log('✅ Role assigned successfully:', roleToAssign.name);
     }
 
     console.log('✅ Registration successful for user:', newUser.email);
