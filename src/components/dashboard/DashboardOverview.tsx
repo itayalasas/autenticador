@@ -257,12 +257,12 @@ export default function DashboardOverview() {
     
     try {
       const startTime = Date.now();
-      const response = await fetch('/api/health', {
+      const response = await fetch('/.netlify/functions/health', {
         method: 'GET',
         signal: AbortSignal.timeout(5000)
       });
       const responseTime = Date.now() - startTime;
-      
+
       setSystemStatus(prev => ({
         ...prev,
         api: {
