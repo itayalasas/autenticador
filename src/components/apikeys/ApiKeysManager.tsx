@@ -7,6 +7,7 @@ import { supabase } from '../../lib/supabase';
 import { useNotification } from '../../hooks/useNotification';
 import SubscriptionGuard from '../subscription/SubscriptionGuard';
 import NotificationModal from '../ui/NotificationModal';
+import ConfirmationModal from '../ui/ConfirmationModal';
 
 export default function ApiKeysManager() {
   const [applications, setApplications] = useState<any[]>([]);
@@ -18,6 +19,12 @@ export default function ApiKeysManager() {
   const [showKeyModal, setShowKeyModal] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
   const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{ isOpen: boolean; keyId: string | null; keyName: string | null }>({
+    isOpen: false,
+    keyId: null,
+    keyName: null
+  });
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const {
     notification,
@@ -196,34 +203,42 @@ export default function ApiKeysManager() {
     }
   };
 
-  const handleDeleteApiKey = (keyId: string) => {
-    if (confirm('¿Estás seguro de que deseas eliminar esta API key?')) {
-      deleteApiKey(keyId);
-    }
+  const handleDeleteApiKey = (keyId: string, keyName: string) => {
+    setDeleteConfirmation({
+      isOpen: true,
+      keyId,
+      keyName
+    });
   };
 
-  const deleteApiKey = async (keyId: string) => {
+  const confirmDeleteApiKey = async () => {
+    if (!deleteConfirmation.keyId) return;
+
     try {
+      setDeleteLoading(true);
       const { error } = await supabase
         .from('api_keys')
         .delete()
-        .eq('id', keyId);
+        .eq('id', deleteConfirmation.keyId);
 
       if (error) {
         throw error;
       }
 
-      setApiKeys(prev => prev.filter(key => key.id !== keyId));
+      setApiKeys(prev => prev.filter(key => key.id !== deleteConfirmation.keyId));
       showSuccess(
         'API Key eliminada',
         'La API key ha sido eliminada exitosamente.'
       );
+      setDeleteConfirmation({ isOpen: false, keyId: null, keyName: null });
     } catch (error) {
       console.error('Error deleting API key:', error);
       showError(
         'Error al eliminar',
         'Ha ocurrido un error al eliminar la API key.'
       );
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -241,7 +256,10 @@ export default function ApiKeysManager() {
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    alert('API key copiada al portapapeles');
+    showSuccess(
+      'Copiado',
+      'La API key ha sido copiada al portapapeles.'
+    );
   };
 
   const getPermissionColor = (permission: string) => {
@@ -452,7 +470,7 @@ export default function ApiKeysManager() {
                           {/* Actions */}
                           <div className="flex items-center space-x-2 ml-4">
                             <button
-                              onClick={() => handleDeleteApiKey(apiKey.id)}
+                              onClick={() => handleDeleteApiKey(apiKey.id, apiKey.name)}
                               className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -535,7 +553,7 @@ export default function ApiKeysManager() {
                         {/* Actions */}
                         <div className="flex items-center space-x-2 ml-4">
                           <button
-                            onClick={() => handleDeleteApiKey(apiKey.id)}
+                            onClick={() => handleDeleteApiKey(apiKey.id, apiKey.name)}
                             className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -775,6 +793,19 @@ export default function ApiKeysManager() {
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={deleteConfirmation.isOpen}
+        onClose={() => setDeleteConfirmation({ isOpen: false, keyId: null, keyName: null })}
+        onConfirm={confirmDeleteApiKey}
+        title="Eliminar API Key"
+        message={`¿Estás seguro de que deseas eliminar la API key "${deleteConfirmation.keyName}"? Esta acción no se puede deshacer y cualquier integración que use esta key dejará de funcionar.`}
+        confirmText="Eliminar"
+        cancelText="Cancelar"
+        type="danger"
+        loading={deleteLoading}
+      />
 
       {/* Notification Modal */}
       <NotificationModal
