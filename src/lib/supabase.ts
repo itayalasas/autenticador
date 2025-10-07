@@ -74,16 +74,13 @@ if (!isSupabaseConfigured) {
         data: {
           name,
           role: 'admin'
-        }
+        },
+        emailRedirectTo: window.location.origin
       }
     })
 
-    const { authLogService } = await import('../services/authLogService')
-    if (error) {
-      await authLogService.logRegister('', email, false, error.message)
-    } else if (data.user) {
-      await authLogService.logRegister(data.user.id, email, true)
-    }
+    // Note: Logging will happen after user confirms email and logs in
+    // We don't log here to avoid RLS permission issues during signup
 
     return { data, error }
   }
