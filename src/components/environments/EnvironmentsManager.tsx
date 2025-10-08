@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Database, Globe, Play, Settings, Trash2, Plus, CheckCircle, AlertTriangle, Terminal, X, RotateCcw, ExternalLink, Eye, Code, FileText, Shield } from 'lucide-react';
+import { Database, Globe, Play, Settings, Trash2, Plus, CheckCircle, AlertTriangle, Terminal, X, RotateCcw, ExternalLink, Eye, Code, FileText, Shield, Edit, Power, MoreVertical } from 'lucide-react';
 import { applicationService } from '../../services/applicationService';
 import { subscriptionService } from '../../services/subscriptionService';
 import { supabase } from '../../lib/supabase';
+import ConfirmationModal from '../ui/ConfirmationModal';
 
 interface Environment {
   id: string;
@@ -44,10 +45,18 @@ export default function EnvironmentsManager() {
   const [showConsole, setShowConsole] = useState(false);
   const [showUrlsModal, setShowUrlsModal] = useState<string | null>(null);
   const [showIntegrationGuide, setShowIntegrationGuide] = useState<string | null>(null);
+  const [showEditModal, setShowEditModal] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [consoleLogs, setConsoleLogs] = useState<LogEntry[]>([]);
   const [isDeploying, setIsDeploying] = useState(false);
   const [subscription, setSubscription] = useState<any>(null);
   const consoleRef = useRef<HTMLDivElement>(null);
+  const [editFormData, setEditFormData] = useState({
+    domain: '',
+    auth_url: '',
+    callback_url: ''
+  });
   
   const [newEnvironment, setNewEnvironment] = useState({
     name: 'development' as 'development' | 'testing' | 'production',
@@ -478,6 +487,56 @@ export default function EnvironmentsManager() {
     addLog(`📋 Copied to clipboard: ${text}`, 'success');
   };
 
+  const handleToggleStatus = async (environmentId: string, currentStatus: boolean) => {
+    try {
+      await applicationService.toggleEnvironmentStatus(environmentId, !currentStatus);
+      await loadEnvironments();
+      addLog(`✅ Ambiente ${!currentStatus ? 'activado' : 'desactivado'} exitosamente`, 'success');
+    } catch (error) {
+      console.error('Error toggling environment status:', error);
+      addLog(`❌ Error al cambiar estado del ambiente`, 'error');
+    }
+  };
+
+  const handleEditEnvironment = (env: Environment) => {
+    setEditFormData({
+      domain: env.domain,
+      auth_url: env.auth_url || '',
+      callback_url: env.callback_url || ''
+    });
+    setShowEditModal(env.id);
+    setOpenMenuId(null);
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!showEditModal) return;
+
+    try {
+      await applicationService.updateEnvironment(showEditModal, editFormData);
+      await loadEnvironments();
+      setShowEditModal(null);
+      addLog('✅ Ambiente actualizado exitosamente', 'success');
+    } catch (error) {
+      console.error('Error updating environment:', error);
+      addLog('❌ Error al actualizar el ambiente', 'error');
+    }
+  };
+
+  const handleDeleteEnvironment = async () => {
+    if (!showDeleteConfirm) return;
+
+    try {
+      await applicationService.deleteEnvironment(showDeleteConfirm);
+      await loadEnvironments();
+      setShowDeleteConfirm(null);
+      addLog('✅ Ambiente eliminado exitosamente', 'success');
+    } catch (error) {
+      console.error('Error deleting environment:', error);
+      addLog('❌ Error al eliminar el ambiente', 'error');
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -591,10 +650,11 @@ export default function EnvironmentsManager() {
 
                     {/* Actions */}
                     <div className="flex items-center space-x-2">
-                      <button 
+                      <button
                         onClick={() => handleDeploy(env.id, env.name)}
-                        disabled={deployLoading === env.id}
+                        disabled={deployLoading === env.id || !env.is_active}
                         className="flex-1 bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center space-x-2"
+                        title={!env.is_active ? 'Activa el ambiente primero' : 'Desplegar ambiente'}
                       >
                         {deployLoading === env.id ? (
                           <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -603,7 +663,7 @@ export default function EnvironmentsManager() {
                         )}
                         <span>{deployLoading === env.id ? 'Desplegando...' : 'Desplegar'}</span>
                       </button>
-                      
+
                       {env.metadata?.generated_urls && (
                         <>
                           <button
@@ -622,14 +682,56 @@ export default function EnvironmentsManager() {
                           </button>
                         </>
                       )}
-                      
-                      <button className="p-2 bg-gray-100 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors">
-                        <Settings className="w-4 h-4" />
-                      </button>
-                      
-                      <button className="p-2 bg-red-100 text-red-600 hover:bg-red-200 rounded-lg transition-colors">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+
+                      {/* Settings Menu */}
+                      <div className="relative">
+                        <button
+                          onClick={() => setOpenMenuId(openMenuId === env.id ? null : env.id)}
+                          className="p-2 bg-gray-100 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
+                          title="Configuración"
+                        >
+                          <MoreVertical className="w-4 h-4" />
+                        </button>
+
+                        {openMenuId === env.id && (
+                          <>
+                            <div
+                              className="fixed inset-0 z-10"
+                              onClick={() => setOpenMenuId(null)}
+                            />
+                            <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20">
+                              <button
+                                onClick={() => handleEditEnvironment(env)}
+                                className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                              >
+                                <Edit className="w-4 h-4" />
+                                <span>Editar</span>
+                              </button>
+                              <button
+                                onClick={() => {
+                                  handleToggleStatus(env.id, env.is_active);
+                                  setOpenMenuId(null);
+                                }}
+                                className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                              >
+                                <Power className="w-4 h-4" />
+                                <span>{env.is_active ? 'Desactivar' : 'Activar'}</span>
+                              </button>
+                              <hr className="my-1" />
+                              <button
+                                onClick={() => {
+                                  setShowDeleteConfirm(env.id);
+                                  setOpenMenuId(null);
+                                }}
+                                className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center space-x-2"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                                <span>Eliminar</span>
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </div>
 
                     {/* Created Date */}
@@ -1153,6 +1255,99 @@ try {
               </div>
             </div>
           </div>
+        );
+      })()}
+
+      {/* Edit Environment Modal */}
+      {showEditModal && (() => {
+        const environment = environments.find(env => env.id === showEditModal);
+        if (!environment) return null;
+
+        return (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
+                <Edit className="w-5 h-5" />
+                <span>Editar Ambiente - {environment.name}</span>
+              </h3>
+              <form onSubmit={handleSaveEdit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Dominio
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.domain}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, domain: e.target.value }))}
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="auth-dev.miapp.com"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Auth URL
+                  </label>
+                  <input
+                    type="url"
+                    value={editFormData.auth_url}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, auth_url: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="https://auth-dev.miapp.com"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Callback URL
+                  </label>
+                  <input
+                    type="url"
+                    value={editFormData.callback_url}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, callback_url: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="https://miapp.com/auth/callback"
+                  />
+                </div>
+
+                <div className="flex items-center space-x-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowEditModal(null)}
+                    className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                  >
+                    Guardar Cambios
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (() => {
+        const environment = environments.find(env => env.id === showDeleteConfirm);
+        if (!environment) return null;
+
+        return (
+          <ConfirmationModal
+            isOpen={true}
+            title="Eliminar Ambiente"
+            message={`¿Estás seguro de que deseas eliminar el ambiente "${environment.name}"? Esta acción no se puede deshacer y se eliminarán todas las configuraciones asociadas.`}
+            confirmText="Eliminar"
+            cancelText="Cancelar"
+            onConfirm={handleDeleteEnvironment}
+            onCancel={() => setShowDeleteConfirm(null)}
+            type="danger"
+          />
         );
       })()}
 

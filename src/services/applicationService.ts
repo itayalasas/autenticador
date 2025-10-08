@@ -198,17 +198,37 @@ export const applicationService = {
 
   // Update environment
   async updateEnvironment(environmentId: string, updates: any) {
-    // En una implementación real, esto actualizaría la base de datos
-    console.log('Updating environment:', environmentId, updates);
-    
-    // Simular actualización
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    return {
-      id: environmentId,
-      ...updates,
-      updated_at: new Date().toISOString()
-    };
+    const { data, error } = await supabase
+      .from('environments')
+      .update(updates)
+      .eq('id', environmentId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async toggleEnvironmentStatus(environmentId: string, isActive: boolean) {
+    const { data, error } = await supabase
+      .from('environments')
+      .update({ is_active: isActive })
+      .eq('id', environmentId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async deleteEnvironment(environmentId: string) {
+    const { error } = await supabase
+      .from('environments')
+      .delete()
+      .eq('id', environmentId);
+
+    if (error) throw error;
+    return true;
   },
 
   // Test environment URLs
