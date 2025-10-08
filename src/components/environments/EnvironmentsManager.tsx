@@ -47,10 +47,14 @@ export default function EnvironmentsManager() {
   const [showIntegrationGuide, setShowIntegrationGuide] = useState<string | null>(null);
   const [showEditModal, setShowEditModal] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [showLogsHistory, setShowLogsHistory] = useState<string | null>(null);
+  const [showLogDetail, setShowLogDetail] = useState<any>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [consoleLogs, setConsoleLogs] = useState<LogEntry[]>([]);
+  const [historicalLogs, setHistoricalLogs] = useState<any[]>([]);
   const [isDeploying, setIsDeploying] = useState(false);
   const [subscription, setSubscription] = useState<any>(null);
+  const [currentDeploymentLogId, setCurrentDeploymentLogId] = useState<string | null>(null);
   const consoleRef = useRef<HTMLDivElement>(null);
   const [editFormData, setEditFormData] = useState({
     domain: '',
