@@ -28,15 +28,19 @@ export interface DLocalPlansResponse {
 
 class DLocalService {
   private apiUrl: string;
+  private checkoutUrl: string;
   private apiKey: string;
   private secretKey: string;
   private plansEndpoint: string;
+  private merchantId: string;
 
   constructor() {
     this.apiUrl = import.meta.env.VITE_DLOCAL_API_URL || 'https://api-sbx.dlocalgo.com';
+    this.checkoutUrl = import.meta.env.VITE_DLOCAL_CHECKOUT_URL || 'https://checkout-sbx.dlocalgo.com';
     this.apiKey = import.meta.env.VITE_DLOCAL_API_KEY || '';
     this.secretKey = import.meta.env.VITE_DLOCAL_SECRET_KEY || '';
     this.plansEndpoint = import.meta.env.VITE_DLOCAL_PLANS_ENDPOINT || 'v1/subscription/plan/all';
+    this.merchantId = import.meta.env.VITE_DLOCAL_MERCHANT_ID || '3348';
   }
 
   private getAuthHeaders() {
@@ -86,10 +90,11 @@ class DLocalService {
 
   // Fallback plans in case DLocal API is not available
   getFallbackPlans(): DLocalPlan[] {
+    const merchantId = parseInt(this.merchantId);
     return [
       {
         id: 4631,
-        merchant_id: 3348,
+        merchant_id: merchantId,
         name: "Plan Profesional",
         description: "Perfecto para proyectos pequeños y desarrollo",
         country: "UY",
@@ -102,11 +107,11 @@ class DLocalService {
         plan_token: "Dktil5kCQtirHXx1PXWr02JXdPoEzxJU",
         created_at: "2025-10-02T02:46:23",
         updated_at: "2025-10-02T02:46:23",
-        subscribe_url: "https://checkout-sbx.dlocalgo.com/validate/subscription/Dktil5kCQtirHXx1PXWr02JXdPoEzxJU"
+        subscribe_url: `${this.checkoutUrl}/validate/subscription/Dktil5kCQtirHXx1PXWr02JXdPoEzxJU`
       },
       {
         id: 4632,
-        merchant_id: 3348,
+        merchant_id: merchantId,
         name: "Plan Empresarial",
         description: "Para grandes organizaciones con necesidades avanzadas",
         country: "UY",
@@ -119,7 +124,7 @@ class DLocalService {
         plan_token: "pHmMNr9nB6jqz9kHnD77MGYK2mtC6YB1",
         created_at: "2025-10-02T02:47:59",
         updated_at: "2025-10-02T02:47:59",
-        subscribe_url: "https://checkout-sbx.dlocalgo.com/validate/subscription/pHmMNr9nB6jqz9kHnD77MGYK2mtC6YB1"
+        subscribe_url: `${this.checkoutUrl}/validate/subscription/pHmMNr9nB6jqz9kHnD77MGYK2mtC6YB1`
       }
     ];
   }

@@ -649,15 +649,16 @@ export default function ApiKeysManager() {
                     <button
                       onClick={() => {
                         // Redirigir a DLocal para suscripción
-                        const dLocalUrl = 'https://checkout-sbx.dlocalgo.com/validate/subscription/Dktil5kCQtirHXx1PXWr02JXdPoEzxJU';
-                        
+                        const checkoutUrl = import.meta.env.VITE_DLOCAL_CHECKOUT_URL || 'https://checkout-sbx.dlocalgo.com';
+                        const dLocalUrl = `${checkoutUrl}/validate/subscription/Dktil5kCQtirHXx1PXWr02JXdPoEzxJU`;
+
                         localStorage.setItem('pending_subscription', JSON.stringify({
                           plan_name: 'Profesional',
                           user_id: currentUser?.id,
                           timestamp: Date.now(),
                           return_to: 'api-keys'
                         }));
-                        
+
                         window.open(dLocalUrl, '_blank', 'width=800,height=600,scrollbars=yes,resizable=yes');
                       }}
                       className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
@@ -667,15 +668,16 @@ export default function ApiKeysManager() {
                     <button
                       onClick={() => {
                         // Redirigir a DLocal para plan empresarial
-                        const dLocalUrl = 'https://checkout-sbx.dlocalgo.com/validate/subscription/pHmMNr9nB6jqz9kHnD77MGYK2mtC6YB1';
-                        
+                        const checkoutUrl = import.meta.env.VITE_DLOCAL_CHECKOUT_URL || 'https://checkout-sbx.dlocalgo.com';
+                        const dLocalUrl = `${checkoutUrl}/validate/subscription/pHmMNr9nB6jqz9kHnD77MGYK2mtC6YB1`;
+
                         localStorage.setItem('pending_subscription', JSON.stringify({
                           plan_name: 'Empresarial',
                           user_id: currentUser?.id,
                           timestamp: Date.now(),
                           return_to: 'api-keys'
                         }));
-                        
+
                         window.open(dLocalUrl, '_blank', 'width=800,height=600,scrollbars=yes,resizable=yes');
                       }}
                       className="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors ml-2"
