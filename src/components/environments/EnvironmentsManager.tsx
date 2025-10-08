@@ -265,6 +265,7 @@ export default function EnvironmentsManager() {
         login: `${window.location.origin}/auth/login?app_id=${applicationId}&api_key=${apiKey}`,
         register: `${window.location.origin}/auth/register?app_id=${applicationId}&api_key=${apiKey}`,
         reset_password: `${window.location.origin}/auth/reset-password?app_id=${applicationId}&api_key=${apiKey}`,
+        reset_password_confirm: `${window.location.origin}/auth/reset-password-confirm?app_id=${applicationId}&api_key=${apiKey}`,
         callback: callbackUrl
       };
 
@@ -384,6 +385,13 @@ export default function EnvironmentsManager() {
     await addLog('   Probando función: auth-reset-password...', 'info');
     results['auth-reset-password'] = await testEndpoint(`${functionsBase}/auth-reset-password`, 'POST', {
       email: 'test@example.com',
+      application_id: appId
+    }, apiKey);
+
+    await addLog('   Probando función: auth-reset-password-confirm...', 'info');
+    results['auth-reset-password-confirm'] = await testEndpoint(`${functionsBase}/auth-reset-password-confirm`, 'POST', {
+      token: 'test-token-123',
+      new_password: 'newpassword123',
       application_id: appId
     }, apiKey);
 
@@ -927,6 +935,29 @@ export default function EnvironmentsManager() {
                             </button>
                           </div>
                         </div>
+
+                        {urls.reset_password_confirm && (
+                          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div>
+                              <p className="font-medium text-gray-900">Cambiar Contraseña</p>
+                              <p className="text-sm text-gray-600 truncate">{urls.reset_password_confirm}</p>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <button
+                                onClick={() => copyToClipboard(urls.reset_password_confirm)}
+                                className="p-2 text-gray-600 hover:bg-gray-200 rounded"
+                              >
+                                📋
+                              </button>
+                              <button
+                                onClick={() => window.open(urls.reset_password_confirm, '_blank')}
+                                className="p-2 text-blue-600 hover:bg-blue-100 rounded"
+                              >
+                                <ExternalLink className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -1049,6 +1080,7 @@ const API_KEY = '${apiKey}';
 const LOGIN_URL = '${urls.login}';
 const REGISTER_URL = '${urls.register}';
 const RESET_PASSWORD_URL = '${urls.reset_password}';
+const RESET_PASSWORD_CONFIRM_URL = '${urls.reset_password_confirm || ''}';
 
 // Función para login
 async function login(email, password) {
@@ -1118,6 +1150,31 @@ async function resetPassword(email) {
     return data;
   } catch (error) {
     console.error('Reset password error:', error);
+    throw error;
+  }
+}
+
+// Función para confirmar cambio de contraseña
+async function confirmResetPassword(token, newPassword) {
+  try {
+    const response = await fetch(RESET_PASSWORD_CONFIRM_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': API_KEY
+      },
+      body: JSON.stringify({ token, new_password: newPassword })
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      return data;
+    } else {
+      throw new Error(data.message || 'Error al cambiar contraseña');
+    }
+  } catch (error) {
+    console.error('Confirm reset password error:', error);
     throw error;
   }
 }`}
