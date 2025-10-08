@@ -143,6 +143,72 @@ export default function EnvironmentsManager() {
     return result;
   };
 
+  // Generate valid reset token (same logic as edge function)
+  const generateValidResetToken = async (applicationId: string): Promise<string> => {
+    try {
+      // Generate random token (same as edge function)
+      const array = new Uint8Array(32);
+      crypto.getRandomValues(array);
+      const resetToken = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+
+      // Set expiration to 24 hours from now
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + 24);
+
+      // Get or create test user
+      let testUser;
+      const { data: existingUser, error: userError } = await supabase
+        .from('app_users')
+        .select('*')
+        .eq('application_id', applicationId)
+        .eq('email', 'test@example.com')
+        .maybeSingle();
+
+      if (existingUser) {
+        testUser = existingUser;
+      } else {
+        // Create test user if it doesn't exist
+        const { data: newUser, error: createError } = await supabase
+          .from('app_users')
+          .insert({
+            application_id: applicationId,
+            email: 'test@example.com',
+            name: 'Test User',
+            password_hash: 'test_hash', // Just a placeholder
+            is_verified: true
+          })
+          .select()
+          .single();
+
+        if (createError) {
+          console.error('Error creating test user:', createError);
+          // Return a fallback token if we can't create the user
+          return 'test_fallback_token';
+        }
+        testUser = newUser;
+      }
+
+      // Store reset token in database
+      const { error: tokenError } = await supabase
+        .from('email_verification_tokens')
+        .insert({
+          app_user_id: testUser.id,
+          token: resetToken,
+          expires_at: expiresAt.toISOString()
+        });
+
+      if (tokenError) {
+        console.error('Error storing reset token:', tokenError);
+        return 'test_fallback_token';
+      }
+
+      return resetToken;
+    } catch (error) {
+      console.error('Error generating valid reset token:', error);
+      return 'test_fallback_token';
+    }
+  };
+
   const handleCreateEnvironment = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -265,8 +331,11 @@ export default function EnvironmentsManager() {
       const apiKey = generateApiKey(environmentName);
       addLog(`🔑 Generated API Key: ${apiKey}`, 'info');
 
-      // Generate test token for reset password (for testing purposes)
-      const testToken = 'test_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      // Generate valid reset token for testing (same logic as edge function)
+      addLog('🔑 Generando token válido para reset password...', 'info');
+      const testToken = await generateValidResetToken(selectedApplication.id);
+      addLog(`✅ Token válido generado y guardado en BD (expira en 24h)`, 'success');
+      addLog('', 'info');
 
       // Generate URLs for forms and API
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
