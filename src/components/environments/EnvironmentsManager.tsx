@@ -366,14 +366,14 @@ export default function EnvironmentsManager() {
     const results: Record<string, any> = {};
     const functionsBase = `${supabaseUrl}/functions/v1`;
 
-    addLog('   Probando función: auth-login...', 'info');
+    await addLog('   Probando función: auth-login...', 'info');
     results['auth-login'] = await testEndpoint(`${functionsBase}/auth-login`, 'POST', {
       email: 'test@example.com',
       password: 'testpassword123',
       application_id: appId
     }, apiKey);
 
-    addLog('   Probando función: auth-register...', 'info');
+    await addLog('   Probando función: auth-register...', 'info');
     results['auth-register'] = await testEndpoint(`${functionsBase}/auth-register`, 'POST', {
       email: `test-${Date.now()}@example.com`,
       password: 'testpassword123',
@@ -381,13 +381,13 @@ export default function EnvironmentsManager() {
       application_id: appId
     }, apiKey);
 
-    addLog('   Probando función: auth-reset-password...', 'info');
+    await addLog('   Probando función: auth-reset-password...', 'info');
     results['auth-reset-password'] = await testEndpoint(`${functionsBase}/auth-reset-password`, 'POST', {
       email: 'test@example.com',
       application_id: appId
     }, apiKey);
 
-    addLog('   Probando función: check-ip-status...', 'info');
+    await addLog('   Probando función: check-ip-status...', 'info');
     results['check-ip-status'] = await testEndpoint(`${functionsBase}/check-ip-status`, 'POST', {
       ip: '127.0.0.1',
       application_id: appId
@@ -1428,6 +1428,239 @@ try {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Logs History Modal */}
+      {showLogsHistory && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-gray-900 flex items-center space-x-2">
+                <History className="w-6 h-6 text-purple-500" />
+                <span>Historial de Despliegues</span>
+              </h3>
+              <button
+                onClick={() => setShowLogsHistory(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {historicalLogs.length === 0 ? (
+              <div className="text-center py-12">
+                <History className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-600">No hay despliegues registrados para este ambiente</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {historicalLogs.map((log) => (
+                  <div
+                    key={log.id}
+                    className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center space-x-3">
+                        <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                          log.status === 'success' ? 'bg-green-100 text-green-800' :
+                          log.status === 'failed' ? 'bg-red-100 text-red-800' :
+                          log.status === 'partial' ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-blue-100 text-blue-800'
+                        }`}>
+                          {log.status === 'success' ? '✅ Exitoso' :
+                           log.status === 'failed' ? '❌ Fallido' :
+                           log.status === 'partial' ? '⚠️ Parcial' :
+                           '🔄 En progreso'}
+                        </span>
+                        <span className="text-sm text-gray-600">
+                          {new Date(log.created_at).toLocaleString('es-ES', {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={() => setShowLogDetail(log)}
+                          className="px-3 py-1 bg-blue-100 text-blue-600 rounded hover:bg-blue-200 text-sm"
+                        >
+                          Ver Detalles
+                        </button>
+                        <button
+                          onClick={() => downloadLog(log)}
+                          className="p-2 text-gray-600 hover:bg-gray-100 rounded"
+                          title="Descargar Log"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="text-gray-600">Duración:</span>
+                        <span className="ml-2 font-medium">
+                          {log.completed_at
+                            ? `${Math.round((new Date(log.completed_at).getTime() - new Date(log.started_at).getTime()) / 1000)}s`
+                            : 'En progreso'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Logs:</span>
+                        <span className="ml-2 font-medium">{log.logs.length} entradas</span>
+                      </div>
+                      {log.test_results && Object.keys(log.test_results).length > 0 && (
+                        <>
+                          <div>
+                            <span className="text-gray-600">Pruebas:</span>
+                            <span className="ml-2 font-medium">
+                              {Object.values(log.test_results).filter((r: any) => r.success).length} / {Object.keys(log.test_results).length} exitosas
+                            </span>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Log Detail Modal */}
+      {showLogDetail && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-5xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-gray-900 flex items-center space-x-2">
+                <Terminal className="w-6 h-6 text-blue-500" />
+                <span>Detalle del Despliegue</span>
+              </h3>
+              <button
+                onClick={() => setShowLogDetail(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Log Summary */}
+            <div className="bg-gray-50 rounded-lg p-4 mb-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-600 block">Estado:</span>
+                  <span className={`font-medium ${
+                    showLogDetail.status === 'success' ? 'text-green-600' :
+                    showLogDetail.status === 'failed' ? 'text-red-600' :
+                    showLogDetail.status === 'partial' ? 'text-yellow-600' :
+                    'text-blue-600'
+                  }`}>
+                    {showLogDetail.status}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-600 block">Inicio:</span>
+                  <span className="font-medium">
+                    {new Date(showLogDetail.started_at).toLocaleTimeString()}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-600 block">Fin:</span>
+                  <span className="font-medium">
+                    {showLogDetail.completed_at
+                      ? new Date(showLogDetail.completed_at).toLocaleTimeString()
+                      : 'N/A'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-600 block">Duración:</span>
+                  <span className="font-medium">
+                    {showLogDetail.completed_at
+                      ? `${Math.round((new Date(showLogDetail.completed_at).getTime() - new Date(showLogDetail.started_at).getTime()) / 1000)}s`
+                      : 'N/A'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Console Logs */}
+            <div className="mb-6">
+              <h4 className="font-semibold text-gray-900 mb-3">📋 Logs de Consola</h4>
+              <div className="bg-gray-900 text-gray-100 p-4 rounded-lg font-mono text-sm max-h-96 overflow-y-auto">
+                {showLogDetail.logs.length === 0 ? (
+                  <div className="text-gray-500">No hay logs disponibles</div>
+                ) : (
+                  showLogDetail.logs.map((entry: LogEntry) => (
+                    <div key={entry.id} className="mb-1">
+                      <span className="text-gray-500">[{new Date(entry.timestamp).toLocaleTimeString()}]</span>
+                      <span className={`ml-2 ${
+                        entry.level === 'success' ? 'text-green-400' :
+                        entry.level === 'error' ? 'text-red-400' :
+                        entry.level === 'warning' ? 'text-yellow-400' :
+                        'text-gray-300'
+                      }`}>
+                        {entry.level.toUpperCase()}:
+                      </span>
+                      <span className="ml-2">{entry.message}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Test Results */}
+            {showLogDetail.test_results && Object.keys(showLogDetail.test_results).length > 0 && (
+              <div className="mb-6">
+                <h4 className="font-semibold text-gray-900 mb-3">🧪 Resultados de Pruebas</h4>
+                <div className="space-y-2">
+                  {Object.entries(showLogDetail.test_results).map(([endpoint, result]: [string, any]) => (
+                    <div key={endpoint} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div className="flex-1">
+                        <span className="font-medium text-gray-900">{endpoint}</span>
+                        {result.url && (
+                          <p className="text-xs text-gray-500 mt-1 truncate">{result.url}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-3">
+                        {result.responseTime && (
+                          <span className="text-sm text-gray-600">{result.responseTime}ms</span>
+                        )}
+                        <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                          result.success
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-red-100 text-red-800'
+                        }`}>
+                          {result.success ? '✅ OK' : '❌ Error'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={() => downloadLog(showLogDetail)}
+                className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center justify-center space-x-2"
+              >
+                <Download className="w-4 h-4" />
+                <span>Descargar Log Completo</span>
+              </button>
+              <button
+                onClick={() => setShowLogDetail(null)}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}
