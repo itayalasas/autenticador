@@ -97,8 +97,44 @@ export default function DashboardOverview() {
       const sub = await subscriptionService.getCurrentSubscription();
       setSubscription(sub);
 
-      const usageData = await subscriptionService.getCurrentUsage();
-      setUsage(usageData);
+      // Get real usage data
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Count applications
+      const { count: appsCount } = await supabase
+        .from('applications')
+        .select('id', { count: 'exact' })
+        .eq('owner_id', user.id)
+        .eq('status', 'active');
+
+      // Count users across all applications
+      const { count: usersCount } = await supabase
+        .from('app_users')
+        .select('id', { count: 'exact' })
+        .eq('status', 'active');
+
+      // Count API requests this month
+      const firstDayOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+      const { count: apiRequestsCount } = await supabase
+        .from('auth_logs')
+        .select('id', { count: 'exact' })
+        .gte('created_at', firstDayOfMonth.toISOString());
+
+      // Get active environments from API keys
+      const { data: apiKeys } = await supabase
+        .from('api_keys')
+        .select('environment')
+        .eq('is_active', true);
+
+      const activeEnvironments = [...new Set(apiKeys?.map(k => k.environment) || [])];
+
+      setUsage({
+        applications: appsCount || 0,
+        users: usersCount || 0,
+        api_requests: apiRequestsCount || 0,
+        environments: activeEnvironments
+      });
     } catch (error) {
       console.error('Error loading subscription data:', error);
     }
@@ -553,10 +589,13 @@ export default function DashboardOverview() {
             <div className="p-4 bg-gray-50 rounded-lg">
               <p className="text-sm text-gray-600 mb-1">Ambientes</p>
               <p className="text-2xl font-bold text-gray-900">
-                {subscription.subscription_plans?.limits?.environments?.length || 1}
+                {usage.environments?.length || 0}
               </p>
               <p className="text-sm text-gray-500 mt-2">
-                {subscription.subscription_plans?.limits?.environments?.join(', ') || 'development'}
+                {usage.environments?.length > 0 ? usage.environments.join(', ') : 'Ninguno activo'}
+              </p>
+              <p className="text-xs text-gray-400 mt-1">
+                Disponibles: {subscription.subscription_plans?.limits?.environments?.join(', ') || 'development'}
               </p>
             </div>
           </div>
