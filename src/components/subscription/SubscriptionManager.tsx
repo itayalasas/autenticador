@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Crown, CreditCard, Check, X, Star, Zap, Shield, Users, Globe, Sparkles, ArrowRight, Calendar, DollarSign, AlertTriangle } from 'lucide-react';
 import { subscriptionService } from '../../services/subscriptionService';
+import { dLocalService } from '../../services/dLocalService';
 import { useNotification } from '../../hooks/useNotification';
 import NotificationModal from '../ui/NotificationModal';
 import ConfirmationModal from '../ui/ConfirmationModal';
@@ -109,19 +110,73 @@ export default function SubscriptionManager() {
 
     try {
       setUpgradeLoading(true);
-      await subscriptionService.createSubscription(selectedPlan.id);
-      await loadSubscriptionData();
+
+      // Si es plan gratuito, upgrade directo sin pago
+      if (selectedPlan.price === 0) {
+        await subscriptionService.createSubscription(selectedPlan.id);
+        await loadSubscriptionData();
+        setShowUpgradeModal(false);
+        setSelectedPlan(null);
+        showSuccess(
+          'Suscripción actualizada',
+          `Has cambiado exitosamente al plan ${selectedPlan.name}.`
+        );
+        return;
+      }
+
+      // Para planes pagos con dLocal
+      const { data: { user } } = await subscriptionService.getCurrentUser();
+      if (!user) {
+        throw new Error('Usuario no autenticado');
+      }
+
+      // Crear suscripción en dLocal (abre popup)
+      await dLocalService.createSubscription(selectedPlan.plan_token, {
+        id: user.id,
+        email: user.email
+      });
+
       setShowUpgradeModal(false);
-      setSelectedPlan(null);
+
+      // Mostrar mensaje de que estamos esperando el pago
       showSuccess(
-        'Suscripción actualizada',
-        `Has cambiado exitosamente al plan ${selectedPlan.name}.`
+        'Procesando pago',
+        'Por favor completa el pago en la ventana de dLocal. Tu suscripción se activará automáticamente cuando el pago sea confirmado.'
       );
-    } catch (error) {
+
+      // Iniciar polling para verificar activación de suscripción
+      console.log('🔄 Iniciando polling para activación de suscripción...');
+
+      const activatedSubscription = await subscriptionService.pollForSubscriptionActivation({
+        maxAttempts: 24,
+        intervalMs: 5000,
+        onProgress: (attempt, maxAttempts) => {
+          console.log(`⏳ Verificando activación... (${attempt}/${maxAttempts})`);
+        }
+      });
+
+      if (activatedSubscription) {
+        // Recargar datos
+        await loadSubscriptionData();
+        setSelectedPlan(null);
+
+        showSuccess(
+          '¡Suscripción activada!',
+          `Tu plan ${selectedPlan.name} ha sido activado exitosamente. Ya puedes disfrutar de todas las funcionalidades.`
+        );
+      } else {
+        // Timeout alcanzado, pero el webhook lo activará eventualmente
+        showSuccess(
+          'Procesando activación',
+          'Tu pago está siendo procesado. La suscripción se activará automáticamente en unos momentos. Puedes refrescar la página para ver el estado actualizado.'
+        );
+      }
+
+    } catch (error: any) {
       console.error('Error upgrading subscription:', error);
       showError(
         'Error al actualizar suscripción',
-        'Ha ocurrido un error al procesar tu suscripción. Por favor, inténtalo de nuevo.'
+        error.message || 'Ha ocurrido un error al procesar tu suscripción. Por favor, inténtalo de nuevo.'
       );
     } finally {
       setUpgradeLoading(false);

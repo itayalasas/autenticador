@@ -84,6 +84,11 @@ export const subscriptionService = {
     }
   },
 
+  // Get current user
+  async getCurrentUser() {
+    return await supabase.auth.getUser();
+  },
+
   // Get current user subscription
   async getCurrentSubscription(): Promise<Subscription | null> {
     const { data: { user } } = await supabase.auth.getUser();
@@ -649,5 +654,46 @@ export const subscriptionService = {
   // Get invoices (placeholder for future DLocal integration)
   async getInvoices(): Promise<any[]> {
     return [];
+  },
+
+  // Poll for subscription activation after payment
+  async pollForSubscriptionActivation(options: {
+    maxAttempts?: number;
+    intervalMs?: number;
+    onProgress?: (attempt: number, maxAttempts: number) => void;
+  } = {}): Promise<Subscription | null> {
+    const {
+      maxAttempts = 24,
+      intervalMs = 5000,
+      onProgress
+    } = options;
+
+    console.log('🔄 Iniciando polling para activación de suscripción...');
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (onProgress) {
+        onProgress(attempt, maxAttempts);
+      }
+
+      try {
+        const subscription = await this.getCurrentSubscription();
+
+        if (subscription && subscription.status === 'active' && subscription.plan_id !== '00000000-0000-0000-0000-000000000000') {
+          console.log(`✅ Suscripción activa encontrada en intento ${attempt}/${maxAttempts}`);
+          return subscription;
+        }
+
+        console.log(`⏳ Intento ${attempt}/${maxAttempts}: Suscripción aún no activa, esperando ${intervalMs /1000}s...`);
+      } catch (error) {
+        console.error(`Error en intento ${attempt}:`, error);
+      }
+
+      if (attempt < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, intervalMs));
+      }
+    }
+
+    console.log('⚠️  Tiempo de espera agotado. La suscripción se activará cuando el webhook sea procesado.');
+    return null;
   }
 }
