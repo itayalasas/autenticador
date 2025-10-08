@@ -639,5 +639,15 @@ export const subscriptionService = {
       limit,
       reason: limit !== -1 && current >= limit ? `Has alcanzado el límite de ${limit} API key${limit > 1 ? 's' : ''} por ambiente en el plan ${plan.name}. Actualiza tu plan para crear más.` : undefined
     };
+  },
+
+  // Get payment methods (placeholder for future DLocal integration)
+  async getPaymentMethods(): Promise<any[]> {
+    return [];
+  },
+
+  // Get invoices (placeholder for future DLocal integration)
+  async getInvoices(): Promise<any[]> {
+    return [];
   }
 }
