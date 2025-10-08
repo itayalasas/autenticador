@@ -691,13 +691,8 @@ export default function ApplicationsList() {
       
       {/* Notification Modal */}
       <NotificationModal
-        isOpen={notification.isOpen}
+        notification={notification}
         onClose={closeNotification}
-        type={notification.type}
-        title={notification.title}
-        message={notification.message}
-        confirmText={notification.confirmText}
-        onConfirm={notification.onConfirm}
       />
       
       {/* Confirmation Modal */}
