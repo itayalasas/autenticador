@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Database, Globe, Play, Settings, Trash2, Plus, CheckCircle, AlertTriangle, Terminal, X, RotateCcw, ExternalLink, Eye, Code, FileText, Shield, Edit, Power, MoreVertical } from 'lucide-react';
+import { Database, Globe, Play, Settings, Trash2, Plus, CheckCircle, AlertTriangle, Terminal, X, RotateCcw, ExternalLink, Eye, Code, FileText, Shield, Edit, Power, MoreVertical, Upload, Cloud } from 'lucide-react';
 import { applicationService } from '../../services/applicationService';
 import { subscriptionService } from '../../services/subscriptionService';
+import { netlifyService } from '../../services/netlifyService';
 import { supabase } from '../../lib/supabase';
 import ConfirmationModal from '../ui/ConfirmationModal';
 
@@ -55,6 +56,8 @@ export default function EnvironmentsManager() {
   const [isDeploying, setIsDeploying] = useState(false);
   const [subscription, setSubscription] = useState<any>(null);
   const [currentDeploymentLogId, setCurrentDeploymentLogId] = useState<string | null>(null);
+  const [isNetlifyDeploying, setIsNetlifyDeploying] = useState(false);
+  const [showNetlifyConfig, setShowNetlifyConfig] = useState(false);
   const consoleRef = useRef<HTMLDivElement>(null);
   const [editFormData, setEditFormData] = useState({
     domain: '',
@@ -426,17 +429,92 @@ export default function EnvironmentsManager() {
         addLog('', 'info');
         addLog('📚 Usa el botón "Ver URLs" para obtener las URLs de integración', 'info');
         addLog('📖 Usa el botón "Guía de Integración" para ver ejemplos de código', 'info');
+
+        // Si todos los tests pasaron y Netlify está configurado, preguntar si desplegar
+        if (netlifyService.isConfigured() && environmentName === 'production') {
+          addLog('', 'info');
+          addLog('☁️  Netlify configurado detectado', 'info');
+          addLog('💡 Puedes deployar a Netlify usando el botón "Deploy to Netlify"', 'info');
+        }
       } else {
         addLog(`⚠️ Despliegue completado con algunas pruebas fallidas`, 'warning');
         addLog(`🔧 Revisa los resultados y corrige los problemas`, 'warning');
       }
 
+      return allTestsPassed;
+
     } catch (error) {
       console.error('Deploy error:', error);
       addLog(`❌ Deployment failed: ${error.message || 'Unknown error'}`, 'error');
+      return false;
     } finally {
       setDeployLoading(null);
       setIsDeploying(false);
+    }
+  };
+
+  const handleDeployToNetlify = async (environmentId: string, environmentName: string) => {
+    try {
+      if (!netlifyService.isConfigured()) {
+        addLog('❌ Netlify no está configurado', 'error');
+        addLog('', 'info');
+        addLog(netlifyService.getConfigurationInstructions(), 'warning');
+        setShowConsole(true);
+        return;
+      }
+
+      setIsNetlifyDeploying(true);
+      setShowConsole(true);
+
+      addLog('', 'info');
+      addLog('☁️  ========================================', 'info');
+      addLog('☁️  INICIANDO DEPLOY A NETLIFY', 'info');
+      addLog('☁️  ========================================', 'info');
+      addLog('', 'info');
+
+      addLog('📤 Disparando build en Netlify...', 'info');
+      const deployResponse = await netlifyService.triggerDeploy({
+        title: `Deploy de ${environmentName} - ${new Date().toLocaleString()}`,
+      });
+
+      addLog(`✅ Build iniciado exitosamente!`, 'success');
+      addLog(`   Deploy ID: ${deployResponse.id}`, 'info');
+      addLog(`   Estado: ${deployResponse.state}`, 'info');
+      addLog('', 'info');
+
+      addLog('⏳ Esperando a que el deploy se complete...', 'info');
+      addLog('   Esto puede tomar varios minutos', 'info');
+      addLog('', 'info');
+
+      const siteId = import.meta.env.VITE_NETLIFY_SITE_ID;
+      const finalDeploy = await netlifyService.waitForDeploy(
+        siteId,
+        deployResponse.id,
+        (deploy) => {
+          addLog(`   Estado actual: ${deploy.state} - ${new Date().toLocaleTimeString()}`, 'info');
+        }
+      );
+
+      addLog('', 'info');
+      addLog('🎉 ¡DEPLOY A NETLIFY COMPLETADO EXITOSAMENTE!', 'success');
+      addLog('', 'info');
+      addLog(`🌐 URL del sitio: ${finalDeploy.ssl_url}`, 'success');
+      addLog(`🔗 URL del deploy: ${finalDeploy.deploy_ssl_url}`, 'info');
+      addLog(`⚙️  Admin URL: ${finalDeploy.admin_url}`, 'info');
+      addLog('', 'info');
+      addLog(`✅ Deploy completado a las: ${new Date(finalDeploy.updated_at).toLocaleString()}`, 'success');
+
+    } catch (error: any) {
+      console.error('Netlify deploy error:', error);
+      addLog('', 'info');
+      addLog(`❌ Error en deploy a Netlify: ${error.message}`, 'error');
+
+      if (error.message.includes('token')) {
+        addLog('', 'info');
+        addLog('💡 Verifica que tu token de Netlify esté configurado correctamente', 'warning');
+      }
+    } finally {
+      setIsNetlifyDeploying(false);
     }
   };
 
@@ -631,14 +709,25 @@ export default function EnvironmentsManager() {
           <h2 className="text-2xl font-bold text-gray-900">Gestión de Ambientes</h2>
           <p className="text-gray-600">Gestiona ambientes de desarrollo, testing y producción</p>
         </div>
-        <button 
-          onClick={() => setShowCreateModal(true)}
-          disabled={!selectedApp}
-          className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors disabled:opacity-50"
-        >
-          <Plus className="w-5 h-5" />
-          <span>Nuevo Ambiente</span>
-        </button>
+        <div className="flex items-center space-x-3">
+          {!netlifyService.isConfigured() && (
+            <button
+              onClick={() => setShowNetlifyConfig(true)}
+              className="bg-purple-100 text-purple-700 px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors hover:bg-purple-200 border border-purple-300"
+            >
+              <Cloud className="w-5 h-5" />
+              <span>Configurar Netlify</span>
+            </button>
+          )}
+          <button
+            onClick={() => setShowCreateModal(true)}
+            disabled={!selectedApp}
+            className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors disabled:opacity-50"
+          >
+            <Plus className="w-5 h-5" />
+            <span>Nuevo Ambiente</span>
+          </button>
+        </div>
       </div>
 
       {/* Application Selector */}
@@ -766,6 +855,20 @@ export default function EnvironmentsManager() {
                           >
                             <FileText className="w-4 h-4" />
                           </button>
+                          {env.metadata?.deployment_status === 'deployed' && env.name === 'production' && (
+                            <button
+                              onClick={() => handleDeployToNetlify(env.id, env.name)}
+                              disabled={isNetlifyDeploying}
+                              className="p-2 bg-purple-100 text-purple-600 hover:bg-purple-200 rounded-lg transition-colors disabled:opacity-50"
+                              title={netlifyService.isConfigured() ? 'Deploy to Netlify' : 'Netlify no configurado'}
+                            >
+                              {isNetlifyDeploying ? (
+                                <div className="w-4 h-4 border-2 border-purple-600 border-t-transparent rounded-full animate-spin" />
+                              ) : (
+                                <Cloud className="w-4 h-4" />
+                              )}
+                            </button>
+                          )}
                         </>
                       )}
 
@@ -1563,6 +1666,81 @@ try {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Netlify Configuration Modal */}
+      {showNetlifyConfig && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-gray-900 flex items-center space-x-2">
+                <Cloud className="w-6 h-6 text-purple-500" />
+                <span>Configurar Netlify</span>
+              </h3>
+              <button
+                onClick={() => setShowNetlifyConfig(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="font-semibold text-blue-900 mb-2">¿Qué es Netlify?</h4>
+                <p className="text-sm text-blue-800">
+                  Netlify es una plataforma de hosting que te permite deployar tu aplicación directamente desde esta interfaz.
+                  Una vez configurado, podrás deployar a producción con un solo clic después de que las pruebas locales pasen exitosamente.
+                </p>
+              </div>
+
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <h4 className="font-semibold text-yellow-900 mb-2">Instrucciones de Configuración</h4>
+                <ol className="text-sm text-yellow-800 space-y-2 list-decimal list-inside">
+                  <li>Ve a <a href="https://app.netlify.com/user/applications/personal" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Netlify Personal Access Tokens</a></li>
+                  <li>Crea un nuevo Personal Access Token</li>
+                  <li>Copia el token y agrégalo a tu archivo <code className="bg-yellow-100 px-1 rounded">.env</code> como:</li>
+                </ol>
+                <div className="mt-3 bg-gray-900 text-gray-100 p-3 rounded font-mono text-sm">
+                  VITE_NETLIFY_ACCESS_TOKEN=tu_token_aqui<br/>
+                  VITE_NETLIFY_SITE_ID=tu_site_id_aqui
+                </div>
+                <p className="text-xs text-yellow-700 mt-2">
+                  El Site ID lo puedes encontrar en la configuración de tu sitio en Netlify (Settings → General → Site details → Site ID)
+                </p>
+              </div>
+
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <h4 className="font-semibold text-green-900 mb-2">¿Cómo funciona?</h4>
+                <ul className="text-sm text-green-800 space-y-1 list-disc list-inside">
+                  <li>Ejecuta el deploy local y espera a que todas las pruebas pasen</li>
+                  <li>Si todo está OK, aparecerá un botón "Deploy to Netlify"</li>
+                  <li>Al hacer clic, se disparará automáticamente un build en Netlify</li>
+                  <li>Podrás ver el progreso en tiempo real en la consola</li>
+                  <li>Una vez completado, recibirás la URL del sitio deployado</li>
+                </ul>
+              </div>
+
+              <div className="flex items-center space-x-3 pt-4">
+                <button
+                  onClick={() => {
+                    window.open('https://app.netlify.com/user/applications/personal', '_blank');
+                  }}
+                  className="flex-1 px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors flex items-center justify-center space-x-2"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  <span>Ir a Netlify</span>
+                </button>
+                <button
+                  onClick={() => setShowNetlifyConfig(false)}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
