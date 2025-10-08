@@ -33,6 +33,7 @@ export default function ApiKeysManager() {
     notification,
     showSuccess,
     showError,
+    showWarning,
     closeNotification
   } = useNotification();
   const [newApiKey, setNewApiKey] = useState({
