@@ -315,11 +315,10 @@ export default function EnvironmentsManager() {
         return;
       }
 
-      // Get base URL from application metadata or environment
-      const envUrls = selectedApplication.metadata?.environment_urls || {};
-      const envConfig = envUrls[environmentName];
-      let baseUrl = envConfig?.base_url || environment.auth_url || `https://auth-${environmentName}.${selectedApplication.domain}`;
-      const callbackUrl = envConfig?.callback_url || environment.callback_url || `https://${selectedApplication.domain}/auth/callback`;
+      // Get base URL from environment (priority: environment.auth_url > fallback)
+      // Always use the auth_url from the environment (which can be edited by user)
+      let baseUrl = environment.auth_url || `https://auth-${environmentName}.${selectedApplication.domain}`;
+      const callbackUrl = environment.callback_url || `https://${selectedApplication.domain}/auth/callback`;
 
       // Ensure baseUrl doesn't end with slash to avoid double slashes
       baseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
