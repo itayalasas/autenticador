@@ -160,6 +160,7 @@ export interface SubscriptionPlan {
     applications: number;
     users_per_app: number;
     api_requests_per_month: number;
+    api_keys_per_environment?: number;
     environments: string[];
     support_level: 'basic' | 'priority' | 'dedicated';
   };
