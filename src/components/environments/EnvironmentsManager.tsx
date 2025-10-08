@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Database, Globe, Play, Settings, Trash2, Plus, CheckCircle, AlertTriangle, Terminal, X, RotateCcw, ExternalLink, Eye } from 'lucide-react';
+import { Database, Globe, Play, Settings, Trash2, Plus, CheckCircle, AlertTriangle, Terminal, X, RotateCcw, ExternalLink, Eye, Code, FileText, Shield } from 'lucide-react';
 import { applicationService } from '../../services/applicationService';
+import { subscriptionService } from '../../services/subscriptionService';
 import { supabase } from '../../lib/supabase';
 
 interface Environment {
@@ -42,8 +43,10 @@ export default function EnvironmentsManager() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showConsole, setShowConsole] = useState(false);
   const [showUrlsModal, setShowUrlsModal] = useState<string | null>(null);
+  const [showIntegrationGuide, setShowIntegrationGuide] = useState<string | null>(null);
   const [consoleLogs, setConsoleLogs] = useState<LogEntry[]>([]);
   const [isDeploying, setIsDeploying] = useState(false);
+  const [subscription, setSubscription] = useState<any>(null);
   const consoleRef = useRef<HTMLDivElement>(null);
   
   const [newEnvironment, setNewEnvironment] = useState({
@@ -55,6 +58,7 @@ export default function EnvironmentsManager() {
 
   useEffect(() => {
     loadApplications();
+    loadSubscription();
   }, []);
 
   useEffect(() => {
@@ -82,6 +86,15 @@ export default function EnvironmentsManager() {
 
   const clearLogs = () => {
     setConsoleLogs([]);
+  };
+
+  const loadSubscription = async () => {
+    try {
+      const sub = await subscriptionService.getCurrentSubscription();
+      setSubscription(sub);
+    } catch (error) {
+      console.error('Error loading subscription:', error);
+    }
   };
 
   const loadApplications = async () => {
@@ -147,22 +160,79 @@ export default function EnvironmentsManager() {
       setShowConsole(true);
       clearLogs();
 
-      addLog(`🚀 Starting deployment for ${environmentName} environment`, 'info');
-      
-      // Get selected application data
+      addLog(`🚀 Iniciando validación y despliegue para ambiente ${environmentName}`, 'info');
+      addLog('', 'info');
+
+      // Step 1: Validate subscription and plan
+      addLog('📋 Paso 1: Validando suscripción y plan...', 'info');
+      if (!subscription) {
+        addLog('❌ No se encontró suscripción activa', 'error');
+        return;
+      }
+
+      const plan = subscription.subscription_plans;
+      if (!plan) {
+        addLog('❌ No se encontró plan de suscripción', 'error');
+        return;
+      }
+
+      addLog(`✅ Plan activo: ${plan.name}`, 'success');
+      addLog(`   Límites del plan:`, 'info');
+      addLog(`   - Aplicaciones: ${plan.limits.applications}`, 'info');
+      addLog(`   - Usuarios: ${plan.limits.users_per_app}`, 'info');
+      addLog(`   - API Requests/mes: ${plan.limits.api_requests_per_month.toLocaleString()}`, 'info');
+      addLog(`   - Ambientes: ${plan.limits.environments.join(', ')}`, 'info');
+      addLog('', 'info');
+
+      // Step 2: Validate environment access
+      addLog('🔐 Paso 2: Validando acceso al ambiente...', 'info');
+      const canAccess = await subscriptionService.canAccessEnvironment(environmentName);
+      if (!canAccess) {
+        addLog(`❌ Tu plan ${plan.name} no tiene acceso al ambiente ${environmentName}`, 'error');
+        addLog(`   Ambientes disponibles: ${plan.limits.environments.join(', ')}`, 'warning');
+        addLog(`   Actualiza tu plan para acceder a este ambiente`, 'warning');
+        return;
+      }
+      addLog(`✅ Acceso al ambiente ${environmentName} verificado`, 'success');
+      addLog('', 'info');
+      // Step 3: Validate application
+      addLog('📱 Paso 3: Validando aplicación...', 'info');
       const selectedApplication = applications.find(app => app.id === selectedApp);
       if (!selectedApplication) {
-        addLog('❌ No application selected', 'error');
+        addLog('❌ No se encontró la aplicación seleccionada', 'error');
         return;
       }
 
       const applicationId = selectedApplication.application_id;
-      addLog(`📱 Application ID: ${applicationId}`, 'info');
+      addLog(`   ID: ${applicationId}`, 'info');
+      addLog(`   Nombre: ${selectedApplication.name}`, 'info');
+      addLog(`   Dominio: ${selectedApplication.domain}`, 'info');
+
+      // Validate application configuration
+      if (!selectedApplication.application_id || !selectedApplication.name) {
+        addLog('❌ Configuración de aplicación incompleta', 'error');
+        return;
+      }
+      addLog('✅ Aplicación configurada correctamente', 'success');
+      addLog('', 'info');
+
+      // Step 4: Validate API Key limits
+      addLog('🔑 Paso 4: Verificando límites de API Keys...', 'info');
+      const canCreateKey = await subscriptionService.canCreateApiKey(selectedApp, environmentName);
+      if (!canCreateKey.allowed) {
+        addLog(`❌ ${canCreateKey.reason}`, 'error');
+        addLog(`   Actualmente: ${canCreateKey.current} / ${canCreateKey.limit}`, 'warning');
+        return;
+      }
+      addLog(`✅ Puedes crear API Keys en este ambiente`, 'success');
+      addLog(`   Uso actual: ${canCreateKey.current} / ${canCreateKey.limit === -1 ? 'ilimitado' : canCreateKey.limit}`, 'info');
+      addLog('', 'info');
 
       // Get environment configuration
+      addLog('⚙️  Paso 5: Configurando ambiente...', 'info');
       const environment = environments.find(env => env.id === environmentId);
       if (!environment) {
-        addLog('❌ Environment not found', 'error');
+        addLog('❌ Ambiente no encontrado', 'error');
         return;
       }
 
@@ -180,23 +250,23 @@ export default function EnvironmentsManager() {
       addLog(`🔑 Generated API Key: ${apiKey}`, 'info');
 
       // Generate URLs for forms and API
-      const webContainerBaseUrl = 'http://localhost:5173';
-      const apiBaseUrl = 'http://localhost:3001';
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const generatedUrls = {
-        api_base: `${apiBaseUrl}/api`, 
-        login: `${webContainerBaseUrl}/login?app_id=${applicationId}&api_key=${apiKey}`,
-        register: `${webContainerBaseUrl}/register?app_id=${applicationId}&api_key=${apiKey}`,
-        reset_password: `${webContainerBaseUrl}/reset-password?app_id=${applicationId}&api_key=${apiKey}`,
+        api_base: `${supabaseUrl}/functions/v1`,
+        login: `${window.location.origin}/auth/login?app_id=${applicationId}&api_key=${apiKey}`,
+        register: `${window.location.origin}/auth/register?app_id=${applicationId}&api_key=${apiKey}`,
+        reset_password: `${window.location.origin}/auth/reset-password?app_id=${applicationId}&api_key=${apiKey}`,
         callback: callbackUrl
       };
 
-      addLog('📋 Generated URLs:', 'info');
+      addLog('📋 URLs generadas:', 'info');
       Object.entries(generatedUrls).forEach(([key, url]) => {
         addLog(`   ${key}: ${url}`, 'info');
       });
+      addLog('', 'info');
 
       // Save API key to database
-      addLog('💾 Saving API key to database...', 'info');
+      addLog('💾 Paso 6: Guardando API key en la base de datos...', 'info');
       try {
         const { data: apiKeyData, error: apiKeyError } = await supabase
           .from('api_keys')
@@ -206,26 +276,29 @@ export default function EnvironmentsManager() {
             key_hash: apiKey,
             key_preview: `${apiKey.substring(0, 12)}...${apiKey.substring(apiKey.length - 6)}`,
             permissions: ['read', 'write'],
+            environment: environmentName,
             is_active: true
           })
           .select()
           .single();
 
         if (apiKeyError) {
-          addLog(`⚠️ Warning: Could not save API key: ${apiKeyError.message}`, 'warning');
+          addLog(`⚠️ Advertencia: No se pudo guardar la API key: ${apiKeyError.message}`, 'warning');
         } else {
-          addLog('✅ API key saved successfully', 'success');
+          addLog('✅ API key guardada exitosamente', 'success');
         }
       } catch (error) {
-        addLog(`⚠️ Warning: Could not save API key: ${error.message}`, 'warning');
+        addLog(`⚠️ Advertencia: No se pudo guardar la API key: ${error.message}`, 'warning');
       }
+      addLog('', 'info');
 
       // Test API endpoints
-      addLog('🧪 Testing API endpoints...', 'info');
-      const testResults = await testAllEndpoints(apiBaseUrl, applicationId, apiKey);
+      addLog('🧪 Paso 7: Probando endpoints de Edge Functions...', 'info');
+      const testResults = await testAllEndpoints(supabaseUrl, applicationId, apiKey);
+      addLog('', 'info');
 
       // Update environment with generated URLs and test results
-      addLog('💾 Updating environment configuration...', 'info');
+      addLog('💾 Paso 8: Actualizando configuración del ambiente...', 'info');
       try {
         await applicationService.updateEnvironment(environmentId, {
           auth_url: baseUrl,
@@ -239,16 +312,17 @@ export default function EnvironmentsManager() {
             deployed_at: new Date().toISOString()
           }
         });
-        addLog('✅ Environment updated successfully', 'success');
-        
+        addLog('✅ Ambiente actualizado exitosamente', 'success');
+        addLog('', 'info');
+
         // Reload environments to show updated data
         await loadEnvironments();
       } catch (updateError) {
-        addLog(`⚠️ Warning: Could not update environment: ${updateError.message}`, 'warning');
+        addLog(`⚠️ Advertencia: No se pudo actualizar el ambiente: ${updateError.message}`, 'warning');
       }
 
       // Show test results summary
-      addLog('📊 API Test Results:', 'info');
+      addLog('📊 Paso 9: Resultados de las pruebas:', 'info');
       Object.entries(testResults).forEach(([endpoint, result]) => {
         const status = result.success ? '✅' : '❌';
         const time = result.responseTime ? `(${result.responseTime}ms)` : '';
@@ -256,13 +330,17 @@ export default function EnvironmentsManager() {
       });
 
       const allTestsPassed = Object.values(testResults).every(result => result.success);
-      
+      addLog('', 'info');
+
       if (allTestsPassed) {
-        addLog(`🎉 Deployment completed successfully for ${environmentName}!`, 'success');
-        addLog(`🌍 Environment is ready for integration`, 'success');
+        addLog(`🎉 ¡Despliegue completado exitosamente para ${environmentName}!`, 'success');
+        addLog(`🌍 El ambiente está listo para integrarse`, 'success');
+        addLog('', 'info');
+        addLog('📚 Usa el botón "Ver URLs" para obtener las URLs de integración', 'info');
+        addLog('📖 Usa el botón "Guía de Integración" para ver ejemplos de código', 'info');
       } else {
-        addLog(`⚠️ Deployment completed with some test failures`, 'warning');
-        addLog(`🔧 Check the test results and fix any issues`, 'warning');
+        addLog(`⚠️ Despliegue completado con algunas pruebas fallidas`, 'warning');
+        addLog(`🔧 Revisa los resultados y corrige los problemas`, 'warning');
       }
 
     } catch (error) {
@@ -274,39 +352,38 @@ export default function EnvironmentsManager() {
     }
   };
 
-  // Test all API endpoints
-  const testAllEndpoints = async (apiBaseUrl: string, appId: string, apiKey: string) => {
+  // Test all API endpoints (Edge Functions)
+  const testAllEndpoints = async (supabaseUrl: string, appId: string, apiKey: string) => {
     const results: Record<string, any> = {};
-    
-    // Test health endpoint
-    results.health = await testEndpoint(`${apiBaseUrl}/health`, 'GET', null, apiKey);
-    
-    // Test auth endpoints
-    results.login = await testEndpoint(`${apiBaseUrl}/auth/login`, 'POST', {
+    const functionsBase = `${supabaseUrl}/functions/v1`;
+
+    addLog('   Probando función: auth-login...', 'info');
+    results['auth-login'] = await testEndpoint(`${functionsBase}/auth-login`, 'POST', {
       email: 'test@example.com',
       password: 'testpassword123',
       application_id: appId
     }, apiKey);
-    
-    results.register = await testEndpoint(`${apiBaseUrl}/auth/register`, 'POST', {
+
+    addLog('   Probando función: auth-register...', 'info');
+    results['auth-register'] = await testEndpoint(`${functionsBase}/auth-register`, 'POST', {
       email: `test-${Date.now()}@example.com`,
       password: 'testpassword123',
       name: 'Test User',
       application_id: appId
     }, apiKey);
-    
-    results.resetPassword = await testEndpoint(`${apiBaseUrl}/auth/reset-password`, 'POST', {
+
+    addLog('   Probando función: auth-reset-password...', 'info');
+    results['auth-reset-password'] = await testEndpoint(`${functionsBase}/auth-reset-password`, 'POST', {
       email: 'test@example.com',
       application_id: appId
     }, apiKey);
-    
-    results.verify = await testEndpoint(`${apiBaseUrl}/auth/verify`, 'POST', {
-      token: 'test-jwt-token-123',
+
+    addLog('   Probando función: check-ip-status...', 'info');
+    results['check-ip-status'] = await testEndpoint(`${functionsBase}/check-ip-status`, 'POST', {
+      ip: '127.0.0.1',
       application_id: appId
     }, apiKey);
-    
-    results.users = await testEndpoint(`${apiBaseUrl}/users?application_id=${appId}&page=1&limit=10`, 'GET', null, apiKey);
-    
+
     return results;
   };
 
@@ -528,13 +605,22 @@ export default function EnvironmentsManager() {
                       </button>
                       
                       {env.metadata?.generated_urls && (
-                        <button 
-                          onClick={() => handleViewUrls(env.id)}
-                          className="p-2 bg-blue-100 text-blue-600 hover:bg-blue-200 rounded-lg transition-colors"
-                          title="Ver URLs"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
+                        <>
+                          <button
+                            onClick={() => handleViewUrls(env.id)}
+                            className="p-2 bg-blue-100 text-blue-600 hover:bg-blue-200 rounded-lg transition-colors"
+                            title="Ver URLs"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => setShowIntegrationGuide(env.id)}
+                            className="p-2 bg-green-100 text-green-600 hover:bg-green-200 rounded-lg transition-colors"
+                            title="Guía de Integración"
+                          >
+                            <FileText className="w-4 h-4" />
+                          </button>
+                        </>
                       )}
                       
                       <button className="p-2 bg-gray-100 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors">
@@ -812,6 +898,263 @@ export default function EnvironmentsManager() {
           </div>
         </div>
       )}
+
+      {/* Integration Guide Modal */}
+      {showIntegrationGuide && (() => {
+        const environment = environments.find(env => env.id === showIntegrationGuide);
+        if (!environment || !environment.metadata?.generated_urls) return null;
+
+        const urls = environment.metadata.generated_urls;
+        const apiKey = environment.metadata.api_key;
+
+        return (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-gray-900 flex items-center space-x-2">
+                  <Code className="w-6 h-6 text-blue-500" />
+                  <span>Guía de Integración - {environment.name}</span>
+                </h3>
+                <button
+                  onClick={() => setShowIntegrationGuide(null)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              {/* Quick Start */}
+              <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <h4 className="font-semibold text-blue-900 mb-2 flex items-center space-x-2">
+                  <Shield className="w-5 h-5" />
+                  <span>Configuración Rápida</span>
+                </h4>
+                <p className="text-sm text-blue-800 mb-3">
+                  Usa tu API Key en todas las peticiones HTTP en el header <code className="bg-blue-100 px-2 py-1 rounded">X-API-Key</code>
+                </p>
+                <div className="bg-white p-3 rounded border border-blue-300">
+                  <code className="text-sm font-mono text-gray-800">{apiKey}</code>
+                </div>
+              </div>
+
+              {/* JavaScript Example */}
+              <div className="mb-6">
+                <h4 className="font-semibold text-gray-900 mb-3">📝 Ejemplo JavaScript / React</h4>
+                <div className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto">
+                  <pre className="text-sm">
+{`// Configuración
+const API_KEY = '${apiKey}';
+const LOGIN_URL = '${urls.login}';
+const REGISTER_URL = '${urls.register}';
+const RESET_PASSWORD_URL = '${urls.reset_password}';
+
+// Función para login
+async function login(email, password) {
+  try {
+    const response = await fetch(LOGIN_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': API_KEY
+      },
+      body: JSON.stringify({ email, password })
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      return data;
+    } else {
+      throw new Error(data.message || 'Error en login');
+    }
+  } catch (error) {
+    console.error('Login error:', error);
+    throw error;
+  }
+}
+
+// Función para registro
+async function register(email, password, name) {
+  try {
+    const response = await fetch(REGISTER_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': API_KEY
+      },
+      body: JSON.stringify({ email, password, name })
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      return data;
+    } else {
+      throw new Error(data.message || 'Error en registro');
+    }
+  } catch (error) {
+    console.error('Register error:', error);
+    throw error;
+  }
+}
+
+// Función para recuperar contraseña
+async function resetPassword(email) {
+  try {
+    const response = await fetch(RESET_PASSWORD_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': API_KEY
+      },
+      body: JSON.stringify({ email })
+    });
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Reset password error:', error);
+    throw error;
+  }
+}`}
+                  </pre>
+                </div>
+              </div>
+
+              {/* HTML Form Example */}
+              <div className="mb-6">
+                <h4 className="font-semibold text-gray-900 mb-3">🌐 Ejemplo HTML con Formulario</h4>
+                <div className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto">
+                  <pre className="text-sm">
+{`<!DOCTYPE html>
+<html>
+<head>
+  <title>Login</title>
+</head>
+<body>
+  <form id="loginForm">
+    <input type="email" id="email" placeholder="Email" required>
+    <input type="password" id="password" placeholder="Contraseña" required>
+    <button type="submit">Iniciar Sesión</button>
+  </form>
+
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+
+      try {
+        const response = await fetch('${urls.login}', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': '${apiKey}'
+          },
+          body: JSON.stringify({ email, password })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          alert('Login exitoso!');
+          localStorage.setItem('token', data.token);
+          // Redirigir a dashboard
+          window.location.href = '/dashboard';
+        } else {
+          alert('Error: ' + data.message);
+        }
+      } catch (error) {
+        alert('Error de conexión');
+      }
+    });
+  </script>
+</body>
+</html>`}
+                  </pre>
+                </div>
+              </div>
+
+              {/* PHP Example */}
+              <div className="mb-6">
+                <h4 className="font-semibold text-gray-900 mb-3">🐘 Ejemplo PHP</h4>
+                <div className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto">
+                  <pre className="text-sm">
+{`<?php
+$API_KEY = '${apiKey}';
+$LOGIN_URL = '${urls.login}';
+
+function login($email, $password) {
+    global $API_KEY, $LOGIN_URL;
+
+    $data = json_encode([
+        'email' => $email,
+        'password' => $password
+    ]);
+
+    $ch = curl_init($LOGIN_URL);
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Content-Type: application/json',
+        'X-API-Key: ' . $API_KEY
+    ]);
+
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    $result = json_decode($response, true);
+
+    if ($httpCode === 200) {
+        $_SESSION['token'] = $result['token'];
+        $_SESSION['user'] = $result['user'];
+        return $result;
+    } else {
+        throw new Exception($result['message'] ?? 'Error en login');
+    }
+}
+
+// Uso
+try {
+    $result = login('usuario@email.com', 'contraseña123');
+    echo "Login exitoso!";
+} catch (Exception $e) {
+    echo "Error: " . $e->getMessage();
+}
+?>`}
+                  </pre>
+                </div>
+              </div>
+
+              {/* Important Notes */}
+              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <h4 className="font-semibold text-yellow-900 mb-2">⚠️ Notas Importantes</h4>
+                <ul className="text-sm text-yellow-800 space-y-1 list-disc list-inside">
+                  <li>Siempre incluye la API Key en el header <code className="bg-yellow-100 px-1 rounded">X-API-Key</code></li>
+                  <li>Las URLs ya incluyen los parámetros necesarios (app_id, api_key)</li>
+                  <li>Guarda el token JWT que recibes en el login de forma segura</li>
+                  <li>Maneja los errores apropiadamente en tu aplicación</li>
+                  <li>Usa HTTPS en producción para mayor seguridad</li>
+                </ul>
+              </div>
+
+              <div className="mt-6">
+                <button
+                  onClick={() => setShowIntegrationGuide(null)}
+                  className="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                >
+                  Entendido
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Create Environment Modal */}
       {showCreateModal && (
