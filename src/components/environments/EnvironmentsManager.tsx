@@ -266,10 +266,10 @@ export default function EnvironmentsManager() {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const generatedUrls = {
         api_base: `${supabaseUrl}/functions/v1`,
-        login: `${window.location.origin}/auth/login?app_id=${applicationId}&api_key=${apiKey}`,
-        register: `${window.location.origin}/auth/register?app_id=${applicationId}&api_key=${apiKey}`,
-        reset_password: `${window.location.origin}/auth/reset-password?app_id=${applicationId}&api_key=${apiKey}`,
-        reset_password_confirm: `${window.location.origin}/auth/reset-password-confirm?app_id=${applicationId}&api_key=${apiKey}`,
+        login: `${baseUrl}/login?app_id=${applicationId}&api_key=${apiKey}`,
+        register: `${baseUrl}/register?app_id=${applicationId}&api_key=${apiKey}`,
+        reset_password: `${baseUrl}/reset-password?app_id=${applicationId}&api_key=${apiKey}`,
+        reset_password_confirm: `${baseUrl}/reset-password-confirm?app_id=${applicationId}&api_key=${apiKey}`,
         callback: callbackUrl
       };
 
