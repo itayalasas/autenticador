@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Key, Plus, Copy, Eye, EyeOff, Trash2, Calendar, Shield, AlertTriangle, Crown } from 'lucide-react';
 import { ApiKey } from '../../types';
 import { applicationService } from '../../services/applicationService';
@@ -10,6 +11,7 @@ import NotificationModal from '../ui/NotificationModal';
 import ConfirmationModal from '../ui/ConfirmationModal';
 
 export default function ApiKeysManager() {
+  const navigate = useNavigate();
   const [applications, setApplications] = useState<any[]>([]);
   const [selectedApp, setSelectedApp] = useState('');
   const [currentEnvironment, setCurrentEnvironment] = useState('development');
@@ -169,9 +171,17 @@ export default function ApiKeysManager() {
       const validation = await subscriptionService.canCreateApiKey(selectedApp, currentEnvironment);
 
       if (!validation.allowed) {
-        showError(
-          'Límite alcanzado',
-          validation.reason || 'No puedes crear más API keys en este ambiente.'
+        showWarning(
+          'Límite de plan alcanzado',
+          validation.reason || 'No puedes crear más API keys en este ambiente con tu plan actual.',
+          {
+            confirmText: 'Ver Planes',
+            cancelText: 'Cerrar',
+            showCancel: true,
+            onConfirm: () => {
+              navigate('/settings?tab=subscription');
+            }
+          }
         );
         setShowCreateModal(false);
         return;

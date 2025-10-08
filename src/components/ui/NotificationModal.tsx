@@ -1,26 +1,37 @@
 import React from 'react';
 import { CheckCircle, AlertTriangle, XCircle, Info, X } from 'lucide-react';
 
-interface NotificationModalProps {
+interface NotificationData {
   isOpen: boolean;
-  onClose: () => void;
   type: 'success' | 'error' | 'warning' | 'info';
   title: string;
   message: string;
   confirmText?: string;
+  cancelText?: string;
   onConfirm?: () => void;
+  showCancel?: boolean;
+}
+
+interface NotificationModalProps {
+  notification: NotificationData;
+  onClose: () => void;
 }
 
 export default function NotificationModal({
-  isOpen,
-  onClose,
-  type,
-  title,
-  message,
-  confirmText = 'OK',
-  onConfirm
+  notification,
+  onClose
 }: NotificationModalProps) {
-  if (!isOpen) return null;
+  if (!notification.isOpen) return null;
+
+  const {
+    type,
+    title,
+    message,
+    confirmText = 'OK',
+    cancelText = 'Cerrar',
+    onConfirm,
+    showCancel = false
+  } = notification;
 
   const getIcon = () => {
     switch (type) {
@@ -107,12 +118,29 @@ export default function NotificationModal({
 
         {/* Footer */}
         <div className="px-6 pb-6">
-          <button
-            onClick={handleConfirm}
-            className={`w-full ${colors.button} text-white font-medium py-3 px-4 rounded-xl transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2`}
-          >
-            {confirmText}
-          </button>
+          {showCancel ? (
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={onClose}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-3 px-4 rounded-xl transition-colors"
+              >
+                {cancelText}
+              </button>
+              <button
+                onClick={handleConfirm}
+                className={`flex-1 ${colors.button} text-white font-medium py-3 px-4 rounded-xl transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2`}
+              >
+                {confirmText}
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handleConfirm}
+              className={`w-full ${colors.button} text-white font-medium py-3 px-4 rounded-xl transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2`}
+            >
+              {confirmText}
+            </button>
+          )}
         </div>
       </div>
     </div>

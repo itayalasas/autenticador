@@ -6,7 +6,9 @@ interface NotificationState {
   title: string;
   message: string;
   confirmText?: string;
+  cancelText?: string;
   onConfirm?: () => void;
+  showCancel?: boolean;
 }
 
 interface ConfirmationState {
@@ -38,33 +40,39 @@ export function useNotification() {
     type: 'success' | 'error' | 'warning' | 'info',
     title: string,
     message: string,
-    confirmText?: string,
-    onConfirm?: () => void
+    options?: {
+      confirmText?: string;
+      cancelText?: string;
+      onConfirm?: () => void;
+      showCancel?: boolean;
+    }
   ) => {
     setNotification({
       isOpen: true,
       type,
       title,
       message,
-      confirmText,
-      onConfirm
+      confirmText: options?.confirmText,
+      cancelText: options?.cancelText,
+      onConfirm: options?.onConfirm,
+      showCancel: options?.showCancel
     });
   };
 
-  const showSuccess = (title: string, message: string, confirmText?: string, onConfirm?: () => void) => {
-    showNotification('success', title, message, confirmText, onConfirm);
+  const showSuccess = (title: string, message: string, options?: { confirmText?: string; cancelText?: string; onConfirm?: () => void; showCancel?: boolean }) => {
+    showNotification('success', title, message, options);
   };
 
-  const showError = (title: string, message: string, confirmText?: string, onConfirm?: () => void) => {
-    showNotification('error', title, message, confirmText, onConfirm);
+  const showError = (title: string, message: string, options?: { confirmText?: string; cancelText?: string; onConfirm?: () => void; showCancel?: boolean }) => {
+    showNotification('error', title, message, options);
   };
 
-  const showWarning = (title: string, message: string, confirmText?: string, onConfirm?: () => void) => {
-    showNotification('warning', title, message, confirmText, onConfirm);
+  const showWarning = (title: string, message: string, options?: { confirmText?: string; cancelText?: string; onConfirm?: () => void; showCancel?: boolean }) => {
+    showNotification('warning', title, message, options);
   };
 
-  const showInfo = (title: string, message: string, confirmText?: string, onConfirm?: () => void) => {
-    showNotification('info', title, message, confirmText, onConfirm);
+  const showInfo = (title: string, message: string, options?: { confirmText?: string; cancelText?: string; onConfirm?: () => void; showCancel?: boolean }) => {
+    showNotification('info', title, message, options);
   };
 
   const showConfirmation = (
