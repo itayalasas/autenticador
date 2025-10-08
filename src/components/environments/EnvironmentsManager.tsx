@@ -252,8 +252,11 @@ export default function EnvironmentsManager() {
       // Get base URL from application metadata or environment
       const envUrls = selectedApplication.metadata?.environment_urls || {};
       const envConfig = envUrls[environmentName];
-      const baseUrl = envConfig?.base_url || environment.auth_url || `https://auth-${environmentName}.${selectedApplication.domain}`;
+      let baseUrl = envConfig?.base_url || environment.auth_url || `https://auth-${environmentName}.${selectedApplication.domain}`;
       const callbackUrl = envConfig?.callback_url || environment.callback_url || `https://${selectedApplication.domain}/auth/callback`;
+
+      // Ensure baseUrl doesn't end with slash to avoid double slashes
+      baseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
 
       addLog(`🌐 Base URL: ${baseUrl}`, 'info');
       addLog(`🔄 Callback URL: ${callbackUrl}`, 'info');
@@ -262,6 +265,9 @@ export default function EnvironmentsManager() {
       const apiKey = generateApiKey(environmentName);
       addLog(`🔑 Generated API Key: ${apiKey}`, 'info');
 
+      // Generate test token for reset password (for testing purposes)
+      const testToken = 'test_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+
       // Generate URLs for forms and API
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const generatedUrls = {
@@ -269,7 +275,7 @@ export default function EnvironmentsManager() {
         login: `${baseUrl}/login?app_id=${applicationId}&api_key=${apiKey}`,
         register: `${baseUrl}/register?app_id=${applicationId}&api_key=${apiKey}`,
         reset_password: `${baseUrl}/reset-password?app_id=${applicationId}&api_key=${apiKey}`,
-        reset_password_confirm: `${baseUrl}/reset-password-confirm?app_id=${applicationId}&api_key=${apiKey}`,
+        reset_password_confirm: `${baseUrl}/reset-password-confirm?token=${testToken}&email=test@example.com`,
         callback: callbackUrl
       };
 
