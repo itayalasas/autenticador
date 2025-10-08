@@ -362,11 +362,11 @@ export default function SubscriptionManager() {
       {/* Subscription Plans */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {plans.map((plan) => (
-          <div 
-            key={plan.id} 
+          <div
+            key={plan.id}
             className={`relative bg-white rounded-2xl border-2 p-8 transition-all hover:shadow-lg ${
-              plan.is_popular 
-                ? 'border-purple-500 shadow-lg' 
+              plan.is_popular
+                ? 'border-purple-500 shadow-xl bg-gradient-to-b from-purple-50 to-white'
                 : isCurrentPlan(plan.id)
                   ? 'border-green-500'
                   : 'border-gray-200 hover:border-gray-300'
@@ -454,8 +454,10 @@ export default function SubscriptionManager() {
                 isCurrentPlan(plan.id)
                   ? 'bg-green-100 text-green-800 cursor-not-allowed'
                   : plan.is_popular
-                    ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white hover:from-purple-600 hover:to-purple-700'
-                    : 'bg-gray-900 text-white hover:bg-gray-800'
+                    ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white hover:from-purple-600 hover:to-purple-700 shadow-lg'
+                    : plan.price === 0
+                      ? 'bg-blue-500 text-white hover:bg-blue-600'
+                      : 'bg-gray-900 text-white hover:bg-gray-800'
               }`}
             >
               {isCurrentPlan(plan.id) ? (

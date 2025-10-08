@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Zap, Shield, TrendingUp, Activity, AlertTriangle, Calendar, Clock, UserPlus, FileText, CheckCircle, XCircle, Wifi, Database, Server } from 'lucide-react';
+import { Users, Zap, Shield, TrendingUp, Activity, AlertTriangle, Calendar, Clock, UserPlus, FileText, CheckCircle, XCircle, Wifi, Database, Server, Crown, ArrowRight } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { applicationService } from '../../services/applicationService';
+import { subscriptionService } from '../../services/subscriptionService';
 
 interface DashboardStats {
   totalApplications: number;
@@ -50,14 +51,16 @@ export default function DashboardOverview() {
     authenticationsChange: '+0%',
     errorsChange: '0%'
   });
-  
+
   const [chartData, setChartData] = useState<ChartData[]>([]);
   const [systemStatus, setSystemStatus] = useState<SystemStatus>({
     api: { status: 'checking', lastCheck: '' },
     database: { status: 'checking', lastCheck: '' },
     authentication: { status: 'checking', lastCheck: '' }
   });
-  
+
+  const [subscription, setSubscription] = useState<any>(null);
+  const [usage, setUsage] = useState<any>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -73,18 +76,31 @@ export default function DashboardOverview() {
   const loadDashboardData = async () => {
     try {
       setLoading(true);
-      
+
       await Promise.all([
         loadApplicationStats(),
         loadUserStats(),
         loadAuthenticationStats(),
-        loadChartData()
+        loadChartData(),
+        loadSubscriptionData()
       ]);
-      
+
     } catch (error) {
       console.error('Error loading dashboard data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadSubscriptionData = async () => {
+    try {
+      const sub = await subscriptionService.getCurrentSubscription();
+      setSubscription(sub);
+
+      const usageData = await subscriptionService.getCurrentUsage();
+      setUsage(usageData);
+    } catch (error) {
+      console.error('Error loading subscription data:', error);
     }
   };
 
@@ -450,10 +466,102 @@ export default function DashboardOverview() {
       <div className="bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg p-6 text-white">
         <h1 className="text-2xl font-bold mb-2">¡Bienvenido de vuelta!</h1>
         <p className="text-blue-100">
-          Gestiona tus aplicaciones de autenticación desde un solo lugar. 
+          Gestiona tus aplicaciones de autenticación desde un solo lugar.
           Sistema funcionando correctamente.
         </p>
       </div>
+
+      {/* Subscription Overview */}
+      {subscription && (
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center space-x-3">
+              <Crown className="w-6 h-6 text-blue-500" />
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Tu Suscripción Actual</h3>
+                <p className="text-sm text-gray-600">
+                  Plan {subscription.subscription_plans?.name || 'Básico'} -
+                  {subscription.status === 'active' ? ' Activa' : ' Inactiva'}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => handleQuickAction('subscription')}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
+            >
+              <span>Gestionar Plan</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Usage Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <p className="text-sm text-gray-600 mb-1">Aplicaciones</p>
+              <div className="flex items-baseline space-x-2">
+                <p className="text-2xl font-bold text-gray-900">{usage.applications || 0}</p>
+                <p className="text-sm text-gray-500">
+                  / {subscription.subscription_plans?.limits?.applications || 1}
+                </p>
+              </div>
+              <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                <div
+                  className="bg-blue-500 h-2 rounded-full"
+                  style={{
+                    width: `${Math.min(((usage.applications || 0) / (subscription.subscription_plans?.limits?.applications || 1)) * 100, 100)}%`
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <p className="text-sm text-gray-600 mb-1">Usuarios</p>
+              <div className="flex items-baseline space-x-2">
+                <p className="text-2xl font-bold text-gray-900">{usage.users || 0}</p>
+                <p className="text-sm text-gray-500">
+                  / {subscription.subscription_plans?.limits?.users_per_app || 100}
+                </p>
+              </div>
+              <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                <div
+                  className="bg-green-500 h-2 rounded-full"
+                  style={{
+                    width: `${Math.min(((usage.users || 0) / (subscription.subscription_plans?.limits?.users_per_app || 100)) * 100, 100)}%`
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <p className="text-sm text-gray-600 mb-1">API Requests (mes)</p>
+              <div className="flex items-baseline space-x-2">
+                <p className="text-2xl font-bold text-gray-900">{usage.api_requests || 0}</p>
+                <p className="text-sm text-gray-500">
+                  / {(subscription.subscription_plans?.limits?.api_requests_per_month || 10000).toLocaleString()}
+                </p>
+              </div>
+              <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                <div
+                  className="bg-purple-500 h-2 rounded-full"
+                  style={{
+                    width: `${Math.min(((usage.api_requests || 0) / (subscription.subscription_plans?.limits?.api_requests_per_month || 10000)) * 100, 100)}%`
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <p className="text-sm text-gray-600 mb-1">Ambientes</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {subscription.subscription_plans?.limits?.environments?.length || 1}
+              </p>
+              <p className="text-sm text-gray-500 mt-2">
+                {subscription.subscription_plans?.limits?.environments?.join(', ') || 'development'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
