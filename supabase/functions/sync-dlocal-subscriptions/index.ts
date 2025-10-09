@@ -60,19 +60,39 @@ Deno.serve(async (req: Request) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const dlocalApiUrl = Deno.env.get('DLOCAL_API_URL') || 'https://api-sbx.dlocalgo.com';
-    const dlocalApiKey = Deno.env.get('DLOCAL_API_KEY') || '';
-    const dlocalSecretKey = Deno.env.get('DLOCAL_SECRET_KEY') || '';
+    // Get dLocal credentials from environment
+    let dlocalApiUrl = Deno.env.get('DLOCAL_API_URL');
+    let dlocalApiKey = Deno.env.get('DLOCAL_API_KEY');
+    let dlocalSecretKey = Deno.env.get('DLOCAL_SECRET_KEY');
+
+    // Fallback to VITE_ prefixed variables if the non-prefixed ones are not available
+    if (!dlocalApiKey) {
+      dlocalApiKey = Deno.env.get('VITE_DLOCAL_API_KEY');
+    }
+    if (!dlocalSecretKey) {
+      dlocalSecretKey = Deno.env.get('VITE_DLOCAL_SECRET_KEY');
+    }
+    if (!dlocalApiUrl) {
+      dlocalApiUrl = Deno.env.get('VITE_DLOCAL_API_URL');
+    }
+
+    // Final fallback to default URL
+    if (!dlocalApiUrl) {
+      dlocalApiUrl = 'https://api-sbx.dlocalgo.com';
+    }
+
+    console.log('🔄 Iniciando sincronización de suscripciones con dLocal...');
+    console.log('📍 API URL:', dlocalApiUrl);
+    console.log('🔑 API Key configured:', dlocalApiKey ? 'Yes (length: ' + dlocalApiKey.length + ')' : 'No');
+    console.log('🔐 Secret Key configured:', dlocalSecretKey ? 'Yes (length: ' + dlocalSecretKey.length + ')' : 'No');
 
     if (!dlocalApiKey || !dlocalSecretKey) {
-      throw new Error('dLocal API credentials not configured');
+      throw new Error('dLocal API credentials not configured. Check DLOCAL_API_KEY and DLOCAL_SECRET_KEY environment variables.');
     }
 
     // Create combined Bearer token (API_KEY:SECRET_KEY)
     const bearerToken = `${dlocalApiKey}:${dlocalSecretKey}`;
-
-    console.log('🔄 Iniciando sincronización de suscripciones con dLocal...');
-    console.log('📍 API URL:', dlocalApiUrl);
+    console.log('🎫 Bearer token created (length:', bearerToken.length, ')');
 
     // Step 1: Get all plans from dLocal API
     console.log('\n📋 Step 1: Fetching plans from dLocal API...');
