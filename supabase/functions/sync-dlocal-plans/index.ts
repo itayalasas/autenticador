@@ -92,9 +92,11 @@ Deno.serve(async (req: Request) => {
     let created = 0;
     let updated = 0;
     let skipped = 0;
+    let syncedToSubscriptionPlans = 0;
 
     for (const plan of dlocalPlans) {
       try {
+        // Step 1: Sync to dlocal_plans_cache
         const { data: existingPlan } = await supabase
           .from('dlocal_plans_cache')
           .select('id, dlocal_updated_at')
@@ -127,9 +129,9 @@ Deno.serve(async (req: Request) => {
             .eq('id', plan.id);
 
           if (error) {
-            console.error(`Error updating plan ${plan.id}:`, error);
+            console.error(`Error updating plan ${plan.id} in cache:`, error);
           } else {
-            console.log(`\u2705 Updated plan: ${plan.name}`);
+            console.log(`  ✓ Updated cache: ${plan.name}`);
             updated++;
           }
         } else {
@@ -138,12 +140,78 @@ Deno.serve(async (req: Request) => {
             .insert(planData);
 
           if (error) {
-            console.error(`Error inserting plan ${plan.id}:`, error);
+            console.error(`Error inserting plan ${plan.id} in cache:`, error);
           } else {
-            console.log(`\u2705 Created plan: ${plan.name}`);
+            console.log(`  ✓ Created cache: ${plan.name}`);
             created++;
           }
         }
+
+        // Step 2: Sync to subscription_plans table
+        const { data: existingSubscriptionPlan } = await supabase
+          .from('subscription_plans')
+          .select('id, provider_plan_id')
+          .eq('provider', 'dlocal')
+          .eq('provider_plan_id', plan.id.toString())
+          .maybeSingle();
+
+        const subscriptionPlanData = {
+          name: plan.name,
+          description: plan.description || `Plan ${plan.name} - ${plan.currency} ${plan.amount}/${plan.frequency_type.toLowerCase()}`,
+          price: plan.amount,
+          currency: plan.currency,
+          interval: plan.frequency_type === 'MONTHLY' ? 'month' : 'year',
+          features: [
+            `${plan.currency} ${plan.amount} / ${plan.frequency_type.toLowerCase()}`,
+            plan.free_trial_days > 0 ? `${plan.free_trial_days} días de prueba gratis` : 'Sin prueba gratuita',
+            `País: ${plan.country}`
+          ],
+          limits: {
+            country: plan.country,
+            frequency_value: plan.frequency_value
+          },
+          is_active: plan.active,
+          provider: 'dlocal',
+          provider_plan_id: plan.id.toString(),
+          provider_metadata: {
+            plan_token: plan.plan_token,
+            subscribe_url: plan.subscribe_url,
+            merchant_id: plan.merchant_id,
+            dlocal_created_at: plan.created_at,
+            dlocal_updated_at: plan.updated_at
+          },
+          trial_days: plan.free_trial_days,
+          updated_at: new Date().toISOString()
+        };
+
+        if (existingSubscriptionPlan) {
+          const { error: updateError } = await supabase
+            .from('subscription_plans')
+            .update(subscriptionPlanData)
+            .eq('id', existingSubscriptionPlan.id);
+
+          if (updateError) {
+            console.error(`  ⚠️  Error updating subscription_plan ${plan.id}:`, updateError);
+          } else {
+            console.log(`  ✓ Updated subscription_plan: ${plan.name}`);
+            syncedToSubscriptionPlans++;
+          }
+        } else {
+          const { error: insertError } = await supabase
+            .from('subscription_plans')
+            .insert({
+              ...subscriptionPlanData,
+              created_at: new Date().toISOString()
+            });
+
+          if (insertError) {
+            console.error(`  ⚠️  Error creating subscription_plan ${plan.id}:`, insertError);
+          } else {
+            console.log(`  ✓ Created subscription_plan: ${plan.name}`);
+            syncedToSubscriptionPlans++;
+          }
+        }
+
       } catch (error: any) {
         console.error(`Error processing plan ${plan.id}:`, error);
         skipped++;
@@ -155,14 +223,21 @@ Deno.serve(async (req: Request) => {
       message: 'Plans sync completed',
       stats: {
         total: dlocalPlans.length,
-        created,
-        updated,
-        skipped
+        cache: {
+          created,
+          updated,
+          skipped
+        },
+        subscription_plans: {
+          synced: syncedToSubscriptionPlans
+        }
       },
       timestamp: new Date().toISOString()
     };
 
-    console.log('\ud83d\udcca Sync Summary:', result.stats);
+    console.log('\n📊 Sync Summary:');
+    console.log('  Cache:', result.stats.cache);
+    console.log('  Subscription Plans:', result.stats.subscription_plans);
 
     return new Response(
       JSON.stringify(result),
