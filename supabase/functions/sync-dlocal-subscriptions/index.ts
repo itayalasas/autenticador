@@ -87,30 +87,75 @@ Deno.serve(async (req: Request) => {
 
     console.log('\ud83c\udfab Setting up dLocal authentication headers');
 
-    console.log('\n\ud83d\udccb Step 1: Fetching plans from dLocal API...');
-    const plansResponse = await fetch(`${dlocalApiUrl}/v1/subscription/plan/all`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${dlocalApiKey}`,
-        'X-API-Secret': dlocalSecretKey,
-        'Content-Type': 'application/json'
+    console.log('\n\ud83d\udccb Step 1: Checking plans cache...');
+
+    // First, check if we have cached plans
+    const { data: cachedPlans, error: cacheError } = await supabase
+      .from('dlocal_plans_cache')
+      .select('*')
+      .eq('active', true);
+
+    let dlocalPlans = cachedPlans || [];
+
+    // If no cached plans, fetch from API and cache them
+    if (!cachedPlans || cachedPlans.length === 0) {
+      console.log('\u26a0\ufe0f  No cached plans found, fetching from dLocal API...');
+
+      const plansResponse = await fetch(`${dlocalApiUrl}/v1/subscription/plan/all`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${dlocalApiKey}`,
+          'X-API-Secret': dlocalSecretKey,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!plansResponse.ok) {
+        const errorText = await plansResponse.text();
+        throw new Error(`Failed to fetch dLocal plans: ${plansResponse.status} - ${errorText}`);
       }
-    });
 
-    if (!plansResponse.ok) {
-      const errorText = await plansResponse.text();
-      throw new Error(`Failed to fetch dLocal plans: ${plansResponse.status} - ${errorText}`);
+      const dlocalPlansData = await plansResponse.json();
+      const apiPlans = dlocalPlansData.data || [];
+
+      console.log(`\u2705 Found ${apiPlans.length} plans from API, caching them...`);
+
+      // Cache the plans
+      for (const plan of apiPlans) {
+        const planData = {
+          id: plan.id,
+          merchant_id: plan.merchant_id,
+          name: plan.name,
+          description: plan.description || '',
+          country: plan.country,
+          currency: plan.currency,
+          amount: plan.amount,
+          frequency_type: plan.frequency_type,
+          frequency_value: plan.frequency_value,
+          active: plan.active,
+          free_trial_days: plan.free_trial_days,
+          plan_token: plan.plan_token,
+          subscribe_url: plan.subscribe_url,
+          dlocal_created_at: plan.created_at,
+          dlocal_updated_at: plan.updated_at,
+          synced_at: new Date().toISOString()
+        };
+
+        await supabase
+          .from('dlocal_plans_cache')
+          .upsert(planData, { onConflict: 'id' });
+      }
+
+      dlocalPlans = apiPlans;
+    } else {
+      console.log(`\u2705 Using ${cachedPlans.length} cached plans`);
     }
-
-    const dlocalPlansData = await plansResponse.json();
-    const dlocalPlans = dlocalPlansData.data || [];
-    console.log(`\u2705 Found ${dlocalPlans.length} plans in dLocal`);
 
     if (dlocalPlans.length === 0) {
       return new Response(
         JSON.stringify({
           success: true,
-          message: 'No plans found in dLocal',
+          message: 'No plans found',
           stats: { total_synced: 0, created: 0, updated: 0, errors: 0 }
         }),
         {
