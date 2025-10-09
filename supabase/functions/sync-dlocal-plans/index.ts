@@ -57,6 +57,11 @@ Deno.serve(async (req: Request) => {
       dlocalApiUrl = 'https://api-sbx.dlocalgo.com';
     }
 
+    if (dlocalApiUrl.includes('api.dlocalgo.com') && !dlocalApiUrl.includes('sbx')) {
+      console.warn('\u26a0\ufe0f Production URL detected, forcing sandbox environment');
+      dlocalApiUrl = 'https://api-sbx.dlocalgo.com';
+    }
+
     console.log('\ud83d\udd04 Syncing dLocal plans...');
     console.log('\ud83d\udccd API URL:', dlocalApiUrl);
 
