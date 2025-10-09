@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, Crown, CreditCard, Shield, Bell, Globe, Save, Check, Star, ArrowRight, AlertTriangle } from 'lucide-react';
 import { subscriptionService } from '../../services/subscriptionService';
+import { dLocalService } from '../../services/dLocalService';
 import { useNotification } from '../../hooks/useNotification';
 import NotificationModal from '../ui/NotificationModal';
 import ConfirmationModal from '../ui/ConfirmationModal';
@@ -410,7 +411,8 @@ export default function SettingsPage() {
     return 'bg-green-500';
   };
 
-  const formatNumber = (num: number) => {
+  const formatNumber = (num: number | undefined) => {
+    if (num === undefined || num === null) return 'N/A';
     if (num === -1) return 'Ilimitado';
     return num.toLocaleString();
   };
@@ -727,23 +729,23 @@ export default function SettingsPage() {
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-gray-600">Aplicaciones:</span>
-                  <span className="font-medium">{formatNumber(plan.limits.applications)}</span>
+                  <span className="font-medium">{formatNumber(plan.limits?.applications)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Usuarios por app:</span>
-                  <span className="font-medium">{formatNumber(plan.limits.users_per_app)}</span>
+                  <span className="font-medium">{formatNumber(plan.limits?.users_per_app)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">API requests/mes:</span>
-                  <span className="font-medium">{formatNumber(plan.limits.api_requests_per_month)}</span>
+                  <span className="font-medium">{formatNumber(plan.limits?.api_requests_per_month)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Ambientes:</span>
-                  <span className="font-medium">{plan.limits.environments.join(', ')}</span>
+                  <span className="font-medium">{plan.limits?.environments?.join(', ') || 'N/A'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Soporte:</span>
-                  <span className="font-medium capitalize">{plan.limits.support_level}</span>
+                  <span className="font-medium capitalize">{plan.limits?.support_level || 'N/A'}</span>
                 </div>
               </div>
             </div>
