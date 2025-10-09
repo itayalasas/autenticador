@@ -68,13 +68,48 @@ Deno.serve(async (req: Request) => {
       throw new Error('dLocal API credentials not configured');
     }
 
+    // Create combined Bearer token (API_KEY:SECRET_KEY)
+    const bearerToken = `${dlocalApiKey}:${dlocalSecretKey}`;
+
     console.log('🔄 Iniciando sincronización de suscripciones con dLocal...');
     console.log('📍 API URL:', dlocalApiUrl);
-    console.log('🔑 API Key configured:', dlocalApiKey ? 'Yes' : 'No');
-    console.log('🔐 Secret Key configured:', dlocalSecretKey ? 'Yes' : 'No');
 
-    // Get all plans from database
-    const { data: plans, error: plansError } = await supabase
+    // Step 1: Get all plans from dLocal API
+    console.log('\n📋 Step 1: Fetching plans from dLocal API...');
+    const plansResponse = await fetch(`${dlocalApiUrl}/v1/subscription/plan/all`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${bearerToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!plansResponse.ok) {
+      const errorText = await plansResponse.text();
+      throw new Error(`Failed to fetch dLocal plans: ${plansResponse.status} - ${errorText}`);
+    }
+
+    const dlocalPlansData = await plansResponse.json();
+    const dlocalPlans = dlocalPlansData.data || [];
+    console.log(`✅ Found ${dlocalPlans.length} plans in dLocal`);
+
+    if (dlocalPlans.length === 0) {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: 'No plans found in dLocal',
+          stats: { total_synced: 0, created: 0, updated: 0, errors: 0 }
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
+    // Step 2: Get plans from database to match with dLocal plans
+    console.log('\n📋 Step 2: Matching with database plans...');
+    const { data: dbPlans, error: plansError } = await supabase
       .from('subscription_plans')
       .select('*')
       .eq('provider', 'dlocal')
@@ -85,28 +120,36 @@ Deno.serve(async (req: Request) => {
       throw plansError;
     }
 
-    console.log(`📋 Found ${plans?.length || 0} dLocal plans in database`);
+    console.log(`📋 Found ${dbPlans?.length || 0} dLocal plans in database`);
 
     let totalSynced = 0;
     let totalCreated = 0;
     let totalUpdated = 0;
     const errors: any[] = [];
 
-    // For each plan, fetch subscriptions from dLocal
-    for (const plan of plans || []) {
+    // Step 3: For each dLocal plan, fetch and sync subscriptions
+    console.log('\n🔄 Step 3: Syncing subscriptions...');
+    for (const dlocalPlan of dlocalPlans) {
       try {
-        console.log(`\n🔍 Fetching subscriptions for plan: ${plan.name} (ID: ${plan.provider_plan_id})`);
+        // Find matching plan in database
+        const dbPlan = dbPlans?.find(p => p.provider_plan_id === String(dlocalPlan.id));
+
+        if (!dbPlan) {
+          console.log(`⏭️  Skipping dLocal plan "${dlocalPlan.name}" (ID: ${dlocalPlan.id}) - not found in database`);
+          continue;
+        }
+
+        console.log(`\n🔍 Fetching subscriptions for plan: ${dlocalPlan.name} (ID: ${dlocalPlan.id})`);
 
         // Call dLocal API to get subscriptions for this plan
-        const apiUrl = `${dlocalApiUrl}/v1/subscription/plan/${plan.provider_plan_id}/subscription/all`;
+        const apiUrl = `${dlocalApiUrl}/v1/subscription/plan/${dlocalPlan.id}/subscription/all`;
         console.log(`🔗 API URL: ${apiUrl}`);
 
         const response = await fetch(apiUrl, {
           method: 'GET',
           headers: {
-            'Authorization': `Bearer ${dlocalApiKey}`,
-            'Content-Type': 'application/json',
-            'X-API-Secret': dlocalSecretKey
+            'Authorization': `Bearer ${bearerToken}`,
+            'Content-Type': 'application/json'
           }
         });
 
@@ -114,11 +157,12 @@ Deno.serve(async (req: Request) => {
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.error(`❌ Error fetching subscriptions for plan ${plan.provider_plan_id}:`);
+          console.error(`❌ Error fetching subscriptions for plan ${dlocalPlan.id}:`);
           console.error(`   Status: ${response.status} ${response.statusText}`);
           console.error(`   Response: ${errorText}`);
           errors.push({
-            plan_id: plan.id,
+            plan_id: dbPlan.id,
+            plan_name: dlocalPlan.name,
             error: `HTTP ${response.status}: ${response.statusText}`,
             details: errorText
           });
@@ -128,7 +172,7 @@ Deno.serve(async (req: Request) => {
         const data = await response.json();
         const subscriptions: DLocalSubscription[] = data.data || [];
 
-        console.log(`✅ Found ${subscriptions.length} subscriptions for plan ${plan.name}`);
+        console.log(`✅ Found ${subscriptions.length} subscriptions for plan ${dlocalPlan.name}`);
 
         // Process each subscription
         for (const dlocalSub of subscriptions) {
@@ -180,10 +224,10 @@ Deno.serve(async (req: Request) => {
               const { error: updateError } = await supabase
                 .from('subscriptions')
                 .update({
-                  plan_id: plan.id,
+                  plan_id: dbPlan.id,
                   status: internalStatus,
                   provider: 'dlocal',
-                  provider_plan_id: plan.provider_plan_id,
+                  provider_plan_id: String(dlocalPlan.id),
                   current_period_start: currentPeriodStart,
                   current_period_end: currentPeriodEnd,
                   metadata: {
@@ -212,11 +256,11 @@ Deno.serve(async (req: Request) => {
                 .from('subscriptions')
                 .insert({
                   user_id: user.id,
-                  plan_id: plan.id,
+                  plan_id: dbPlan.id,
                   status: internalStatus,
                   provider: 'dlocal',
                   provider_subscription_id: dlocalSub.subscription_token,
-                  provider_plan_id: plan.provider_plan_id,
+                  provider_plan_id: String(dlocalPlan.id),
                   current_period_start: currentPeriodStart,
                   current_period_end: currentPeriodEnd,
                   cancel_at_period_end: false,
@@ -251,9 +295,10 @@ Deno.serve(async (req: Request) => {
           }
         }
       } catch (planError: any) {
-        console.error(`Error processing plan ${plan.id}:`, planError);
+        console.error(`Error processing plan ${dlocalPlan.id}:`, planError);
         errors.push({
-          plan_id: plan.id,
+          plan_id: dlocalPlan.id,
+          plan_name: dlocalPlan.name,
           error: planError.message
         });
       }
