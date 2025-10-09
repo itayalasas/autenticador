@@ -60,9 +60,9 @@ Deno.serve(async (req: Request) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const dlocalApiUrl = Deno.env.get('VITE_DLOCAL_API_URL') || 'https://api-sbx.dlocalgo.com';
-    const dlocalApiKey = Deno.env.get('VITE_DLOCAL_API_KEY') || '';
-    const dlocalSecretKey = Deno.env.get('VITE_DLOCAL_SECRET_KEY') || '';
+    const dlocalApiUrl = Deno.env.get('DLOCAL_API_URL') || 'https://api-sbx.dlocalgo.com';
+    const dlocalApiKey = Deno.env.get('DLOCAL_API_KEY') || '';
+    const dlocalSecretKey = Deno.env.get('DLOCAL_SECRET_KEY') || '';
 
     if (!dlocalApiKey || !dlocalSecretKey) {
       throw new Error('dLocal API credentials not configured');
