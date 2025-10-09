@@ -258,6 +258,19 @@ Deno.serve(async (req: Request) => {
     // Step 4: Sync cached subscriptions to subscriptions table
     console.log('\n[Step 4] Syncing cached subscriptions to subscriptions table...');
 
+    // Get all users from auth system once
+    const { data: { users: allUsers }, error: allUsersError } = await supabase.auth.admin.listUsers();
+
+    if (allUsersError) {
+      console.error('ERROR fetching users from auth system:', allUsersError);
+      throw allUsersError;
+    }
+
+    console.log(`\nRegistered users in auth system (${allUsers.length}):`);
+    allUsers.forEach(u => {
+      console.log(`  - ${u.email} (ID: ${u.id})`);
+    });
+
     const { data: cachedSubs, error: cachedSubsError } = await supabase
       .from('dlocal_subscriptions_cache')
       .select('*');
@@ -265,24 +278,19 @@ Deno.serve(async (req: Request) => {
     if (cachedSubsError) {
       console.error('ERROR fetching cached subscriptions:', cachedSubsError);
     } else {
-      console.log(`Processing ${cachedSubs?.length || 0} cached subscriptions...`);
+      console.log(`\nProcessing ${cachedSubs?.length || 0} cached subscriptions...`);
 
       for (const cachedSub of cachedSubs || []) {
         try {
-          // Find user by email
-          const { data: userData, error: userError } = await supabase.auth.admin.listUsers();
-
-          if (userError) {
-            console.error('ERROR listing users:', userError);
-            continue;
-          }
-
-          const user = userData.users.find(u => u.email === cachedSub.client_email);
+          // Only process if we find a user with EXACT email match
+          const user = allUsers.find(u => u.email?.toLowerCase() === cachedSub.client_email?.toLowerCase());
 
           if (!user) {
-            console.log(`  ⊘ User not found: ${cachedSub.client_email}`);
+            console.log(`  ⊘ Skipping: ${cachedSub.client_email} (not registered in auth system)`);
             continue;
           }
+
+          console.log(`  ✓ Processing: ${user.email} (ID: ${user.id})`)
 
           // Find matching database plan
           const dbPlan = dbPlans?.find(p => p.provider_plan_id === String(cachedSub.plan_id));
