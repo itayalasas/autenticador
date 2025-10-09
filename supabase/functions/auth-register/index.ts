@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
 import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 import bcrypt from "npm:bcryptjs@2.4.3";
 

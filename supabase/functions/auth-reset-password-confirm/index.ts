@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.43.2";
 import bcrypt from "npm:bcryptjs@2.4.3";
 import { create, getNumericDate } from "https://deno.land/x/djwt@v2.8/mod.ts";
 
