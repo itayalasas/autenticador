@@ -38,14 +38,89 @@ interface CreateSiteOptions {
 
 class NetlifyService {
   private accessToken: string;
+  private siteId: string;
   private baseUrl = 'https://api.netlify.com/api/v1';
 
   constructor() {
     this.accessToken = import.meta.env.VITE_NETLIFY_ACCESS_TOKEN || '';
+    this.siteId = import.meta.env.VITE_NETLIFY_SITE_ID || '';
   }
 
   setAccessToken(token: string) {
     this.accessToken = token;
+  }
+
+  setSiteId(siteId: string) {
+    this.siteId = siteId;
+  }
+
+  async loadConfigFromDatabase() {
+    const { supabase } = await import('../lib/supabase');
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+
+    const { data, error } = await supabase
+      .from('netlify_config')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error loading Netlify config from database:', error);
+      return null;
+    }
+
+    if (data) {
+      this.accessToken = data.access_token;
+      this.siteId = data.site_id;
+      return data;
+    }
+
+    return null;
+  }
+
+  async saveConfigToDatabase(accessToken: string, siteId: string, siteName?: string, siteUrl?: string) {
+    const { supabase } = await import('../lib/supabase');
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    // Deactivate any existing configs
+    await supabase
+      .from('netlify_config')
+      .update({ is_active: false })
+      .eq('user_id', user.id);
+
+    // Insert or update the config
+    const { data, error } = await supabase
+      .from('netlify_config')
+      .upsert({
+        user_id: user.id,
+        access_token: accessToken,
+        site_id: siteId,
+        site_name: siteName,
+        site_url: siteUrl,
+        is_active: true,
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'user_id,site_id'
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error saving Netlify config to database:', error);
+      throw error;
+    }
+
+    // Update in-memory values
+    this.accessToken = accessToken;
+    this.siteId = siteId;
+
+    return data;
   }
 
   private async makeRequest(endpoint: string, options: RequestInit = {}): Promise<any> {
@@ -111,10 +186,15 @@ class NetlifyService {
   }
 
   async triggerDeploy(options: NetlifyDeployOptions = {}): Promise<NetlifyDeployResponse> {
-    const siteId = options.siteId || import.meta.env.VITE_NETLIFY_SITE_ID;
+    // Try to load config from database if not in memory
+    if (!this.siteId && !options.siteId) {
+      await this.loadConfigFromDatabase();
+    }
+
+    const siteId = options.siteId || this.siteId;
 
     if (!siteId) {
-      throw new Error('Site ID no configurado. Proporciona un siteId o configura VITE_NETLIFY_SITE_ID');
+      throw new Error('Site ID no configurado. Por favor selecciona un sitio de Netlify');
     }
 
     const body: any = {
@@ -191,50 +271,56 @@ class NetlifyService {
     }
   }
 
-  isConfigured(): boolean {
-    return !!this.accessToken && !!import.meta.env.VITE_NETLIFY_SITE_ID;
+  async isConfigured(): Promise<boolean> {
+    if (!this.accessToken || !this.siteId) {
+      await this.loadConfigFromDatabase();
+    }
+    return !!this.accessToken && !!this.siteId;
   }
 
-  hasAccessToken(): boolean {
+  async hasAccessToken(): Promise<boolean> {
+    if (!this.accessToken) {
+      await this.loadConfigFromDatabase();
+    }
     return !!this.accessToken;
   }
 
-  hasSiteId(): boolean {
-    return !!import.meta.env.VITE_NETLIFY_SITE_ID;
+  async hasSiteId(): Promise<boolean> {
+    if (!this.siteId) {
+      await this.loadConfigFromDatabase();
+    }
+    return !!this.siteId;
   }
 
   getSiteId(): string | undefined {
-    return import.meta.env.VITE_NETLIFY_SITE_ID;
+    return this.siteId;
   }
 
-  getConfigurationInstructions(): string {
-    if (!this.hasAccessToken()) {
+  async getConfigurationInstructions(): Promise<string> {
+    const hasToken = await this.hasAccessToken();
+    const hasSite = await this.hasSiteId();
+
+    if (!hasToken) {
       return `
 Para habilitar el deploy automático a Netlify:
 
 1. Ve a https://app.netlify.com/user/applications/personal
 2. Crea un nuevo Personal Access Token
-3. Copia el token y agrégalo a tu archivo .env como VITE_NETLIFY_ACCESS_TOKEN
-4. Reinicia la aplicación
+3. Guárdalo usando el formulario de configuración de Netlify en el sistema
 
-Ejemplo de .env:
-VITE_NETLIFY_ACCESS_TOKEN=tu_token_aqui
+El token se guardará de forma segura en la base de datos.
       `.trim();
     }
 
-    if (!this.hasSiteId()) {
+    if (!hasSite) {
       return `
 Tienes el token configurado, pero falta el Site ID.
 
 Opciones:
-1. Si es tu primer deploy: Usa el botón "Crear Nuevo Sitio" para crear uno automáticamente
-2. Si ya tienes un sitio: Ve a Netlify → Site Settings → Site details → Copia el Site ID
-3. Agrega el Site ID a tu archivo .env como VITE_NETLIFY_SITE_ID
-4. Reinicia la aplicación
+1. Si es tu primer deploy: Usa el botón "Crear Nuevo Sitio"
+2. Si ya tienes un sitio: Selecciónalo de la lista
 
-Ejemplo de .env:
-VITE_NETLIFY_ACCESS_TOKEN=tu_token_actual
-VITE_NETLIFY_SITE_ID=tu_site_id_aqui
+El Site ID se guardará automáticamente en la base de datos, sin necesidad de reiniciar.
       `.trim();
     }
 

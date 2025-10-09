@@ -63,6 +63,8 @@ export default function EnvironmentsManager() {
   const [loadingSites, setLoadingSites] = useState(false);
   const [creatingNetlifySite, setCreatingNetlifySite] = useState(false);
   const [newSiteName, setNewSiteName] = useState('');
+  const [netlifyAccessToken, setNetlifyAccessToken] = useState('');
+  const [savingNetlifyConfig, setSavingNetlifyConfig] = useState(false);
   const consoleRef = useRef<HTMLDivElement>(null);
   const [editFormData, setEditFormData] = useState({
     domain: '',
@@ -461,16 +463,17 @@ export default function EnvironmentsManager() {
   const handleDeployToNetlify = async (environmentId: string, environmentName: string) => {
     try {
       // Check if we have access token
-      if (!netlifyService.hasAccessToken()) {
+      if (!(await netlifyService.hasAccessToken())) {
         addLog('❌ Netlify no está configurado', 'error');
         addLog('', 'info');
-        addLog(netlifyService.getConfigurationInstructions(), 'warning');
+        addLog(await netlifyService.getConfigurationInstructions(), 'warning');
         setShowConsole(true);
+        setShowNetlifyConfig(true);
         return;
       }
 
       // Check if we have site ID, if not, show site selector
-      if (!netlifyService.hasSiteId()) {
+      if (!(await netlifyService.hasSiteId())) {
         addLog('⚠️ No hay Site ID configurado', 'warning');
         addLog('📋 Abriendo selector de sitios de Netlify...', 'info');
         setShowConsole(true);
@@ -579,19 +582,68 @@ export default function EnvironmentsManager() {
     }
   };
 
-  const handleSelectNetlifySite = (siteId: string, siteName: string) => {
-    addLog('', 'info');
-    addLog(`📋 Has seleccionado el sitio: ${siteName}`, 'info');
-    addLog(`   Site ID: ${siteId}`, 'info');
-    addLog('', 'info');
-    addLog('📝 IMPORTANTE: Agrega este Site ID a tu .env:', 'warning');
-    addLog(`   VITE_NETLIFY_SITE_ID=${siteId}`, 'warning');
-    addLog('', 'info');
-    addLog('💡 Después de agregar el Site ID, reinicia la aplicación', 'info');
+  const handleSelectNetlifySite = async (siteId: string, siteName: string, siteUrl: string) => {
+    try {
+      addLog('', 'info');
+      addLog(`📋 Seleccionando sitio: ${siteName}`, 'info');
+      addLog(`   Site ID: ${siteId}`, 'info');
 
-    // Copy to clipboard
-    navigator.clipboard.writeText(`VITE_NETLIFY_SITE_ID=${siteId}`);
-    addLog('✅ Copiado al portapapeles!', 'success');
+      // Get the access token from netlifyService or ask user
+      const hasToken = await netlifyService.hasAccessToken();
+      if (!hasToken) {
+        addLog('❌ Falta el Access Token. Por favor guárdalo primero en Configuración de Netlify', 'error');
+        setShowNetlifySiteSelector(false);
+        setShowNetlifyConfig(true);
+        return;
+      }
+
+      // Get current access token (it's already loaded in netlifyService)
+      const token = netlifyAccessToken || import.meta.env.VITE_NETLIFY_ACCESS_TOKEN || '';
+
+      // Save to database
+      addLog('💾 Guardando configuración en la base de datos...', 'info');
+      await netlifyService.saveConfigToDatabase(token, siteId, siteName, siteUrl);
+
+      addLog('✅ Configuración guardada exitosamente!', 'success');
+      addLog('', 'info');
+      addLog('🎉 Netlify está configurado y listo para usar', 'success');
+      addLog('💡 Ya puedes hacer deploy sin reiniciar la aplicación', 'info');
+
+      setShowNetlifySiteSelector(false);
+    } catch (error: any) {
+      console.error('Error selecting Netlify site:', error);
+      addLog(`❌ Error al guardar configuración: ${error.message}`, 'error');
+    }
+  };
+
+  const handleSaveNetlifyToken = async () => {
+    try {
+      if (!netlifyAccessToken.trim()) {
+        addLog('❌ Por favor ingresa un Access Token válido', 'error');
+        return;
+      }
+
+      setSavingNetlifyConfig(true);
+      addLog('', 'info');
+      addLog('💾 Guardando Access Token en la base de datos...', 'info');
+
+      // Set the token in the service
+      netlifyService.setAccessToken(netlifyAccessToken);
+
+      addLog('✅ Access Token guardado!', 'success');
+      addLog('', 'info');
+      addLog('📋 Ahora selecciona o crea un sitio de Netlify', 'info');
+
+      // Close config modal and open site selector
+      setShowNetlifyConfig(false);
+      await loadNetlifySites();
+      setShowNetlifySiteSelector(true);
+    } catch (error: any) {
+      console.error('Error saving Netlify token:', error);
+      addLog(`❌ Error al guardar token: ${error.message}`, 'error');
+    } finally {
+      setSavingNetlifyConfig(false);
+    }
   };
 
   // Test all API endpoints (Edge Functions)
@@ -786,15 +838,22 @@ export default function EnvironmentsManager() {
           <p className="text-gray-600">Gestiona ambientes de desarrollo, testing y producción</p>
         </div>
         <div className="flex items-center space-x-3">
-          {!netlifyService.isConfigured() && (
-            <button
-              onClick={() => setShowNetlifyConfig(true)}
-              className="bg-purple-100 text-purple-700 px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors hover:bg-purple-200 border border-purple-300"
-            >
-              <Cloud className="w-5 h-5" />
-              <span>Configurar Netlify</span>
-            </button>
-          )}
+          <button
+            onClick={async () => {
+              const isConfigured = await netlifyService.isConfigured();
+              if (!isConfigured) {
+                setShowNetlifyConfig(true);
+              } else {
+                addLog('✅ Netlify ya está configurado', 'success');
+                addLog('💡 Puedes hacer deploy directamente', 'info');
+                setShowConsole(true);
+              }
+            }}
+            className="bg-purple-100 text-purple-700 px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors hover:bg-purple-200 border border-purple-300"
+          >
+            <Cloud className="w-5 h-5" />
+            <span>Configurar Netlify</span>
+          </button>
           <button
             onClick={() => setShowCreateModal(true)}
             disabled={!selectedApp}
@@ -1850,7 +1909,7 @@ try {
                           <p className="text-xs text-gray-400 font-mono mt-1">ID: {site.id}</p>
                         </div>
                         <button
-                          onClick={() => handleSelectNetlifySite(site.id, site.name)}
+                          onClick={() => handleSelectNetlifySite(site.id, site.name, site.ssl_url || site.url)}
                           className="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded text-sm transition-colors"
                         >
                           Seleccionar
@@ -1914,19 +1973,50 @@ try {
                 </p>
               </div>
 
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                <h4 className="font-semibold text-yellow-900 mb-2">Paso 1: Configurar Access Token</h4>
-                <ol className="text-sm text-yellow-800 space-y-2 list-decimal list-inside">
-                  <li>Ve a <a href="https://app.netlify.com/user/applications/personal" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Netlify Personal Access Tokens</a></li>
-                  <li>Crea un nuevo Personal Access Token</li>
-                  <li>Copia el token y agrégalo a tu archivo <code className="bg-yellow-100 px-1 rounded">.env</code>:</li>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="font-semibold text-blue-900 mb-3">Paso 1: Configurar Access Token</h4>
+                <ol className="text-sm text-blue-800 space-y-2 list-decimal list-inside mb-4">
+                  <li>Ve a <a href="https://app.netlify.com/user/applications/personal" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-semibold">Netlify Personal Access Tokens</a></li>
+                  <li>Haz clic en "New access token"</li>
+                  <li>Dale un nombre descriptivo (ej: "AuthSystem Deploy")</li>
+                  <li>Copia el token generado y pégalo abajo:</li>
                 </ol>
-                <div className="mt-3 bg-gray-900 text-gray-100 p-3 rounded font-mono text-sm">
-                  VITE_NETLIFY_ACCESS_TOKEN=tu_token_aqui
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-blue-900 mb-2">
+                      Netlify Access Token
+                    </label>
+                    <input
+                      type="password"
+                      value={netlifyAccessToken}
+                      onChange={(e) => setNetlifyAccessToken(e.target.value)}
+                      placeholder="nfp_xxxxxxxxxxxxxxxxxxxxx"
+                      className="w-full px-3 py-2 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <p className="text-xs text-blue-600 mt-1">
+                      El token se guardará de forma segura en la base de datos
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={handleSaveNetlifyToken}
+                    disabled={savingNetlifyConfig || !netlifyAccessToken.trim()}
+                    className="w-full px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center justify-center space-x-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {savingNetlifyConfig ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Guardando...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="w-4 h-4" />
+                        <span>Guardar Token y Continuar</span>
+                      </>
+                    )}
+                  </button>
                 </div>
-                <p className="text-xs text-yellow-700 mt-2">
-                  Después de agregar el token, reinicia la aplicación
-                </p>
               </div>
 
               <div className="bg-green-50 border border-green-200 rounded-lg p-4">
