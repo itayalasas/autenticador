@@ -40,7 +40,7 @@ Deno.serve(async (req: Request) => {
     const requestSecret = req.headers.get('x-cron-secret');
 
     if (cronSecret && cronSecret !== requestSecret) {
-      console.warn('\u274c Invalid cron secret provided');
+      console.warn('Invalid cron secret provided');
       return new Response(
         JSON.stringify({
           success: false,
@@ -78,22 +78,22 @@ Deno.serve(async (req: Request) => {
 
     // IMPORTANT: Force sandbox URL if production URL is set by mistake
     if (dlocalApiUrl.includes('api.dlocalgo.com') && !dlocalApiUrl.includes('sbx')) {
-      console.warn('\u26a0\ufe0f Production URL detected, forcing sandbox environment');
+      console.warn('Production URL detected, forcing sandbox environment');
       dlocalApiUrl = 'https://api-sbx.dlocalgo.com';
     }
 
-    console.log('\ud83d\udd04 Iniciando sincronizaci\u00f3n de suscripciones con dLocal...');
-    console.log('\ud83d\udccd API URL:', dlocalApiUrl);
-    console.log('\ud83d\udd11 API Key configured:', dlocalApiKey ? 'Yes (length: ' + dlocalApiKey.length + ')' : 'No');
-    console.log('\ud83d\udd10 Secret Key configured:', dlocalSecretKey ? 'Yes (length: ' + dlocalSecretKey.length + ')' : 'No');
+    console.log('Initiating subscription sync with dLocal...');
+    console.log('API URL:', dlocalApiUrl);
+    console.log('API Key configured:', dlocalApiKey ? 'Yes (length: ' + dlocalApiKey.length + ')' : 'No');
+    console.log('Secret Key configured:', dlocalSecretKey ? 'Yes (length: ' + dlocalSecretKey.length + ')' : 'No');
 
     if (!dlocalApiKey || !dlocalSecretKey) {
       throw new Error('dLocal API credentials not configured. Check DLOCAL_API_KEY and DLOCAL_SECRET_KEY environment variables.');
     }
 
-    console.log('\ud83c\udfab Setting up dLocal authentication headers');
+    console.log('Setting up dLocal authentication headers');
 
-    console.log('\n\ud83d\udccb Step 1: Checking plans cache...');
+    console.log('\nStep 1: Checking plans cache...');
 
     // First, check if we have cached plans
     const { data: cachedPlans, error: cacheError } = await supabase
@@ -105,7 +105,7 @@ Deno.serve(async (req: Request) => {
 
     // If no cached plans, fetch from API and cache them
     if (!cachedPlans || cachedPlans.length === 0) {
-      console.log('\u26a0\ufe0f  No cached plans found, fetching from dLocal API...');
+      console.log('No cached plans found, fetching from dLocal API...');
 
       const plansResponse = await fetch(`${dlocalApiUrl}/v1/subscription/plan/all`, {
         method: 'GET',
@@ -124,7 +124,7 @@ Deno.serve(async (req: Request) => {
       const dlocalPlansData = await plansResponse.json();
       const apiPlans = dlocalPlansData.data || [];
 
-      console.log(`\u2705 Found ${apiPlans.length} plans from API, caching them...`);
+      console.log(`Found ${apiPlans.length} plans from API, caching them...`);
 
       // Cache the plans
       for (const plan of apiPlans) {
@@ -154,7 +154,7 @@ Deno.serve(async (req: Request) => {
 
       dlocalPlans = apiPlans;
     } else {
-      console.log(`\u2705 Using ${cachedPlans.length} cached plans`);
+      console.log(`Using ${cachedPlans.length} cached plans`);
     }
 
     if (dlocalPlans.length === 0) {
@@ -171,7 +171,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    console.log('\n\ud83d\udccb Step 2: Matching with database plans...');
+    console.log('\nStep 2: Matching with database plans...');
     const { data: dbPlans, error: plansError } = await supabase
       .from('subscription_plans')
       .select('*')
@@ -183,27 +183,27 @@ Deno.serve(async (req: Request) => {
       throw plansError;
     }
 
-    console.log(`\ud83d\udccb Found ${dbPlans?.length || 0} dLocal plans in database`);
+    console.log(`Found ${dbPlans?.length || 0} dLocal plans in database`);
 
     let totalSynced = 0;
     let totalCreated = 0;
     let totalUpdated = 0;
     const errors: any[] = [];
 
-    console.log('\n\ud83d\udd04 Step 3: Syncing subscriptions...');
+    console.log('\nStep 3: Syncing subscriptions...');
     for (const dlocalPlan of dlocalPlans) {
       try {
         const dbPlan = dbPlans?.find(p => p.provider_plan_id === String(dlocalPlan.id));
 
         if (!dbPlan) {
-          console.log(`\u23ed\ufe0f  Skipping dLocal plan "${dlocalPlan.name}" (ID: ${dlocalPlan.id}) - not found in database`);
+          console.log(`Skipping dLocal plan "${dlocalPlan.name}" (ID: ${dlocalPlan.id}) - not found in database`);
           continue;
         }
 
-        console.log(`\n\ud83d\udd0d Fetching subscriptions for plan: ${dlocalPlan.name} (ID: ${dlocalPlan.id})`);
+        console.log(`\nFetching subscriptions for plan: ${dlocalPlan.name} (ID: ${dlocalPlan.id})`);
 
         const apiUrl = `${dlocalApiUrl}/v1/subscription/plan/${dlocalPlan.id}/subscription/all`;
-        console.log(`\ud83d\udd17 API URL: ${apiUrl}`);
+        console.log(`API URL: ${apiUrl}`);
 
         const response = await fetch(apiUrl, {
           method: 'GET',
@@ -214,11 +214,11 @@ Deno.serve(async (req: Request) => {
           }
         });
 
-        console.log(`\ud83d\udce1 Response status: ${response.status} ${response.statusText}`);
+        console.log(`Response status: ${response.status} ${response.statusText}`);
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.error(`\u274c Error fetching subscriptions for plan ${dlocalPlan.id}:`);
+          console.error(`Error fetching subscriptions for plan ${dlocalPlan.id}:`);
           console.error(`   Status: ${response.status} ${response.statusText}`);
           console.error(`   Response: ${errorText}`);
           errors.push({
@@ -233,15 +233,10 @@ Deno.serve(async (req: Request) => {
         const data = await response.json();
         const subscriptions: DLocalSubscription[] = data.data || [];
 
-        console.log(`\u2705 Found ${subscriptions.length} subscriptions for plan ${dlocalPlan.name}`);
+        console.log(`Found ${subscriptions.length} subscriptions for plan ${dlocalPlan.name}`);
 
         for (const dlocalSub of subscriptions) {
           try {
-            if (dlocalSub.status !== 'CONFIRMED' || !dlocalSub.active) {
-              console.log(`\u23ed\ufe0f  Skipping subscription ${dlocalSub.id} (status: ${dlocalSub.status}, active: ${dlocalSub.active})`);
-              continue;
-            }
-
             const { data: userData, error: userError } = await supabase.auth.admin.listUsers();
 
             if (userError) {
@@ -252,16 +247,46 @@ Deno.serve(async (req: Request) => {
             const user = userData.users.find(u => u.email === dlocalSub.client_email);
 
             if (!user) {
-              console.log(`\u26a0\ufe0f  User not found for email: ${dlocalSub.client_email}`);
+              console.log(`User not found for email: ${dlocalSub.client_email}`);
               continue;
             }
 
+            console.log(`\nProcessing subscription for user: ${dlocalSub.client_email}`);
+            console.log(`   Status: ${dlocalSub.status}, Active: ${dlocalSub.active}`);
+
             const internalStatus = mapDLocalStatus(dlocalSub.status);
+
+            // Check if subscription is not completed (cancelled or payment failed)
+            const isNotCompleted = dlocalSub.status !== 'CONFIRMED' || !dlocalSub.active;
+
+            if (isNotCompleted) {
+              console.log(`Subscription ${dlocalSub.id} is not completed - deactivating current plan`);
+
+              // Deactivate all active subscriptions for this user
+              const { error: deactivateError } = await supabase
+                .from('subscriptions')
+                .update({
+                  status: 'cancelled',
+                  cancelled_at: new Date().toISOString(),
+                  cancel_at_period_end: true,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('user_id', user.id)
+                .eq('status', 'active');
+
+              if (deactivateError) {
+                console.error('Error deactivating subscriptions:', deactivateError);
+              } else {
+                console.log(`Deactivated active subscriptions for ${dlocalSub.client_email}`);
+              }
+              continue;
+            }
 
             const currentPeriodStart = new Date(dlocalSub.created_at).toISOString();
             const scheduledDate = new Date(dlocalSub.scheduled_date);
             const currentPeriodEnd = scheduledDate.toISOString();
 
+            // Check if this exact subscription already exists
             const { data: existingSubscription, error: checkError } = await supabase
               .from('subscriptions')
               .select('id, status')
@@ -274,6 +299,39 @@ Deno.serve(async (req: Request) => {
               continue;
             }
 
+            // Check for any other active subscriptions for this user
+            const { data: activeSubscriptions, error: activeError } = await supabase
+              .from('subscriptions')
+              .select('id, provider_subscription_id')
+              .eq('user_id', user.id)
+              .eq('status', 'active')
+              .neq('provider_subscription_id', dlocalSub.subscription_token);
+
+            if (activeError) {
+              console.error('Error checking active subscriptions:', activeError);
+            } else if (activeSubscriptions && activeSubscriptions.length > 0) {
+              console.log(`Found ${activeSubscriptions.length} active subscription(s) - deactivating...`);
+
+              // Deactivate old subscriptions
+              const { error: deactivateError } = await supabase
+                .from('subscriptions')
+                .update({
+                  status: 'cancelled',
+                  cancelled_at: new Date().toISOString(),
+                  cancel_at_period_end: true,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('user_id', user.id)
+                .eq('status', 'active')
+                .neq('provider_subscription_id', dlocalSub.subscription_token);
+
+              if (deactivateError) {
+                console.error('Error deactivating old subscriptions:', deactivateError);
+              } else {
+                console.log(`Deactivated old subscriptions`);
+              }
+            }
+
             if (existingSubscription) {
               const { error: updateError } = await supabase
                 .from('subscriptions')
@@ -284,10 +342,14 @@ Deno.serve(async (req: Request) => {
                   provider_plan_id: String(dlocalPlan.id),
                   current_period_start: currentPeriodStart,
                   current_period_end: currentPeriodEnd,
+                  cancelled_at: null,
+                  cancel_at_period_end: false,
                   metadata: {
                     dlocal_id: dlocalSub.id,
                     client_id: dlocalSub.client_id,
                     payment_method_code: (dlocalSub as any).payment_method_code,
+                    dlocal_status: dlocalSub.status,
+                    dlocal_active: dlocalSub.active,
                     last_synced: new Date().toISOString()
                   },
                   updated_at: new Date().toISOString()
@@ -301,7 +363,7 @@ Deno.serve(async (req: Request) => {
                   error: updateError.message
                 });
               } else {
-                console.log(`\u2705 Updated subscription for ${dlocalSub.client_email}`);
+                console.log(`Updated subscription for ${dlocalSub.client_email}`);
                 totalUpdated++;
               }
             } else {
@@ -321,6 +383,8 @@ Deno.serve(async (req: Request) => {
                     dlocal_id: dlocalSub.id,
                     client_id: dlocalSub.client_id,
                     payment_method_code: (dlocalSub as any).payment_method_code,
+                    dlocal_status: dlocalSub.status,
+                    dlocal_active: dlocalSub.active,
                     synced_from_api: true,
                     last_synced: new Date().toISOString()
                   }
@@ -333,7 +397,7 @@ Deno.serve(async (req: Request) => {
                   error: insertError.message
                 });
               } else {
-                console.log(`\u2705 Created subscription for ${dlocalSub.client_email}`);
+                console.log(`Created and activated subscription for ${dlocalSub.client_email}`);
                 totalCreated++;
               }
             }
@@ -370,7 +434,7 @@ Deno.serve(async (req: Request) => {
       timestamp: new Date().toISOString()
     };
 
-    console.log('\n\ud83d\udcca Sync Summary:', result.stats);
+    console.log('\nSync Summary:', result.stats);
 
     return new Response(
       JSON.stringify(result),
@@ -381,7 +445,7 @@ Deno.serve(async (req: Request) => {
     );
 
   } catch (error: any) {
-    console.error('\u274c Sync error:', error);
+    console.error('Sync error:', error);
 
     return new Response(
       JSON.stringify({
