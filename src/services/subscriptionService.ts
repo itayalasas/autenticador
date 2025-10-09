@@ -544,17 +544,14 @@ export const subscriptionService = {
       return environment === 'development';
     }
 
-    // Verificar acceso por plan
-    switch (plan.name.toLowerCase()) {
-      case 'básico':
-        return environment === 'development';
-      case 'profesional':
-        return ['development', 'testing', 'production'].includes(environment);
-      case 'empresarial':
-        return ['development', 'testing', 'production'].includes(environment);
-      default:
-        return environment === 'development';
+    // Check if plan has limits defined
+    if (!plan.limits || !plan.limits.environments) {
+      // If no limits defined, allow only development
+      return environment === 'development';
     }
+
+    // Check if environment is in the allowed environments list
+    return plan.limits.environments.includes(environment);
   },
 
   // Check if user can access feature
