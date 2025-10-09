@@ -69,6 +69,9 @@ Deno.serve(async (req: Request) => {
     }
 
     console.log('🔄 Iniciando sincronización de suscripciones con dLocal...');
+    console.log('📍 API URL:', dlocalApiUrl);
+    console.log('🔑 API Key configured:', dlocalApiKey ? 'Yes' : 'No');
+    console.log('🔐 Secret Key configured:', dlocalSecretKey ? 'Yes' : 'No');
 
     // Get all plans from database
     const { data: plans, error: plansError } = await supabase
@@ -95,23 +98,29 @@ Deno.serve(async (req: Request) => {
         console.log(`\n🔍 Fetching subscriptions for plan: ${plan.name} (ID: ${plan.provider_plan_id})`);
 
         // Call dLocal API to get subscriptions for this plan
-        const response = await fetch(
-          `${dlocalApiUrl}/v1/subscription/plan/${plan.provider_plan_id}/subscription/all`,
-          {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${dlocalApiKey}`,
-              'Content-Type': 'application/json',
-              'X-API-Secret': dlocalSecretKey
-            }
+        const apiUrl = `${dlocalApiUrl}/v1/subscription/plan/${plan.provider_plan_id}/subscription/all`;
+        console.log(`🔗 API URL: ${apiUrl}`);
+
+        const response = await fetch(apiUrl, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${dlocalApiKey}`,
+            'Content-Type': 'application/json',
+            'X-API-Secret': dlocalSecretKey
           }
-        );
+        });
+
+        console.log(`📡 Response status: ${response.status} ${response.statusText}`);
 
         if (!response.ok) {
-          console.error(`❌ Error fetching subscriptions for plan ${plan.provider_plan_id}: ${response.status}`);
+          const errorText = await response.text();
+          console.error(`❌ Error fetching subscriptions for plan ${plan.provider_plan_id}:`);
+          console.error(`   Status: ${response.status} ${response.statusText}`);
+          console.error(`   Response: ${errorText}`);
           errors.push({
             plan_id: plan.id,
-            error: `HTTP ${response.status}: ${response.statusText}`
+            error: `HTTP ${response.status}: ${response.statusText}`,
+            details: errorText
           });
           continue;
         }
