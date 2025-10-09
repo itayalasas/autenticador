@@ -141,34 +141,66 @@ export default function SubscriptionManager() {
       // Mostrar mensaje de que estamos esperando el pago
       showSuccess(
         'Procesando pago',
-        'Por favor completa el pago en la ventana de dLocal. Tu suscripción se activará automáticamente cuando el pago sea confirmado.'
+        'Por favor completa el pago en la ventana de dLocal. Estamos sincronizando tu suscripción...'
       );
 
-      // Iniciar polling para verificar activación de suscripción
-      console.log('🔄 Iniciando polling para activación de suscripción...');
+      // Esperar un momento para que el usuario complete el pago en dLocal
+      await new Promise(resolve => setTimeout(resolve, 3000));
 
-      const activatedSubscription = await subscriptionService.pollForSubscriptionActivation({
-        maxAttempts: 24,
-        intervalMs: 5000,
-        onProgress: (attempt, maxAttempts) => {
-          console.log(`⏳ Verificando activación... (${attempt}/${maxAttempts})`);
+      // Sincronizar suscripciones desde dLocal
+      console.log('🔄 Sincronizando suscripciones desde dLocal...');
+
+      try {
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+        const syncResponse = await fetch(`${supabaseUrl}/functions/v1/sync-dlocal-subscriptions`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${anonKey}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (syncResponse.ok) {
+          const syncResult = await syncResponse.json();
+          console.log('✅ Sincronización completada:', syncResult);
+
+          // Recargar datos
+          await loadSubscriptionData();
+          setSelectedPlan(null);
+
+          if (syncResult.stats.created > 0 || syncResult.stats.updated > 0) {
+            showSuccess(
+              '¡Suscripción activada!',
+              `Tu plan ${selectedPlan.name} ha sido activado exitosamente. Ya puedes disfrutar de todas las funcionalidades.`
+            );
+          } else {
+            showSuccess(
+              'Pago en proceso',
+              'Tu pago está siendo procesado por dLocal. La suscripción se activará automáticamente en unos momentos. Por favor espera o refresca la página.'
+            );
+          }
+        } else {
+          console.warn('⚠️  Error en sincronización, usando método alternativo');
+
+          // Fallback: esperar y recargar
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          await loadSubscriptionData();
+          setSelectedPlan(null);
+
+          showSuccess(
+            'Procesando activación',
+            'Tu pago está siendo procesado. La suscripción se activará automáticamente en unos momentos. Puedes refrescar la página para ver el estado actualizado.'
+          );
         }
-      });
+      } catch (syncError) {
+        console.error('Error en sincronización:', syncError);
 
-      if (activatedSubscription) {
-        // Recargar datos
-        await loadSubscriptionData();
-        setSelectedPlan(null);
-
+        // Fallback: mostrar mensaje al usuario
         showSuccess(
-          '¡Suscripción activada!',
-          `Tu plan ${selectedPlan.name} ha sido activado exitosamente. Ya puedes disfrutar de todas las funcionalidades.`
-        );
-      } else {
-        // Timeout alcanzado, pero el webhook lo activará eventualmente
-        showSuccess(
-          'Procesando activación',
-          'Tu pago está siendo procesado. La suscripción se activará automáticamente en unos momentos. Puedes refrescar la página para ver el estado actualizado.'
+          'Procesando pago',
+          'Tu pago está siendo procesado. La suscripción se activará automáticamente en unos momentos. Por favor refresca la página en 1-2 minutos.'
         );
       }
 

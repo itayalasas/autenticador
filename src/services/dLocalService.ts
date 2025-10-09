@@ -318,12 +318,77 @@ class DLocalService {
         'UYU_USD': 0.025, // 1 UYU = 0.025 USD (approximate)
         'USD_UYU': 40     // 1 USD = 40 UYU (approximate)
       };
-      
+
       return rates[`${fromCurrency}_${toCurrency}`] || 1;
     } catch (error) {
       console.error('Error getting exchange rate:', error);
       return 1;
     }
+  }
+
+  // Get all subscriptions for a specific plan
+  async getSubscriptionsByPlan(planId: number): Promise<any[]> {
+    try {
+      if (!this.apiKey || !this.secretKey) {
+        console.warn('⚠️ DLocal API keys not configured');
+        return [];
+      }
+
+      console.log(`🔄 Fetching subscriptions for plan ${planId}...`);
+
+      const response = await fetch(
+        `${this.apiUrl}/v1/subscription/plan/${planId}/subscription/all`,
+        {
+          method: 'GET',
+          headers: this.getAuthHeaders()
+        }
+      );
+
+      if (!response.ok) {
+        console.warn(`⚠️ DLocal API error: ${response.status} ${response.statusText}`);
+        return [];
+      }
+
+      const data = await response.json();
+      console.log(`✅ Found ${data.total_elements} subscriptions for plan ${planId}`);
+
+      return data.data || [];
+    } catch (error) {
+      console.error('Error fetching subscriptions:', error);
+      return [];
+    }
+  }
+
+  // Get all active subscriptions across all plans
+  async getAllActiveSubscriptions(): Promise<any[]> {
+    try {
+      const plans = await this.getSubscriptionPlans();
+      const allSubscriptions: any[] = [];
+
+      for (const plan of plans) {
+        const subscriptions = await this.getSubscriptionsByPlan(plan.id);
+        allSubscriptions.push(...subscriptions);
+      }
+
+      console.log(`✅ Total active subscriptions found: ${allSubscriptions.length}`);
+      return allSubscriptions;
+    } catch (error) {
+      console.error('Error fetching all subscriptions:', error);
+      return [];
+    }
+  }
+
+  // Map dLocal status to internal status
+  mapDLocalStatus(dlocalStatus: string): string {
+    const statusMap: Record<string, string> = {
+      'CONFIRMED': 'active',
+      'PENDING': 'pending',
+      'CANCELLED': 'cancelled',
+      'EXPIRED': 'expired',
+      'FAILED': 'payment_failed'
+    };
+
+    return statusMap[dlocalStatus] || 'inactive';
   }
 }
 

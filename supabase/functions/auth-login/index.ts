@@ -325,6 +325,57 @@ Deno.serve(async (req) => {
       )
     }
 
+    // Check if user has active subscription
+    console.log('🔍 Checking user subscription...');
+    const { data: subscription, error: subError } = await supabase
+      .from('subscriptions')
+      .select(`
+        *,
+        subscription_plans(*)
+      `)
+      .eq('user_id', authUser.user.id)
+      .eq('status', 'active')
+      .maybeSingle();
+
+    if (subError && subError.code !== 'PGRST116') {
+      console.error('Error checking subscription:', subError);
+    }
+
+    if (!subscription) {
+      console.log('⚠️  User does not have an active subscription');
+
+      await supabase.from('auth_logs').insert({
+        application_id: application.id,
+        app_user_id: user.id,
+        event_type: 'failed_login',
+        ip_address: ipAddress,
+        user_agent: req.headers.get('user-agent') || 'unknown',
+        success: false,
+        error_message: 'No active subscription',
+        metadata: {
+          email,
+          error_type: 'no_active_subscription',
+          application_name: application.name
+        }
+      });
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'NO_ACTIVE_SUBSCRIPTION',
+            message: 'No tienes una suscripción activa. Por favor suscríbete para acceder.'
+          }
+        }),
+        {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    console.log(`✅ User has active subscription: ${subscription.subscription_plans?.name}`);
+
     const { data: roles } = await supabase
       .from('user_roles')
       .select('role_name, permissions')
