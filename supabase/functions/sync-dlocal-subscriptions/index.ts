@@ -90,9 +90,12 @@ Deno.serve(async (req: Request) => {
       throw new Error('dLocal API credentials not configured. Check DLOCAL_API_KEY and DLOCAL_SECRET_KEY environment variables.');
     }
 
-    // Create combined Bearer token (API_KEY:SECRET_KEY)
-    const bearerToken = `${dlocalApiKey}:${dlocalSecretKey}`;
-    console.log('🎫 Bearer token created (length:', bearerToken.length, ')');
+    // Create combined Bearer token (API_KEY:SECRET_KEY) and encode to Base64
+    const credentials = `${dlocalApiKey}:${dlocalSecretKey}`;
+    const encoder = new TextEncoder();
+    const data = encoder.encode(credentials);
+    const bearerToken = btoa(String.fromCharCode(...data));
+    console.log('🎫 Bearer token created (Base64 encoded)');
 
     // Step 1: Get all plans from dLocal API
     console.log('\n📋 Step 1: Fetching plans from dLocal API...');
