@@ -185,6 +185,19 @@ class NetlifyService {
     });
   }
 
+  async checkSiteHasRepo(siteId?: string): Promise<boolean> {
+    const id = siteId || this.siteId;
+    if (!id) return false;
+
+    try {
+      const site = await this.getSite(id);
+      return !!(site as any).build_settings?.repo_url;
+    } catch (error) {
+      console.error('Error checking site repo:', error);
+      return false;
+    }
+  }
+
   async triggerDeploy(options: NetlifyDeployOptions = {}): Promise<NetlifyDeployResponse> {
     // Try to load config from database if not in memory
     if (!this.siteId && !options.siteId) {
@@ -195,6 +208,12 @@ class NetlifyService {
 
     if (!siteId) {
       throw new Error('Site ID no configurado. Por favor selecciona un sitio de Netlify');
+    }
+
+    // Check if site has a repository connected
+    const hasRepo = await this.checkSiteHasRepo(siteId);
+    if (!hasRepo) {
+      throw new Error('REPO_NOT_CONNECTED');
     }
 
     const body: any = {
@@ -213,6 +232,34 @@ class NetlifyService {
       method: 'POST',
       body: JSON.stringify(body),
     });
+  }
+
+  async deployFilesDirectly(siteId: string, files: Record<string, string>): Promise<any> {
+    // Create a manual deploy by uploading files
+    // This works without a connected repository
+
+    // First, create a new deploy
+    const deploy = await this.makeRequest(`/sites/${siteId}/deploys`, {
+      method: 'POST',
+      body: JSON.stringify({
+        files: Object.fromEntries(
+          Object.keys(files).map(path => [path, crypto.createHash ? null : Date.now()])
+        )
+      })
+    });
+
+    // Upload each file
+    for (const [path, content] of Object.entries(files)) {
+      await fetch(deploy.required[path], {
+        method: 'PUT',
+        body: content,
+        headers: {
+          'Content-Type': 'application/octet-stream',
+        }
+      });
+    }
+
+    return deploy;
   }
 
   async getDeploy(siteId: string, deployId: string): Promise<NetlifyDeployResponse> {

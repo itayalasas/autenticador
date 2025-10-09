@@ -526,11 +526,43 @@ export default function EnvironmentsManager() {
     } catch (error: any) {
       console.error('Netlify deploy error:', error);
       addLog('', 'info');
-      addLog(`❌ Error en deploy a Netlify: ${error.message}`, 'error');
 
-      if (error.message.includes('token')) {
+      if (error.message === 'REPO_NOT_CONNECTED') {
+        addLog('⚠️  Este sitio no tiene un repositorio conectado', 'warning');
         addLog('', 'info');
-        addLog('💡 Verifica que tu token de Netlify esté configurado correctamente', 'warning');
+        addLog('📋 Opciones para solucionar esto:', 'info');
+        addLog('', 'info');
+        addLog('Opción 1: Conectar un repositorio en Netlify', 'info');
+        addLog('   1. Ve a https://app.netlify.com/sites/' + netlifyService.getSiteId() + '/settings', 'info');
+        addLog('   2. Ve a "Build & deploy" → "Continuous deployment"', 'info');
+        addLog('   3. Conecta tu repositorio de GitHub/GitLab/Bitbucket', 'info');
+        addLog('   4. Configura:', 'info');
+        addLog('      - Build command: npm run build', 'info');
+        addLog('      - Publish directory: dist', 'info');
+        addLog('   5. Intenta hacer deploy nuevamente desde aquí', 'info');
+        addLog('', 'info');
+        addLog('Opción 2: Crear un nuevo sitio con deploy manual', 'info');
+        addLog('   1. Haz clic en "Configurar Netlify"', 'info');
+        addLog('   2. Selecciona o crea un sitio diferente', 'info');
+        addLog('   3. Usa la opción de deploy manual (próximamente)', 'info');
+        addLog('', 'info');
+        addLog('💡 Recomendación: Conectar un repositorio es la mejor opción', 'info');
+        addLog('   para deploys continuos y automáticos', 'info');
+      } else if (error.message.includes('Not Found')) {
+        addLog(`❌ Error: El sitio no fue encontrado`, 'error');
+        addLog('', 'info');
+        addLog('💡 Posibles causas:', 'warning');
+        addLog('   - El sitio fue eliminado de Netlify', 'warning');
+        addLog('   - El Site ID es incorrecto', 'warning');
+        addLog('', 'info');
+        addLog('🔧 Solución: Configura Netlify nuevamente y selecciona otro sitio', 'info');
+      } else {
+        addLog(`❌ Error en deploy a Netlify: ${error.message}`, 'error');
+
+        if (error.message.includes('token')) {
+          addLog('', 'info');
+          addLog('💡 Verifica que tu token de Netlify esté configurado correctamente', 'warning');
+        }
       }
     } finally {
       setIsNetlifyDeploying(false);
