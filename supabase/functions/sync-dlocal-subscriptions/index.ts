@@ -36,13 +36,11 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // Optional: Validate cron secret for security
     const cronSecret = Deno.env.get('CRON_SECRET');
     const requestSecret = req.headers.get('x-cron-secret');
 
-    // If CRON_SECRET is set, validate it. Otherwise allow all requests
     if (cronSecret && cronSecret !== requestSecret) {
-      console.warn('❌ Invalid cron secret provided');
+      console.warn('\u274c Invalid cron secret provided');
       return new Response(
         JSON.stringify({
           success: false,
@@ -60,12 +58,10 @@ Deno.serve(async (req: Request) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Get dLocal credentials from environment
     let dlocalApiUrl = Deno.env.get('DLOCAL_API_URL');
     let dlocalApiKey = Deno.env.get('DLOCAL_API_KEY');
     let dlocalSecretKey = Deno.env.get('DLOCAL_SECRET_KEY');
 
-    // Fallback to VITE_ prefixed variables if the non-prefixed ones are not available
     if (!dlocalApiKey) {
       dlocalApiKey = Deno.env.get('VITE_DLOCAL_API_KEY');
     }
@@ -76,33 +72,27 @@ Deno.serve(async (req: Request) => {
       dlocalApiUrl = Deno.env.get('VITE_DLOCAL_API_URL');
     }
 
-    // Final fallback to default URL
     if (!dlocalApiUrl) {
       dlocalApiUrl = 'https://api-sbx.dlocalgo.com';
     }
 
-    console.log('🔄 Iniciando sincronización de suscripciones con dLocal...');
-    console.log('📍 API URL:', dlocalApiUrl);
-    console.log('🔑 API Key configured:', dlocalApiKey ? 'Yes (length: ' + dlocalApiKey.length + ')' : 'No');
-    console.log('🔐 Secret Key configured:', dlocalSecretKey ? 'Yes (length: ' + dlocalSecretKey.length + ')' : 'No');
+    console.log('\ud83d\udd04 Iniciando sincronizaci\u00f3n de suscripciones con dLocal...');
+    console.log('\ud83d\udccd API URL:', dlocalApiUrl);
+    console.log('\ud83d\udd11 API Key configured:', dlocalApiKey ? 'Yes (length: ' + dlocalApiKey.length + ')' : 'No');
+    console.log('\ud83d\udd10 Secret Key configured:', dlocalSecretKey ? 'Yes (length: ' + dlocalSecretKey.length + ')' : 'No');
 
     if (!dlocalApiKey || !dlocalSecretKey) {
       throw new Error('dLocal API credentials not configured. Check DLOCAL_API_KEY and DLOCAL_SECRET_KEY environment variables.');
     }
 
-    // Create combined Bearer token (API_KEY:SECRET_KEY) and encode to Base64
-    const credentials = `${dlocalApiKey}:${dlocalSecretKey}`;
-    const encoder = new TextEncoder();
-    const data = encoder.encode(credentials);
-    const bearerToken = btoa(String.fromCharCode(...data));
-    console.log('🎫 Bearer token created (Base64 encoded)');
+    console.log('\ud83c\udfab Setting up dLocal authentication headers');
 
-    // Step 1: Get all plans from dLocal API
-    console.log('\n📋 Step 1: Fetching plans from dLocal API...');
+    console.log('\n\ud83d\udccb Step 1: Fetching plans from dLocal API...');
     const plansResponse = await fetch(`${dlocalApiUrl}/v1/subscription/plan/all`, {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${bearerToken}`,
+        'X-API-KEY': dlocalApiKey,
+        'X-SECRET-KEY': dlocalSecretKey,
         'Content-Type': 'application/json'
       }
     });
@@ -114,7 +104,7 @@ Deno.serve(async (req: Request) => {
 
     const dlocalPlansData = await plansResponse.json();
     const dlocalPlans = dlocalPlansData.data || [];
-    console.log(`✅ Found ${dlocalPlans.length} plans in dLocal`);
+    console.log(`\u2705 Found ${dlocalPlans.length} plans in dLocal`);
 
     if (dlocalPlans.length === 0) {
       return new Response(
@@ -130,8 +120,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Step 2: Get plans from database to match with dLocal plans
-    console.log('\n📋 Step 2: Matching with database plans...');
+    console.log('\n\ud83d\udccb Step 2: Matching with database plans...');
     const { data: dbPlans, error: plansError } = await supabase
       .from('subscription_plans')
       .select('*')
@@ -143,44 +132,42 @@ Deno.serve(async (req: Request) => {
       throw plansError;
     }
 
-    console.log(`📋 Found ${dbPlans?.length || 0} dLocal plans in database`);
+    console.log(`\ud83d\udccb Found ${dbPlans?.length || 0} dLocal plans in database`);
 
     let totalSynced = 0;
     let totalCreated = 0;
     let totalUpdated = 0;
     const errors: any[] = [];
 
-    // Step 3: For each dLocal plan, fetch and sync subscriptions
-    console.log('\n🔄 Step 3: Syncing subscriptions...');
+    console.log('\n\ud83d\udd04 Step 3: Syncing subscriptions...');
     for (const dlocalPlan of dlocalPlans) {
       try {
-        // Find matching plan in database
         const dbPlan = dbPlans?.find(p => p.provider_plan_id === String(dlocalPlan.id));
 
         if (!dbPlan) {
-          console.log(`⏭️  Skipping dLocal plan "${dlocalPlan.name}" (ID: ${dlocalPlan.id}) - not found in database`);
+          console.log(`\u23ed\ufe0f  Skipping dLocal plan "${dlocalPlan.name}" (ID: ${dlocalPlan.id}) - not found in database`);
           continue;
         }
 
-        console.log(`\n🔍 Fetching subscriptions for plan: ${dlocalPlan.name} (ID: ${dlocalPlan.id})`);
+        console.log(`\n\ud83d\udd0d Fetching subscriptions for plan: ${dlocalPlan.name} (ID: ${dlocalPlan.id})`);
 
-        // Call dLocal API to get subscriptions for this plan
         const apiUrl = `${dlocalApiUrl}/v1/subscription/plan/${dlocalPlan.id}/subscription/all`;
-        console.log(`🔗 API URL: ${apiUrl}`);
+        console.log(`\ud83d\udd17 API URL: ${apiUrl}`);
 
         const response = await fetch(apiUrl, {
           method: 'GET',
           headers: {
-            'Authorization': `Bearer ${bearerToken}`,
+            'X-API-KEY': dlocalApiKey,
+            'X-SECRET-KEY': dlocalSecretKey,
             'Content-Type': 'application/json'
           }
         });
 
-        console.log(`📡 Response status: ${response.status} ${response.statusText}`);
+        console.log(`\ud83d\udce1 Response status: ${response.status} ${response.statusText}`);
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.error(`❌ Error fetching subscriptions for plan ${dlocalPlan.id}:`);
+          console.error(`\u274c Error fetching subscriptions for plan ${dlocalPlan.id}:`);
           console.error(`   Status: ${response.status} ${response.statusText}`);
           console.error(`   Response: ${errorText}`);
           errors.push({
@@ -195,18 +182,15 @@ Deno.serve(async (req: Request) => {
         const data = await response.json();
         const subscriptions: DLocalSubscription[] = data.data || [];
 
-        console.log(`✅ Found ${subscriptions.length} subscriptions for plan ${dlocalPlan.name}`);
+        console.log(`\u2705 Found ${subscriptions.length} subscriptions for plan ${dlocalPlan.name}`);
 
-        // Process each subscription
         for (const dlocalSub of subscriptions) {
           try {
-            // Only process CONFIRMED and active subscriptions
             if (dlocalSub.status !== 'CONFIRMED' || !dlocalSub.active) {
-              console.log(`⏭️  Skipping subscription ${dlocalSub.id} (status: ${dlocalSub.status}, active: ${dlocalSub.active})`);
+              console.log(`\u23ed\ufe0f  Skipping subscription ${dlocalSub.id} (status: ${dlocalSub.status}, active: ${dlocalSub.active})`);
               continue;
             }
 
-            // Find user by email
             const { data: userData, error: userError } = await supabase.auth.admin.listUsers();
 
             if (userError) {
@@ -217,19 +201,16 @@ Deno.serve(async (req: Request) => {
             const user = userData.users.find(u => u.email === dlocalSub.client_email);
 
             if (!user) {
-              console.log(`⚠️  User not found for email: ${dlocalSub.client_email}`);
+              console.log(`\u26a0\ufe0f  User not found for email: ${dlocalSub.client_email}`);
               continue;
             }
 
-            // Map dLocal status to internal status
             const internalStatus = mapDLocalStatus(dlocalSub.status);
 
-            // Calculate period dates
             const currentPeriodStart = new Date(dlocalSub.created_at).toISOString();
             const scheduledDate = new Date(dlocalSub.scheduled_date);
             const currentPeriodEnd = scheduledDate.toISOString();
 
-            // Check if subscription already exists
             const { data: existingSubscription, error: checkError } = await supabase
               .from('subscriptions')
               .select('id, status')
@@ -243,7 +224,6 @@ Deno.serve(async (req: Request) => {
             }
 
             if (existingSubscription) {
-              // Update existing subscription
               const { error: updateError } = await supabase
                 .from('subscriptions')
                 .update({
@@ -270,11 +250,10 @@ Deno.serve(async (req: Request) => {
                   error: updateError.message
                 });
               } else {
-                console.log(`✅ Updated subscription for ${dlocalSub.client_email}`);
+                console.log(`\u2705 Updated subscription for ${dlocalSub.client_email}`);
                 totalUpdated++;
               }
             } else {
-              // Create new subscription
               const { error: insertError } = await supabase
                 .from('subscriptions')
                 .insert({
@@ -303,7 +282,7 @@ Deno.serve(async (req: Request) => {
                   error: insertError.message
                 });
               } else {
-                console.log(`✅ Created subscription for ${dlocalSub.client_email}`);
+                console.log(`\u2705 Created subscription for ${dlocalSub.client_email}`);
                 totalCreated++;
               }
             }
@@ -340,7 +319,7 @@ Deno.serve(async (req: Request) => {
       timestamp: new Date().toISOString()
     };
 
-    console.log('\n📊 Sync Summary:', result.stats);
+    console.log('\n\ud83d\udcca Sync Summary:', result.stats);
 
     return new Response(
       JSON.stringify(result),
@@ -351,7 +330,7 @@ Deno.serve(async (req: Request) => {
     );
 
   } catch (error: any) {
-    console.error('❌ Sync error:', error);
+    console.error('\u274c Sync error:', error);
 
     return new Response(
       JSON.stringify({
