@@ -23,6 +23,17 @@ interface NetlifySite {
   ssl_url: string;
   admin_url: string;
   created_at: string;
+  custom_domain?: string;
+}
+
+interface CreateSiteOptions {
+  name?: string;
+  customDomain?: string;
+  repo?: {
+    provider: string;
+    repo: string;
+    branch?: string;
+  };
 }
 
 class NetlifyService {
@@ -65,6 +76,38 @@ class NetlifyService {
 
   async getSite(siteId: string): Promise<NetlifySite> {
     return this.makeRequest(`/sites/${siteId}`);
+  }
+
+  async createSite(options: CreateSiteOptions = {}): Promise<NetlifySite> {
+    const body: any = {
+      name: options.name || `auth-system-${Date.now()}`,
+    };
+
+    if (options.customDomain) {
+      body.custom_domain = options.customDomain;
+    }
+
+    if (options.repo) {
+      body.repo = options.repo;
+    }
+
+    return this.makeRequest('/sites', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async updateSite(siteId: string, updates: Partial<NetlifySite>): Promise<NetlifySite> {
+    return this.makeRequest(`/sites/${siteId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+  }
+
+  async deleteSite(siteId: string): Promise<void> {
+    return this.makeRequest(`/sites/${siteId}`, {
+      method: 'DELETE',
+    });
   }
 
   async triggerDeploy(options: NetlifyDeployOptions = {}): Promise<NetlifyDeployResponse> {
@@ -152,23 +195,52 @@ class NetlifyService {
     return !!this.accessToken && !!import.meta.env.VITE_NETLIFY_SITE_ID;
   }
 
+  hasAccessToken(): boolean {
+    return !!this.accessToken;
+  }
+
+  hasSiteId(): boolean {
+    return !!import.meta.env.VITE_NETLIFY_SITE_ID;
+  }
+
+  getSiteId(): string | undefined {
+    return import.meta.env.VITE_NETLIFY_SITE_ID;
+  }
+
   getConfigurationInstructions(): string {
-    return `
+    if (!this.hasAccessToken()) {
+      return `
 Para habilitar el deploy automático a Netlify:
 
 1. Ve a https://app.netlify.com/user/applications/personal
 2. Crea un nuevo Personal Access Token
 3. Copia el token y agrégalo a tu archivo .env como VITE_NETLIFY_ACCESS_TOKEN
-4. Obtén tu Site ID desde la configuración del sitio en Netlify
-5. Agrégalo a tu archivo .env como VITE_NETLIFY_SITE_ID
-6. Reinicia la aplicación
+4. Reinicia la aplicación
 
 Ejemplo de .env:
 VITE_NETLIFY_ACCESS_TOKEN=tu_token_aqui
+      `.trim();
+    }
+
+    if (!this.hasSiteId()) {
+      return `
+Tienes el token configurado, pero falta el Site ID.
+
+Opciones:
+1. Si es tu primer deploy: Usa el botón "Crear Nuevo Sitio" para crear uno automáticamente
+2. Si ya tienes un sitio: Ve a Netlify → Site Settings → Site details → Copia el Site ID
+3. Agrega el Site ID a tu archivo .env como VITE_NETLIFY_SITE_ID
+4. Reinicia la aplicación
+
+Ejemplo de .env:
+VITE_NETLIFY_ACCESS_TOKEN=tu_token_actual
 VITE_NETLIFY_SITE_ID=tu_site_id_aqui
-    `.trim();
+      `.trim();
+    }
+
+    return 'Netlify está completamente configurado';
   }
 }
 
 export const netlifyService = new NetlifyService();
-export type { NetlifyDeployOptions, NetlifyDeployResponse, NetlifySite };
+export type { NetlifyDeployOptions, NetlifyDeployResponse, NetlifySite, CreateSiteOptions };

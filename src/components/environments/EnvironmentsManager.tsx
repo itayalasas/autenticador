@@ -58,6 +58,11 @@ export default function EnvironmentsManager() {
   const [currentDeploymentLogId, setCurrentDeploymentLogId] = useState<string | null>(null);
   const [isNetlifyDeploying, setIsNetlifyDeploying] = useState(false);
   const [showNetlifyConfig, setShowNetlifyConfig] = useState(false);
+  const [showNetlifySiteSelector, setShowNetlifySiteSelector] = useState(false);
+  const [netlifySites, setNetlifySites] = useState<any[]>([]);
+  const [loadingSites, setLoadingSites] = useState(false);
+  const [creatingNetlifySite, setCreatingNetlifySite] = useState(false);
+  const [newSiteName, setNewSiteName] = useState('');
   const consoleRef = useRef<HTMLDivElement>(null);
   const [editFormData, setEditFormData] = useState({
     domain: '',
@@ -455,11 +460,22 @@ export default function EnvironmentsManager() {
 
   const handleDeployToNetlify = async (environmentId: string, environmentName: string) => {
     try {
-      if (!netlifyService.isConfigured()) {
+      // Check if we have access token
+      if (!netlifyService.hasAccessToken()) {
         addLog('❌ Netlify no está configurado', 'error');
         addLog('', 'info');
         addLog(netlifyService.getConfigurationInstructions(), 'warning');
         setShowConsole(true);
+        return;
+      }
+
+      // Check if we have site ID, if not, show site selector
+      if (!netlifyService.hasSiteId()) {
+        addLog('⚠️ No hay Site ID configurado', 'warning');
+        addLog('📋 Abriendo selector de sitios de Netlify...', 'info');
+        setShowConsole(true);
+        await loadNetlifySites();
+        setShowNetlifySiteSelector(true);
         return;
       }
 
@@ -486,7 +502,7 @@ export default function EnvironmentsManager() {
       addLog('   Esto puede tomar varios minutos', 'info');
       addLog('', 'info');
 
-      const siteId = import.meta.env.VITE_NETLIFY_SITE_ID;
+      const siteId = netlifyService.getSiteId()!;
       const finalDeploy = await netlifyService.waitForDeploy(
         siteId,
         deployResponse.id,
@@ -516,6 +532,66 @@ export default function EnvironmentsManager() {
     } finally {
       setIsNetlifyDeploying(false);
     }
+  };
+
+  const loadNetlifySites = async () => {
+    try {
+      setLoadingSites(true);
+      addLog('📋 Cargando sitios de Netlify...', 'info');
+      const sites = await netlifyService.listSites();
+      setNetlifySites(sites);
+      addLog(`✅ Se encontraron ${sites.length} sitios`, 'success');
+    } catch (error: any) {
+      console.error('Error loading Netlify sites:', error);
+      addLog(`❌ Error al cargar sitios: ${error.message}`, 'error');
+    } finally {
+      setLoadingSites(false);
+    }
+  };
+
+  const handleCreateNetlifySite = async () => {
+    try {
+      setCreatingNetlifySite(true);
+      addLog('', 'info');
+      addLog('🏗️  Creando nuevo sitio en Netlify...', 'info');
+
+      const siteName = newSiteName || `auth-system-${Date.now()}`;
+      const site = await netlifyService.createSite({ name: siteName });
+
+      addLog(`✅ Sitio creado exitosamente!`, 'success');
+      addLog(`   Nombre: ${site.name}`, 'info');
+      addLog(`   URL: ${site.ssl_url}`, 'info');
+      addLog(`   Site ID: ${site.id}`, 'info');
+      addLog('', 'info');
+      addLog('📝 IMPORTANTE: Copia este Site ID y agrégalo a tu .env:', 'warning');
+      addLog(`   VITE_NETLIFY_SITE_ID=${site.id}`, 'warning');
+      addLog('', 'info');
+      addLog('💡 Después de agregar el Site ID, reinicia la aplicación', 'info');
+
+      // Reload sites list
+      await loadNetlifySites();
+      setNewSiteName('');
+    } catch (error: any) {
+      console.error('Error creating Netlify site:', error);
+      addLog(`❌ Error al crear sitio: ${error.message}`, 'error');
+    } finally {
+      setCreatingNetlifySite(false);
+    }
+  };
+
+  const handleSelectNetlifySite = (siteId: string, siteName: string) => {
+    addLog('', 'info');
+    addLog(`📋 Has seleccionado el sitio: ${siteName}`, 'info');
+    addLog(`   Site ID: ${siteId}`, 'info');
+    addLog('', 'info');
+    addLog('📝 IMPORTANTE: Agrega este Site ID a tu .env:', 'warning');
+    addLog(`   VITE_NETLIFY_SITE_ID=${siteId}`, 'warning');
+    addLog('', 'info');
+    addLog('💡 Después de agregar el Site ID, reinicia la aplicación', 'info');
+
+    // Copy to clipboard
+    navigator.clipboard.writeText(`VITE_NETLIFY_SITE_ID=${siteId}`);
+    addLog('✅ Copiado al portapapeles!', 'success');
   };
 
   // Test all API endpoints (Edge Functions)
@@ -1670,6 +1746,148 @@ try {
         </div>
       )}
 
+      {/* Netlify Site Selector Modal */}
+      {showNetlifySiteSelector && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-gray-900 flex items-center space-x-2">
+                <Cloud className="w-6 h-6 text-purple-500" />
+                <span>Seleccionar o Crear Sitio de Netlify</span>
+              </h3>
+              <button
+                onClick={() => setShowNetlifySiteSelector(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Create New Site Section */}
+              <div className="border border-gray-200 rounded-lg p-4">
+                <h4 className="font-semibold text-gray-900 mb-3 flex items-center space-x-2">
+                  <Plus className="w-5 h-5 text-green-500" />
+                  <span>Crear Nuevo Sitio</span>
+                </h4>
+                <p className="text-sm text-gray-600 mb-4">
+                  Para tu primer deploy, crea un nuevo sitio en Netlify. El Site ID se generará automáticamente.
+                </p>
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="text"
+                    value={newSiteName}
+                    onChange={(e) => setNewSiteName(e.target.value)}
+                    placeholder="auth-system (opcional)"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  />
+                  <button
+                    onClick={handleCreateNetlifySite}
+                    disabled={creatingNetlifySite}
+                    className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center space-x-2 transition-colors disabled:opacity-50"
+                  >
+                    {creatingNetlifySite ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Creando...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-4 h-4" />
+                        <span>Crear Sitio</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Si no especificas un nombre, se generará uno automáticamente
+                </p>
+              </div>
+
+              {/* Existing Sites Section */}
+              <div className="border border-gray-200 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-semibold text-gray-900 flex items-center space-x-2">
+                    <Globe className="w-5 h-5 text-blue-500" />
+                    <span>Seleccionar Sitio Existente</span>
+                  </h4>
+                  <button
+                    onClick={loadNetlifySites}
+                    disabled={loadingSites}
+                    className="text-blue-500 hover:text-blue-600 text-sm flex items-center space-x-1"
+                  >
+                    {loadingSites ? (
+                      <>
+                        <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                        <span>Cargando...</span>
+                      </>
+                    ) : (
+                      <>
+                        <RotateCcw className="w-3 h-3" />
+                        <span>Recargar</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {netlifySites.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Globe className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                    <p className="text-sm text-gray-600">
+                      {loadingSites ? 'Cargando sitios...' : 'No se encontraron sitios. Crea uno nuevo arriba.'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {netlifySites.map((site) => (
+                      <div
+                        key={site.id}
+                        className="flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
+                      >
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">{site.name}</p>
+                          <p className="text-xs text-gray-500">{site.url}</p>
+                          <p className="text-xs text-gray-400 font-mono mt-1">ID: {site.id}</p>
+                        </div>
+                        <button
+                          onClick={() => handleSelectNetlifySite(site.id, site.name)}
+                          className="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded text-sm transition-colors"
+                        >
+                          Seleccionar
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Instructions */}
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <h4 className="font-semibold text-yellow-900 mb-2 flex items-center space-x-2">
+                  <AlertTriangle className="w-5 h-5" />
+                  <span>Importante</span>
+                </h4>
+                <ul className="text-sm text-yellow-800 space-y-1 list-disc list-inside">
+                  <li>Después de crear o seleccionar un sitio, copia el Site ID que aparecerá en la consola</li>
+                  <li>Agrégalo a tu archivo .env como VITE_NETLIFY_SITE_ID</li>
+                  <li>Reinicia la aplicación para que los cambios surtan efecto</li>
+                  <li>Una vez configurado, podrás deployar directamente desde aquí</li>
+                </ul>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={() => setShowNetlifySiteSelector(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Netlify Configuration Modal */}
       {showNetlifyConfig && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -1697,19 +1915,31 @@ try {
               </div>
 
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                <h4 className="font-semibold text-yellow-900 mb-2">Instrucciones de Configuración</h4>
+                <h4 className="font-semibold text-yellow-900 mb-2">Paso 1: Configurar Access Token</h4>
                 <ol className="text-sm text-yellow-800 space-y-2 list-decimal list-inside">
                   <li>Ve a <a href="https://app.netlify.com/user/applications/personal" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Netlify Personal Access Tokens</a></li>
                   <li>Crea un nuevo Personal Access Token</li>
-                  <li>Copia el token y agrégalo a tu archivo <code className="bg-yellow-100 px-1 rounded">.env</code> como:</li>
+                  <li>Copia el token y agrégalo a tu archivo <code className="bg-yellow-100 px-1 rounded">.env</code>:</li>
                 </ol>
                 <div className="mt-3 bg-gray-900 text-gray-100 p-3 rounded font-mono text-sm">
-                  VITE_NETLIFY_ACCESS_TOKEN=tu_token_aqui<br/>
-                  VITE_NETLIFY_SITE_ID=tu_site_id_aqui
+                  VITE_NETLIFY_ACCESS_TOKEN=tu_token_aqui
                 </div>
                 <p className="text-xs text-yellow-700 mt-2">
-                  El Site ID lo puedes encontrar en la configuración de tu sitio en Netlify (Settings → General → Site details → Site ID)
+                  Después de agregar el token, reinicia la aplicación
                 </p>
+              </div>
+
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <h4 className="font-semibold text-green-900 mb-2">Paso 2: Configurar Site ID (Primer Deploy)</h4>
+                <p className="text-sm text-green-800 mb-2">
+                  Para tu primer deploy, NO necesitas el Site ID todavía. El sistema te ayudará a:
+                </p>
+                <ul className="text-sm text-green-800 space-y-1 list-disc list-inside">
+                  <li>Crear un nuevo sitio automáticamente desde la interfaz</li>
+                  <li>O seleccionar un sitio existente si ya tienes uno</li>
+                  <li>El Site ID se copiará automáticamente al portapapeles</li>
+                  <li>Solo agrégalo a tu .env y reinicia la aplicación</li>
+                </ul>
               </div>
 
               <div className="bg-green-50 border border-green-200 rounded-lg p-4">
