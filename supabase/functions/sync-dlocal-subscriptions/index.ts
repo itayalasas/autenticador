@@ -91,8 +91,8 @@ Deno.serve(async (req: Request) => {
     const plansResponse = await fetch(`${dlocalApiUrl}/v1/subscription/plan/all`, {
       method: 'GET',
       headers: {
-        'X-API-KEY': dlocalApiKey,
-        'X-SECRET-KEY': dlocalSecretKey,
+        'Authorization': `Bearer ${dlocalApiKey}`,
+        'X-API-Secret': dlocalSecretKey,
         'Content-Type': 'application/json'
       }
     });
@@ -157,8 +157,8 @@ Deno.serve(async (req: Request) => {
         const response = await fetch(apiUrl, {
           method: 'GET',
           headers: {
-            'X-API-KEY': dlocalApiKey,
-            'X-SECRET-KEY': dlocalSecretKey,
+            'Authorization': `Bearer ${dlocalApiKey}`,
+            'X-API-Secret': dlocalSecretKey,
             'Content-Type': 'application/json'
           }
         });
