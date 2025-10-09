@@ -6,55 +6,71 @@ export const subscriptionService = {
   // Get all available subscription plans
   async getSubscriptionPlans(): Promise<SubscriptionPlan[]> {
     try {
-      // Plan básico gratuito (siempre disponible, manejado internamente)
-      const freePlan: SubscriptionPlan = {
-        id: '00000000-0000-0000-0000-000000000000',
-        name: 'Básico',
-        description: 'Perfecto para comenzar y desarrollo',
-        price: 0,
-        currency: 'USD',
-        interval: 'month',
-        trial_days: 0,
-        is_active: true,
-        is_popular: false,
-        features: [
-          'Ambiente Development únicamente',
-          '1 aplicación',
-          'Hasta 100 usuarios',
-          '10,000 requests API por mes',
-          'Soporte comunitario'
-        ],
-        limits: {
-          applications: 1,
-          users_per_app: 100,
-          api_requests_per_month: 10000,
-          api_keys_per_environment: 1,
-          environments: ['development'],
-          support_level: 'basic'
-        }
-      };
+      // Get plans directly from subscription_plans table
+      const { data: plans, error } = await supabase
+        .from('subscription_plans')
+        .select('*')
+        .eq('is_active', true)
+        .order('price', { ascending: true });
 
-      // Try to get paid plans from DLocal API
-      try {
-        const dLocalPlans = await dLocalService.getSubscriptionPlans();
-        const convertedPlans = dLocalPlans.map(plan => dLocalService.convertToInternalPlan(plan));
-
-        // Return free plan + DLocal plans
-        return [freePlan, ...convertedPlans];
-      } catch (dLocalError) {
-        console.warn('DLocal API not available, using fallback plans:', dLocalError);
-
-        // Use fallback DLocal plans
-        const fallbackDLocalPlans = dLocalService.getFallbackPlans();
-        const convertedFallbackPlans = fallbackDLocalPlans.map(plan => dLocalService.convertToInternalPlan(plan));
-
-        // Return free plan + fallback plans
-        return [freePlan, ...convertedFallbackPlans];
+      if (error) {
+        console.error('Error loading plans from database:', error);
+        throw error;
       }
+
+      if (!plans || plans.length === 0) {
+        console.warn('No plans found in database, returning basic plan only');
+
+        // Return basic plan as fallback
+        return [{
+          id: '00000000-0000-0000-0000-000000000000',
+          name: 'Básico',
+          description: 'Perfecto para comenzar y desarrollo',
+          price: 0,
+          currency: 'USD',
+          interval: 'month',
+          trial_days: 0,
+          is_active: true,
+          is_popular: false,
+          features: [
+            'Ambiente Development únicamente',
+            '1 aplicación',
+            'Hasta 100 usuarios',
+            '10,000 requests API por mes',
+            'Soporte comunitario'
+          ],
+          limits: {
+            applications: 1,
+            users_per_app: 100,
+            api_requests_per_month: 10000,
+            api_keys_per_environment: 1,
+            environments: ['development'],
+            support_level: 'basic'
+          }
+        }];
+      }
+
+      // Transform database plans to internal format
+      return plans.map(plan => ({
+        id: plan.id,
+        name: plan.name,
+        description: plan.description,
+        price: Number(plan.price),
+        currency: plan.currency,
+        interval: plan.interval,
+        trial_days: plan.trial_days || 0,
+        is_active: plan.is_active,
+        is_popular: plan.is_popular || false,
+        features: Array.isArray(plan.features) ? plan.features : [],
+        limits: plan.limits || {},
+        provider: plan.provider,
+        provider_plan_id: plan.provider_plan_id,
+        provider_metadata: plan.provider_metadata
+      }));
     } catch (error) {
       console.error('Error loading subscription plans:', error);
 
-      // Ultimate fallback: return only free plan
+      // Ultimate fallback: return only basic plan
       return [{
         id: '00000000-0000-0000-0000-000000000000',
         name: 'Básico',

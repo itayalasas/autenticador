@@ -130,8 +130,14 @@ export default function SubscriptionManager() {
         throw new Error('Usuario no autenticado');
       }
 
+      // Obtener el plan_token del provider_metadata
+      const planToken = selectedPlan.provider_metadata?.plan_token;
+      if (!planToken) {
+        throw new Error('Token del plan no encontrado. Por favor, sincroniza los planes desde dLocal.');
+      }
+
       // Crear suscripción en dLocal (abre popup)
-      await dLocalService.createSubscription(selectedPlan.plan_token, {
+      await dLocalService.createSubscription(planToken, {
         id: user.id,
         email: user.email
       });
