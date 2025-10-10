@@ -5,6 +5,7 @@ import { subscriptionService } from '../../services/subscriptionService';
 import { netlifyService } from '../../services/netlifyService';
 import { githubService } from '../../services/githubService';
 import { connectorsService } from '../../services/connectorsService';
+import { environmentVariablesService } from '../../services/environmentVariablesService';
 import { supabase } from '../../lib/supabase';
 import ConfirmationModal from '../ui/ConfirmationModal';
 import NotificationModal from '../ui/NotificationModal';
@@ -547,10 +548,37 @@ export default function EnvironmentsManager() {
         throw new Error('Ambiente no encontrado');
       }
 
+      // STEP 5.1: Inicializar variables de entorno si no existen
+      addLog('🔧 Configurando variables de entorno...', 'info');
+      const app = applications.find(a => a.name === selectedApp);
+      if (!app) {
+        throw new Error('Aplicación no encontrada');
+      }
+
+      try {
+        const existingVars = await environmentVariablesService.getVariablesForApplication(app.id);
+        if (existingVars.length === 0) {
+          addLog('   Inicializando variables de entorno por primera vez...', 'info');
+          await environmentVariablesService.initializeDefaultVariables(app.id);
+        }
+      } catch (error) {
+        console.error('Error initializing env vars:', error);
+      }
+
+      // STEP 5.2: Cargar variables de entorno para este ambiente
+      const envVars = await environmentVariablesService.getVariablesForEnvironment(app.id, environmentId);
+      const envFileContent = environmentVariablesService.buildEnvFileContent(envVars);
+      addLog(`   ✓ ${envVars.length} variables de entorno cargadas`, 'success');
+
       // Preparar archivos para commit (esto debería venir de tu aplicación)
       const files = {
         'README.md': `# ${selectedApp} - ${environmentName}\n\nDeploy automático desde AuthSystem\n\nFecha: ${new Date().toISOString()}`,
         'index.html': '<!DOCTYPE html><html><head><title>AuthSystem</title></head><body><h1>AuthSystem Deploy</h1></body></html>',
+        '.env': envFileContent,
+        '.env.example': envFileContent.split('\n').map(line => {
+          const [key] = line.split('=');
+          return `${key}=`;
+        }).join('\n'),
         'netlify.toml': `[build]\n  command = "npm run build"\n  publish = "dist"\n\n[[redirects]]\n  from = "/*"\n  to = "/index.html"\n  status = 200`,
       };
 
@@ -598,6 +626,17 @@ export default function EnvironmentsManager() {
           .eq('id', repo.id);
 
         addLog('✅ Repositorio conectado con Netlify', 'success');
+      }
+
+      // STEP 8.5: Configurar variables de entorno en Netlify
+      addLog('⚙️  Configurando variables de entorno en Netlify...', 'info');
+      try {
+        const netlifyEnvVars = environmentVariablesService.buildNetlifyEnvObject(envVars);
+        await netlifyService.updateSiteEnvironmentVariables(siteId, netlifyEnvVars);
+        addLog(`   ✓ ${Object.keys(netlifyEnvVars).length} variables configuradas en Netlify`, 'success');
+      } catch (error) {
+        addLog('   ⚠️  No se pudieron configurar todas las variables en Netlify', 'warning');
+        console.error('Error setting Netlify env vars:', error);
       }
 
       // STEP 9: Trigger deploy en Netlify

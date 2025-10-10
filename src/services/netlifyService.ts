@@ -353,6 +353,44 @@ El Site ID se guardará automáticamente en la base de datos, sin necesidad de r
 
     return 'Netlify está completamente configurado';
   }
+
+  async updateSiteEnvironmentVariables(
+    siteId: string,
+    environmentVariables: Record<string, string>
+  ): Promise<void> {
+    try {
+      const response = await fetch(`${this.baseUrl}/sites/${siteId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.accessToken}`,
+        },
+        body: JSON.stringify({
+          build_settings: {
+            env: environmentVariables,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Failed to update environment variables: ${error}`);
+      }
+    } catch (error) {
+      console.error('Error updating Netlify environment variables:', error);
+      throw error;
+    }
+  }
+
+  async getSiteEnvironmentVariables(siteId: string): Promise<Record<string, string>> {
+    try {
+      const site = await this.getSite(siteId);
+      return site.build_settings?.env || {};
+    } catch (error) {
+      console.error('Error getting Netlify environment variables:', error);
+      return {};
+    }
+  }
 }
 
 export const netlifyService = new NetlifyService();
