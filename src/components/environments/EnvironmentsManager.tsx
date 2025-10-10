@@ -1206,12 +1206,37 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
     try {
       setLoadingSites(true);
       addLog('📋 Cargando sitios de Netlify...', 'info');
+
+      // Cargar configuración desde la base de datos primero
+      const config = await netlifyService.loadConfigFromDatabase();
+
+      if (!config || !config.access_token) {
+        addLog('❌ Access Token no encontrado en la base de datos', 'error');
+        addLog('📋 Por favor configura tu Access Token en "Conectores"', 'info');
+        setNetlifySites([]);
+        return;
+      }
+
+      addLog('   ✓ Configuración cargada desde BD', 'success');
+      addLog('   Cargando lista de sitios desde Netlify API...', 'info');
+
       const sites = await netlifyService.listSites();
       setNetlifySites(sites);
-      addLog(`✅ Se encontraron ${sites.length} sitios`, 'success');
+
+      if (sites.length === 0) {
+        addLog('⚠️  No se encontraron sitios en tu cuenta de Netlify', 'warning');
+        addLog('💡 Puedes crear un sitio nuevo arriba, o crearlo manualmente en Netlify:', 'info');
+        addLog('   1. Ve a https://app.netlify.com/sites', 'info');
+        addLog('   2. Click en "Add new site" → "Import an existing project"', 'info');
+        addLog('   3. Selecciona GitHub y tu repositorio', 'info');
+        addLog('   4. Una vez creado, actualiza esta lista', 'info');
+      } else {
+        addLog(`✅ Se encontraron ${sites.length} sitios`, 'success');
+      }
     } catch (error: any) {
       console.error('Error loading Netlify sites:', error);
       addLog(`❌ Error al cargar sitios: ${error.message}`, 'error');
+      setNetlifySites([]);
     } finally {
       setLoadingSites(false);
     }
@@ -1222,6 +1247,14 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
       setCreatingNetlifySite(true);
       addLog('', 'info');
       addLog('🏗️  Creando nuevo sitio en Netlify...', 'info');
+
+      // Cargar configuración desde la base de datos primero
+      const config = await netlifyService.loadConfigFromDatabase();
+      if (!config || !config.access_token) {
+        addLog('❌ Access Token no encontrado en la base de datos', 'error');
+        addLog('📋 Por favor configura tu Access Token en "Conectores"', 'info');
+        return;
+      }
 
       const siteName = newSiteName || `auth-system-${Date.now()}`;
       const site = await netlifyService.createSite({ name: siteName });
