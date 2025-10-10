@@ -78,7 +78,21 @@ export default defineConfig({
   plugins: [react()],
   build: {
     outDir: 'dist',
-    emptyOutDir: true
+    emptyOutDir: true,
+    sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          router: ['react-router-dom'],
+          supabase: ['@supabase/supabase-js'],
+          ui: ['lucide-react']
+        }
+      }
+    }
+  },
+  optimizeDeps: {
+    exclude: ['lucide-react']
   }
 });
 `;
@@ -191,7 +205,7 @@ NODE_ENV=production
     // _redirects
     files['_redirects'] = `/*    /index.html   200`;
 
-    // index.html
+    // index.html - NOTE: Use relative path for Vite
     files['index.html'] = `<!DOCTYPE html>
 <html lang="es">
   <head>
@@ -201,7 +215,7 @@ NODE_ENV=production
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="./src/main.tsx"></script>
   </body>
 </html>
 `;
