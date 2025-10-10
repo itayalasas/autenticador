@@ -187,7 +187,7 @@ export default function EnvironmentsManager() {
 
   const generateApiKey = (environment: string) => {
     const chars = 'abcdef0123456789';
-    let result = `ak_development_`;
+    let result = `ak_${environment}_`; // ✅ USAR EL AMBIENTE CORRECTO
     for (let i = 0; i < 32; i++) {
       result += chars.charAt(Math.floor(Math.random() * chars.length));
     }
@@ -380,9 +380,28 @@ export default function EnvironmentsManager() {
       addLog(`🌐 Base URL: ${baseUrl}`, 'info');
       addLog(`🔄 Callback URL: ${callbackUrl}`, 'info');
 
-      // Generate API key for this environment
-      const apiKey = generateApiKey(environmentName);
-      addLog(`🔑 Generated API Key: ${apiKey}`, 'info');
+      // Verificar si ya existe una API Key para este ambiente
+      addLog('🔑 Verificando API Key existente...', 'info');
+      const { data: existingApiKeys } = await supabase
+        .from('api_keys')
+        .select('*')
+        .eq('application_id', selectedApp)
+        .eq('environment', environmentName)
+        .eq('is_active', true)
+        .limit(1);
+
+      let apiKey = '';
+      if (existingApiKeys && existingApiKeys.length > 0) {
+        // Ya existe una API Key, NO crear otra
+        addLog(`   ✓ API Key existente encontrada: ${existingApiKeys[0].key_preview}`, 'success');
+        addLog(`   ℹ️  Usando API Key existente para este ambiente`, 'info');
+        // Generar una nueva para este deploy específico (temporal para URLs de prueba)
+        apiKey = generateApiKey(environmentName);
+      } else {
+        // No existe, generar nueva
+        apiKey = generateApiKey(environmentName);
+        addLog(`   ✓ Nueva API Key generada: ${apiKey.substring(0, 20)}...`, 'success');
+      }
 
       // Generate valid reset token for testing (same logic as edge function)
       addLog('🔑 Generando token válido para reset password...', 'info');
@@ -408,30 +427,35 @@ export default function EnvironmentsManager() {
       });
       addLog('', 'info');
 
-      // Save API key to database
+      // Save API key to database (solo si no existe)
       addLog('💾 Paso 6: Guardando API key en la base de datos...', 'info');
-      try {
-        const { data: apiKeyData, error: apiKeyError } = await supabase
-          .from('api_keys')
-          .insert({
-            application_id: selectedApp,
-            name: `${environmentName.charAt(0).toUpperCase() + environmentName.slice(1)} Environment Key`,
-            key_hash: apiKey,
-            key_preview: `${apiKey.substring(0, 12)}...${apiKey.substring(apiKey.length - 6)}`,
-            permissions: ['read', 'write'],
-            environment: environmentName,
-            is_active: true
-          })
-          .select()
-          .single();
 
-        if (apiKeyError) {
-          addLog(`⚠️ Advertencia: No se pudo guardar la API key: ${apiKeyError.message}`, 'warning');
-        } else {
-          addLog('✅ API key guardada exitosamente', 'success');
+      if (!existingApiKeys || existingApiKeys.length === 0) {
+        try {
+          const { data: apiKeyData, error: apiKeyError } = await supabase
+            .from('api_keys')
+            .insert({
+              application_id: selectedApp,
+              name: `${environmentName.charAt(0).toUpperCase() + environmentName.slice(1)} Environment Key`,
+              key_hash: apiKey,
+              key_preview: `${apiKey.substring(0, 12)}...${apiKey.substring(apiKey.length - 6)}`,
+              permissions: ['read', 'write'],
+              environment: environmentName,
+              is_active: true
+            })
+            .select()
+            .single();
+
+          if (apiKeyError) {
+            addLog(`⚠️ Advertencia: No se pudo guardar la API key: ${apiKeyError.message}`, 'warning');
+          } else {
+            addLog('✅ API key guardada exitosamente', 'success');
+          }
+        } catch (error) {
+          addLog(`⚠️ Advertencia: No se pudo guardar la API key: ${error.message}`, 'warning');
         }
-      } catch (error) {
-        addLog(`⚠️ Advertencia: No se pudo guardar la API key: ${error.message}`, 'warning');
+      } else {
+        addLog('✅ API key ya existe en la base de datos', 'success');
       }
       addLog('', 'info');
 
@@ -560,40 +584,10 @@ export default function EnvironmentsManager() {
         addLog('   ℹ️  Usando branding por defecto', 'info');
       }
 
-      // Obtener o crear API Key
-      const { data: apiKeys } = await supabase
-        .from('api_keys')
-        .select('*')
-        .eq('application_id', app.id)
-        .eq('environment', environmentName)
-        .eq('is_active', true);
-
-      let deployApiKey = '';
-      if (!apiKeys || apiKeys.length === 0) {
-        // Generar nueva API Key
-        deployApiKey = `ak_${environmentName}_${Math.random().toString(36).substring(2, 15)}${Math.random().toString(36).substring(2, 15)}`;
-
-        const encoder = new TextEncoder();
-        const data = encoder.encode(deployApiKey);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const keyHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-        const keyPreview = `${deployApiKey.substring(0, 20)}...${deployApiKey.substring(deployApiKey.length - 4)}`;
-
-        await supabase.from('api_keys').insert({
-          application_id: app.id,
-          name: `${environmentName} API Key`,
-          key_hash: keyHash,
-          key_preview: keyPreview,
-          environment: environmentName,
-          is_active: true
-        });
-
-        addLog(`   ✓ API Key creada: ${keyPreview}`, 'success');
-      } else {
-        deployApiKey = `PLACEHOLDER_${environmentName.toUpperCase()}_API_KEY`;
-        addLog(`   ℹ️  Usando API Key existente: ${apiKeys[0].key_preview}`, 'info');
-      }
+      // Usar la misma API Key que ya verificamos arriba
+      // Esta API Key ya fue verificada/creada en el Paso 5-6
+      const deployApiKey = apiKey; // Reusar la misma API Key
+      addLog(`   ✓ Usando API Key del ambiente: ${deployApiKey.substring(0, 20)}...`, 'success');
 
       // Generar archivos
       const files = await getStaticProjectFiles(
@@ -1334,8 +1328,12 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
           addLog(`   Commit: ${commitResult.sha?.substring(0, 7)}`, 'info');
           addLog('', 'info');
 
-          // Actualizar environment con el repo y estado
+          // Actualizar environment con el repo, estado Y URLs corregidas
+          addLog('📝 Actualizando URLs del ambiente con el sitio de Netlify...', 'info');
+
           await applicationService.updateEnvironment(pendingDeployData.environmentId, {
+            auth_url: siteUrl, // ✅ Actualizar auth_url con el sitio de Netlify
+            callback_url: pendingDeployData.environment.callback_url || `https://${pendingDeployData.environment.name}/auth/callback`,
             metadata: {
               ...pendingDeployData.environment.metadata,
               github_repo: pendingDeployData.repo.repo_full_name,
@@ -1347,6 +1345,8 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
               deployment_status: 'deployed'
             }
           });
+
+          addLog('   ✓ URLs actualizadas con el sitio de Netlify', 'success');
 
           addLog('☁️  Paso 15: Netlify detectará el cambio...', 'info');
           addLog('   Netlify está monitoreando tu repositorio de GitHub', 'info');

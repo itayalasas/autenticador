@@ -291,27 +291,47 @@ class GitHubService {
   }
 
   // Commit and push files to repository (via Edge Function)
-  async commitAndPush(repoFullName: string, files: Record<string, string>, commitMessage: string): Promise<void> {
-    const connection = await this.getActiveConnection();
-    if (!connection) throw new Error('No active GitHub connection');
+  async commitAndPush(
+    repoFullName: string,
+    files: Record<string, string>,
+    commitMessage: string
+  ): Promise<{ success: boolean; sha?: string; error?: string }> {
+    try {
+      const connection = await this.getActiveConnection();
+      if (!connection) throw new Error('No active GitHub connection');
 
-    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/github-commit-push`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-      },
-      body: JSON.stringify({
-        accessToken: connection.access_token,
-        repoFullName,
-        files,
-        commitMessage,
-      }),
-    });
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/github-commit-push`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          accessToken: connection.access_token,
+          repoFullName,
+          files,
+          commitMessage,
+        }),
+      });
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Failed to commit and push');
+      const result = await response.json();
+
+      if (!response.ok) {
+        return {
+          success: false,
+          error: result.error || 'Failed to commit and push'
+        };
+      }
+
+      return {
+        success: true,
+        sha: result.commit?.sha
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.message || 'Unknown error'
+      };
     }
   }
 
