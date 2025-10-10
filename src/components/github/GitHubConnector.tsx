@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Github, GitBranch, CheckCircle, X, ExternalLink } from 'lucide-react';
 import { githubService, GitConnection, GitRepository, GitHubRepo } from '../../services/githubService';
+import NotificationModal from '../ui/NotificationModal';
 
 interface GitHubConnectorProps {
   onRepositorySelected?: (repo: GitRepository) => void;
@@ -14,6 +15,28 @@ export default function GitHubConnector({ onRepositorySelected }: GitHubConnecto
   const [showRepoList, setShowRepoList] = useState(false);
   const [newRepoName, setNewRepoName] = useState('');
   const [creatingRepo, setCreatingRepo] = useState(false);
+  const [notification, setNotification] = useState({
+    isOpen: false,
+    type: 'success' as 'success' | 'error' | 'warning' | 'info',
+    title: '',
+    message: '',
+  });
+
+  const showNotification = (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => {
+    setNotification({
+      isOpen: true,
+      type,
+      title,
+      message,
+    });
+  };
+
+  const closeNotification = () => {
+    setNotification({
+      ...notification,
+      isOpen: false,
+    });
+  };
 
   useEffect(() => {
     loadConnection();
@@ -42,7 +65,7 @@ export default function GitHubConnector({ onRepositorySelected }: GitHubConnecto
     const configured = await githubService.isConfigured();
     if (!configured) {
       const instructions = await githubService.getSetupInstructions();
-      alert(instructions);
+      showNotification('warning', 'GitHub no Configurado', instructions);
       return;
     }
     await githubService.initiateOAuth();
@@ -56,7 +79,7 @@ export default function GitHubConnector({ onRepositorySelected }: GitHubConnecto
       setConnection(null);
       setRepositories([]);
     } catch (error: any) {
-      alert(`Error: ${error.message}`);
+      showNotification('error', 'Error al Desconectar', error.message || 'No se pudo desconectar GitHub.');
     }
   };
 
@@ -67,7 +90,7 @@ export default function GitHubConnector({ onRepositorySelected }: GitHubConnecto
       setRepositories(repos);
       setShowRepoList(true);
     } catch (error: any) {
-      alert(`Error: ${error.message}`);
+      showNotification('error', 'Error al Cargar', error.message || 'No se pudieron cargar los repositorios.');
     } finally {
       setLoading(false);
     }
@@ -75,7 +98,7 @@ export default function GitHubConnector({ onRepositorySelected }: GitHubConnecto
 
   const handleCreateRepo = async () => {
     if (!newRepoName.trim()) {
-      alert('Por favor ingresa un nombre para el repositorio');
+      showNotification('warning', 'Nombre Requerido', 'Por favor ingresa un nombre para el repositorio.');
       return;
     }
 
@@ -91,9 +114,9 @@ export default function GitHubConnector({ onRepositorySelected }: GitHubConnecto
         onRepositorySelected(savedRepo);
       }
 
-      alert(`Repositorio "${repo.name}" creado exitosamente!`);
+      showNotification('success', 'Repositorio Creado', `El repositorio "${repo.name}" se ha creado exitosamente.`);
     } catch (error: any) {
-      alert(`Error: ${error.message}`);
+      showNotification('error', 'Error al Crear', error.message || 'No se pudo crear el repositorio.');
     } finally {
       setCreatingRepo(false);
     }
@@ -109,9 +132,9 @@ export default function GitHubConnector({ onRepositorySelected }: GitHubConnecto
       }
 
       setShowRepoList(false);
-      alert(`Repositorio "${repo.name}" seleccionado!`);
+      showNotification('success', 'Repositorio Seleccionado', `El repositorio "${repo.name}" ha sido seleccionado.`);
     } catch (error: any) {
-      alert(`Error: ${error.message}`);
+      showNotification('error', 'Error al Seleccionar', error.message || 'No se pudo seleccionar el repositorio.');
     }
   };
 
@@ -303,6 +326,12 @@ export default function GitHubConnector({ onRepositorySelected }: GitHubConnecto
           </div>
         </div>
       )}
+
+      {/* Notification Modal */}
+      <NotificationModal
+        notification={notification}
+        onClose={closeNotification}
+      />
     </div>
   );
 }

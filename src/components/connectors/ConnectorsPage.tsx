@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Github, Cloud, CheckCircle, AlertCircle, Settings, Link as LinkIcon, Trash2 } from 'lucide-react';
 import { connectorsService, GitHubConfig, NetlifyConfig } from '../../services/connectorsService';
+import NotificationModal from '../ui/NotificationModal';
 
 export default function ConnectorsPage() {
   const [githubConfig, setGitHubConfig] = useState<GitHubConfig>({
@@ -17,11 +18,33 @@ export default function ConnectorsPage() {
   const [testing, setTesting] = useState<string | null>(null);
   const [summary, setSummary] = useState<any>(null);
   const [testResults, setTestResults] = useState<Record<string, any>>({});
+  const [notification, setNotification] = useState({
+    isOpen: false,
+    type: 'success' as 'success' | 'error' | 'warning' | 'info',
+    title: '',
+    message: '',
+  });
 
   useEffect(() => {
     loadConfigs();
     loadSummary();
   }, []);
+
+  const showNotification = (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => {
+    setNotification({
+      isOpen: true,
+      type,
+      title,
+      message,
+    });
+  };
+
+  const closeNotification = () => {
+    setNotification({
+      ...notification,
+      isOpen: false,
+    });
+  };
 
   const loadConfigs = async () => {
     try {
@@ -59,9 +82,9 @@ export default function ConnectorsPage() {
       setSaving('github');
       await connectorsService.saveGitHubConfig(githubConfig);
       await loadSummary();
-      alert('✅ Configuración de GitHub guardada exitosamente');
+      showNotification('success', 'Configuración Guardada', 'La configuración de GitHub se ha guardado exitosamente.');
     } catch (error: any) {
-      alert(`❌ Error: ${error.message}`);
+      showNotification('error', 'Error al Guardar', error.message || 'No se pudo guardar la configuración de GitHub.');
     } finally {
       setSaving(null);
     }
@@ -72,9 +95,9 @@ export default function ConnectorsPage() {
       setSaving('netlify');
       await connectorsService.saveNetlifyConfig(netlifyConfig);
       await loadSummary();
-      alert('✅ Configuración de Netlify guardada exitosamente');
+      showNotification('success', 'Configuración Guardada', 'La configuración de Netlify se ha guardado exitosamente.');
     } catch (error: any) {
-      alert(`❌ Error: ${error.message}`);
+      showNotification('error', 'Error al Guardar', error.message || 'No se pudo guardar la configuración de Netlify.');
     } finally {
       setSaving(null);
     }
@@ -87,12 +110,12 @@ export default function ConnectorsPage() {
       setTestResults(prev => ({ ...prev, [connector]: result }));
 
       if (result.success) {
-        alert(`✅ ${result.message}`);
+        showNotification('success', 'Conexión Exitosa', result.message);
       } else {
-        alert(`❌ ${result.message}`);
+        showNotification('error', 'Error de Conexión', result.message);
       }
     } catch (error: any) {
-      alert(`❌ Error: ${error.message}`);
+      showNotification('error', 'Error', error.message || 'No se pudo probar la conexión.');
     } finally {
       setTesting(null);
     }
@@ -118,9 +141,9 @@ export default function ConnectorsPage() {
       }
 
       await loadSummary();
-      alert('✅ Configuración eliminada');
+      showNotification('success', 'Configuración Eliminada', 'La configuración se ha eliminado correctamente.');
     } catch (error: any) {
-      alert(`❌ Error: ${error.message}`);
+      showNotification('error', 'Error al Eliminar', error.message || 'No se pudo eliminar la configuración.');
     }
   };
 
@@ -419,6 +442,12 @@ export default function ConnectorsPage() {
           )}
         </div>
       </div>
+
+      {/* Notification Modal */}
+      <NotificationModal
+        notification={notification}
+        onClose={closeNotification}
+      />
     </div>
   );
 }
