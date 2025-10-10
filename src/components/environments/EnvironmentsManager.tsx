@@ -974,8 +974,51 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
       addLog(`❌ Error durante el deploy: ${error.message}`, 'error');
       addLog('', 'info');
 
-      showNotification('error', 'Error en Deploy',
-        error.message || 'No se pudo completar el deploy automático.');
+      // Detectar error de acceso al repositorio (exit status 128)
+      if (error.message?.includes('exit status 128') ||
+          error.message?.includes('Host key verification failed') ||
+          error.message?.includes('Could not read from remote repository')) {
+
+        addLog('🔍 DIAGNÓSTICO DEL ERROR', 'warning');
+        addLog('', 'info');
+        addLog('El sitio de Netlify no tiene acceso al repositorio de GitHub.', 'warning');
+        addLog('Esto ocurre cuando:', 'info');
+        addLog('  1. El sitio fue creado sin conectar GitHub', 'info');
+        addLog('  2. La conexión GitHub-Netlify fue revocada', 'info');
+        addLog('  3. El sitio fue creado manualmente sin repo', 'info');
+        addLog('', 'info');
+        addLog('📋 SOLUCIONES DISPONIBLES:', 'info');
+        addLog('', 'info');
+        addLog('OPCIÓN 1: Conectar Netlify con GitHub manualmente', 'info');
+        addLog('  1. Ve a: https://app.netlify.com/teams/your-team/sites', 'info');
+        addLog('  2. Click en tu sitio', 'info');
+        addLog('  3. Site Settings → Build & Deploy → Link Repository', 'info');
+        addLog('  4. Conecta con GitHub y autoriza el acceso', 'info');
+        addLog(`  5. Selecciona el repositorio: ${repo?.repo_full_name || 'tu-repositorio'}`, 'info');
+        addLog('  6. Branch: main', 'info');
+        addLog('  7. Build command: (dejar vacío)', 'info');
+        addLog('  8. Publish directory: .', 'info');
+        addLog('', 'info');
+        addLog('OPCIÓN 2: Desvincular este sitio y crear uno nuevo', 'info');
+        addLog('  1. Ve a "Conectores" en el menú', 'info');
+        addLog('  2. Encuentra tu repositorio en "Repositorios Guardados"', 'info');
+        addLog('  3. Click en "Desvincular" junto a "✓ Conectado con Netlify"', 'info');
+        addLog('  4. Vuelve a hacer deploy (se creará un sitio nuevo)', 'info');
+        addLog('', 'info');
+        addLog('OPCIÓN 3: Eliminar el sitio en Netlify', 'info');
+        addLog('  1. Ve a: https://app.netlify.com', 'info');
+        addLog('  2. Elimina el sitio problemático', 'info');
+        addLog('  3. Haz click en "Deploy" de nuevo (se creará uno nuevo)', 'info');
+        addLog('', 'info');
+        addLog('💡 RECOMENDACIÓN: Usa la OPCIÓN 2 (más rápida y segura)', 'success');
+        addLog('', 'info');
+
+        showNotification('error', 'Error de Acceso al Repositorio',
+          'Netlify no puede acceder al repositorio de GitHub. Revisa la consola para ver las opciones de solución.');
+      } else {
+        showNotification('error', 'Error en Deploy',
+          error.message || 'No se pudo completar el deploy automático.');
+      }
     } finally {
       setIsNetlifyDeploying(false);
     }
