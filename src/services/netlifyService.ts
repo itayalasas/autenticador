@@ -231,12 +231,13 @@ class NetlifyService {
 
     const totalFiles = Object.keys(files).length;
 
-    // STEP 1: Create deploy (5% progress)
-    onProgress?.(5, 'Creando deploy en Netlify...');
+    // STEP 0: Calculate hashes (0% - 5% progress)
+    onProgress?.(0, 'Preparando archivos...');
 
     const fileHashes: Record<string, string> = {};
     const fileContents: Record<string, string> = {};
 
+    let processedCount = 0;
     // Calculate SHA-1 for each file
     for (const [path, content] of Object.entries(files)) {
       const encoder = new TextEncoder();
@@ -247,25 +248,42 @@ class NetlifyService {
 
       fileHashes[path] = hashHex;
       fileContents[path] = content;
+
+      processedCount++;
+      const hashProgress = (processedCount / totalFiles) * 5;
+      onProgress?.(
+        Math.round(hashProgress),
+        `Procesando archivos (${processedCount}/${totalFiles})...`
+      );
     }
 
-    const createDeployResponse = await fetch(
-      `https://api.netlify.com/api/v1/sites/${id}/deploys`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.accessToken}`,
-        },
-        body: JSON.stringify({
-          files: fileHashes,
-          draft: false,
-        }),
-      }
-    );
+    // STEP 1: Create deploy (5% progress)
+    onProgress?.(5, 'Creando deploy en Netlify...');
+
+    let createDeployResponse;
+    try {
+      createDeployResponse = await fetch(
+        `https://api.netlify.com/api/v1/sites/${id}/deploys`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.accessToken}`,
+          },
+          body: JSON.stringify({
+            files: fileHashes,
+            draft: false,
+          }),
+        }
+      );
+    } catch (error: any) {
+      console.error('Network error creating deploy:', error);
+      throw new Error(`Error de red al crear deploy: ${error.message || 'Sin conexión'}`);
+    }
 
     if (!createDeployResponse.ok) {
       const error = await createDeployResponse.text();
+      console.error('Deploy creation failed:', error);
       throw new Error(`Failed to create deploy: ${error}`);
     }
 
@@ -285,13 +303,23 @@ class NetlifyService {
       const content = fileContents[path];
       const uploadUrl = `${deploy.deploy_url}/files/${path}`;
 
-      await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/octet-stream',
-        },
-        body: content,
-      });
+      try {
+        const uploadResponse = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/octet-stream',
+          },
+          body: content,
+        });
+
+        if (!uploadResponse.ok) {
+          console.error(`Failed to upload ${path}:`, uploadResponse.status);
+          throw new Error(`Error subiendo ${path}: ${uploadResponse.status}`);
+        }
+      } catch (error: any) {
+        console.error(`Network error uploading ${path}:`, error);
+        throw new Error(`Error de red subiendo ${path}: ${error.message}`);
+      }
 
       uploadedCount++;
       const progress = 10 + (uploadedCount * progressPerFile);
