@@ -679,13 +679,27 @@ export default function EnvironmentsManager() {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+      // Obtener branding actual de la base de datos
+      addLog('🎨 Obteniendo configuración de branding...', 'info');
+      const { data: brandingData } = await supabase
+        .from('branding_configs')
+        .select('*')
+        .eq('application_id', app.id)
+        .maybeSingle();
+
+      if (brandingData) {
+        addLog(`   ✓ Branding cargado (Color: ${brandingData.primary_color || 'default'})`, 'success');
+      } else {
+        addLog('   ℹ️  Sin branding personalizado, usando valores por defecto', 'info');
+      }
+
       // Generar archivos HTML estáticos (sin build requerido)
       const files = await getStaticProjectFiles(
         app.application_id,
         apiKey,
         supabaseUrl,
         supabaseAnonKey,
-        app.branding
+        brandingData || {}
       );
 
       // Agregar README simple
