@@ -571,14 +571,14 @@ export default function EnvironmentsManager() {
 
       // STEP 5.3: Obtener o crear API Key para el ambiente
       addLog('🔑 Verificando API Key para el ambiente...', 'info');
-      addLog(`   📍 Ambiente: ${environmentName} (ID: ${environmentId})`, 'info');
+      addLog(`   📍 Ambiente: ${environmentName}`, 'info');
 
       // Buscar API key existente para este ambiente
       let { data: apiKeys, error: selectError } = await supabase
         .from('api_keys')
         .select('id, name, key_preview, environment')
         .eq('application_id', app.id)
-        .eq('environment', environmentId)
+        .eq('environment', environmentName)
         .eq('is_active', true)
         .limit(1);
 
@@ -609,7 +609,7 @@ export default function EnvironmentsManager() {
           .from('api_keys')
           .select('id', { count: 'exact', head: true })
           .eq('application_id', app.id)
-          .eq('environment', environmentId)
+          .eq('environment', environmentName)
           .eq('is_active', true);
 
         const currentEnvKeyCount = envKeyCount || 0;
@@ -645,7 +645,7 @@ export default function EnvironmentsManager() {
             name: `${environmentName} API Key`,
             key_hash: keyHash,
             key_preview: keyPreview,
-            environment: environmentId,
+            environment: environmentName,
             is_active: true
           });
 
