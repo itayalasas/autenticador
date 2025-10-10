@@ -8,6 +8,7 @@ import { connectorsService } from '../../services/connectorsService';
 import { environmentVariablesService } from '../../services/environmentVariablesService';
 import { getStaticProjectFiles } from '../../utils/projectFilesHelper';
 import { getReactConfigFiles, getCommitMessage } from '../../utils/reactProjectHelper';
+import { deploymentService } from '../../services/deploymentService';
 import { supabase } from '../../lib/supabase';
 import ConfirmationModal from '../ui/ConfirmationModal';
 import NotificationModal from '../ui/NotificationModal';
@@ -686,9 +687,11 @@ export default function EnvironmentsManager() {
       // Obtener configuración de Supabase (supabaseUrl ya declarado en línea 448)
       const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-      // Generar solo archivos de configuración (no HTML estático)
-      // El código fuente de React ya está en el repositorio
-      const files = await getReactConfigFiles(
+      // Recolectar TODOS los archivos fuente de React usando Edge Function
+      addLog('📦 Recolectando archivos fuente de React...', 'info');
+      addLog('   Leyendo componentes, servicios, y toda la lógica', 'info');
+
+      const files = await deploymentService.collectReactSourceFiles(
         app.application_id,
         deployApiKey,
         supabaseUrl,
@@ -696,9 +699,10 @@ export default function EnvironmentsManager() {
         brandingData || {}
       );
 
-      addLog(`   ✓ ${Object.keys(files).length} archivos de configuración generados`, 'success');
-      addLog('   ✓ Se deployará la aplicación React completa', 'success');
-      addLog('   ✓ Incluye validaciones, roles, y toda la lógica', 'success');
+      addLog(`   ✓ ${Object.keys(files).length} archivos recolectados`, 'success');
+      addLog('   ✓ Incluye PublicAuthForms.tsx completo', 'success');
+      addLog('   ✓ Incluye todos los servicios y hooks', 'success');
+      addLog('   ✓ Configuración específica para esta aplicación', 'success');
       addLog('', 'info');
 
       // =================================================================
