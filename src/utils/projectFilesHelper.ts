@@ -384,6 +384,10 @@ function generateStandaloneFormHTML(
     document.getElementById('auth-form').addEventListener('submit', async (e) => {
       e.preventDefault();
 
+      console.log('📋 Form submit triggered - preventing default');
+      console.log('🔍 Current URL before submit:', window.location.href);
+      console.log('🔍 Query parameters:', window.location.search);
+
       const email = document.getElementById('email').value;
       const submitBtn = e.target.querySelector('button[type="submit"]');
       const buttonText = document.getElementById('button-text');
@@ -399,10 +403,19 @@ function generateStandaloneFormHTML(
         ${formType === 'login' ? `
         const password = document.getElementById('password').value;
 
-        console.log('🚀 Sending login request...', {
+        const loginPayload = {
           application_id: APPLICATION_ID,
           email: email,
+          password: password,
+          api_key: API_KEY,
           callback_url: redirectUri
+        };
+
+        console.log('🚀 Sending login request to:', \`\${SUPABASE_URL}/functions/v1/auth-login\`);
+        console.log('📦 Payload:', {
+          ...loginPayload,
+          password: '***hidden***',
+          api_key: API_KEY ? API_KEY.substring(0, 15) + '...' : 'MISSING'
         });
 
         const response = await fetch(\`\${SUPABASE_URL}/functions/v1/auth-login\`, {
@@ -413,14 +426,10 @@ function generateStandaloneFormHTML(
             'apikey': SUPABASE_ANON_KEY,
             'X-Client-Info': 'authsystem-static-form/1.0'
           },
-          body: JSON.stringify({
-            application_id: APPLICATION_ID,
-            email: email,
-            password: password,
-            api_key: API_KEY,
-            callback_url: redirectUri
-          })
+          body: JSON.stringify(loginPayload)
         });
+
+        console.log('📊 Response status:', response.status, response.statusText);
 
         const data = await response.json();
         console.log('📥 Login response:', data);
@@ -443,11 +452,20 @@ function generateStandaloneFormHTML(
         const password = document.getElementById('password').value;
         const name = document.getElementById('name').value;
 
-        console.log('🚀 Sending register request...', {
+        const registerPayload = {
           application_id: APPLICATION_ID,
           email: email,
+          password: password,
           name: name,
+          api_key: API_KEY,
           callback_url: redirectUri
+        };
+
+        console.log('🚀 Sending register request to:', \`\${SUPABASE_URL}/functions/v1/auth-register\`);
+        console.log('📦 Payload:', {
+          ...registerPayload,
+          password: '***hidden***',
+          api_key: API_KEY ? API_KEY.substring(0, 15) + '...' : 'MISSING'
         });
 
         const response = await fetch(\`\${SUPABASE_URL}/functions/v1/auth-register\`, {
@@ -458,15 +476,10 @@ function generateStandaloneFormHTML(
             'apikey': SUPABASE_ANON_KEY,
             'X-Client-Info': 'authsystem-static-form/1.0'
           },
-          body: JSON.stringify({
-            application_id: APPLICATION_ID,
-            email: email,
-            password: password,
-            name: name,
-            api_key: API_KEY,
-            callback_url: redirectUri
-          })
+          body: JSON.stringify(registerPayload)
         });
+
+        console.log('📊 Response status:', response.status, response.statusText);
 
         const data = await response.json();
         console.log('📥 Register response:', data);
@@ -485,10 +498,17 @@ function generateStandaloneFormHTML(
           showMessage(data.error?.message || data.error || 'Error al registrarse', 'error');
         }
         ` : `
-        console.log('🚀 Sending reset password request...', {
+        const resetPayload = {
           application_id: APPLICATION_ID,
           email: email,
+          api_key: API_KEY,
           callback_url: redirectUri
+        };
+
+        console.log('🚀 Sending reset password request to:', \`\${SUPABASE_URL}/functions/v1/auth-reset-password\`);
+        console.log('📦 Payload:', {
+          ...resetPayload,
+          api_key: API_KEY ? API_KEY.substring(0, 15) + '...' : 'MISSING'
         });
 
         const response = await fetch(\`\${SUPABASE_URL}/functions/v1/auth-reset-password\`, {
@@ -499,13 +519,10 @@ function generateStandaloneFormHTML(
             'apikey': SUPABASE_ANON_KEY,
             'X-Client-Info': 'authsystem-static-form/1.0'
           },
-          body: JSON.stringify({
-            application_id: APPLICATION_ID,
-            email: email,
-            api_key: API_KEY,
-            callback_url: redirectUri
-          })
+          body: JSON.stringify(resetPayload)
         });
+
+        console.log('📊 Response status:', response.status, response.statusText);
 
         const data = await response.json();
         console.log('📥 Reset password response:', data);
