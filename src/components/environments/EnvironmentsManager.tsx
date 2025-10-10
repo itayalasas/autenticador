@@ -7,6 +7,7 @@ import { githubService } from '../../services/githubService';
 import { connectorsService } from '../../services/connectorsService';
 import { environmentVariablesService } from '../../services/environmentVariablesService';
 import { getStaticProjectFiles } from '../../utils/projectFilesHelper';
+import { getReactConfigFiles, getCommitMessage } from '../../utils/reactProjectHelper';
 import { supabase } from '../../lib/supabase';
 import ConfirmationModal from '../ui/ConfirmationModal';
 import NotificationModal from '../ui/NotificationModal';
@@ -656,9 +657,9 @@ export default function EnvironmentsManager() {
       addLog('', 'info');
 
       // =================================================================
-      // PASO 12: GENERAR ARCHIVOS CON BRANDING
+      // PASO 12: GENERAR ARCHIVOS DE CONFIGURACIÓN PARA REACT
       // =================================================================
-      addLog('📁 Paso 12: Generando formularios HTML con branding...', 'info');
+      addLog('⚙️  Paso 12: Generando configuración para React App...', 'info');
 
       const app = selectedApplication;
       // supabaseUrl ya fue declarado arriba (línea 387)
@@ -685,8 +686,9 @@ export default function EnvironmentsManager() {
       // Obtener configuración de Supabase (supabaseUrl ya declarado en línea 448)
       const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-      // Generar archivos
-      const files = await getStaticProjectFiles(
+      // Generar solo archivos de configuración (no HTML estático)
+      // El código fuente de React ya está en el repositorio
+      const files = await getReactConfigFiles(
         app.application_id,
         deployApiKey,
         supabaseUrl,
@@ -694,7 +696,9 @@ export default function EnvironmentsManager() {
         brandingData || {}
       );
 
-      addLog(`   ✓ ${Object.keys(files).length} archivos generados`, 'success');
+      addLog(`   ✓ ${Object.keys(files).length} archivos de configuración generados`, 'success');
+      addLog('   ✓ Se deployará la aplicación React completa', 'success');
+      addLog('   ✓ Incluye validaciones, roles, y toda la lógica', 'success');
       addLog('', 'info');
 
       // =================================================================
@@ -705,8 +709,9 @@ export default function EnvironmentsManager() {
       addLog('📋 Ahora necesitas seleccionar el sitio de Netlify donde deployar:', 'info');
       addLog('   1. Se abrirá un selector de sitios', 'info');
       addLog('   2. Selecciona un sitio existente o crea uno nuevo', 'info');
-      addLog('   3. El código se subirá a GitHub automáticamente', 'info');
-      addLog('   4. Netlify detectará el cambio y deployará', 'info');
+      addLog('   3. La configuración se subirá a GitHub', 'info');
+      addLog('   4. Netlify buildará tu aplicación React completa', 'info');
+      addLog('   5. Se deployarán todos los componentes con validaciones', 'info');
       addLog('', 'info');
 
       // Guardar datos para continuar después de seleccionar sitio
@@ -1453,7 +1458,7 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
           const commitResult = await githubService.commitAndPush(
             pendingDeployData.repo.repo_full_name,
             pendingDeployData.files,
-            `Deploy ${pendingDeployData.environmentName} - ${new Date().toISOString()}`
+            getCommitMessage(pendingDeployData.applicationId, pendingDeployData.environmentName)
           );
 
           if (!commitResult.success) {
@@ -1462,8 +1467,9 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
             return;
           }
 
-          addLog('✅ Código subido exitosamente a GitHub', 'success');
+          addLog('✅ Configuración subida exitosamente a GitHub', 'success');
           addLog(`   Commit: ${commitResult.sha?.substring(0, 7)}`, 'info');
+          addLog('   Archivos: .env.production, netlify.toml, _redirects', 'info');
           addLog('', 'info');
 
           // Actualizar environment con el repo, estado Y URLs corregidas
@@ -1486,9 +1492,11 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
 
           addLog('   ✓ URLs actualizadas con el sitio de Netlify', 'success');
 
-          addLog('☁️  Paso 15: Netlify detectará el cambio...', 'info');
+          addLog('☁️  Paso 15: Netlify construirá la aplicación...', 'info');
           addLog('   Netlify está monitoreando tu repositorio de GitHub', 'info');
-          addLog('   Deployará automáticamente los nuevos cambios', 'info');
+          addLog('   Ejecutará: npm install && npm run build', 'info');
+          addLog('   Deployará la aplicación React completa desde dist/', 'info');
+          addLog('   Incluye todos los componentes, validaciones y lógica', 'info');
           addLog('', 'info');
 
           addLog('🎉 ========================================', 'success');
@@ -1509,7 +1517,15 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
           addLog(`   Register: ${registerUrl}`, 'info');
           addLog(`   Reset: ${resetUrl}`, 'info');
           addLog('', 'info');
-          addLog('💡 Netlify deployará automáticamente en cada push a GitHub', 'info');
+          addLog('✨ Características incluidas:', 'info');
+          addLog('   ✓ Formularios React completos con validaciones', 'info');
+          addLog('   ✓ Carga dinámica de roles desde la BD', 'info');
+          addLog('   ✓ Campo de confirmar contraseña', 'info');
+          addLog('   ✓ Selector de tipo de usuario', 'info');
+          addLog('   ✓ Branding personalizado', 'info');
+          addLog('   ✓ Validación de contraseñas coincidentes', 'info');
+          addLog('', 'info');
+          addLog('💡 Netlify re-deployará automáticamente en cada push a GitHub', 'info');
 
           // Save final logs to database
           if (currentDeploymentLogId) {
