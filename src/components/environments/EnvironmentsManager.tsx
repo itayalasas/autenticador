@@ -726,6 +726,26 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
       let siteId = repo.netlify_site_id;
       let newSiteCreated = false;
 
+      // Si hay un siteId guardado, validar que el sitio existe en Netlify
+      if (siteId) {
+        addLog('🔍 Validando sitio existente en Netlify...', 'info');
+        try {
+          await netlifyService.getSite(siteId);
+          addLog('   ✓ Sitio encontrado en Netlify', 'success');
+        } catch (error: any) {
+          addLog('   ⚠️ El sitio ya no existe en Netlify', 'warning');
+          addLog('   ℹ️ Creando un nuevo sitio...', 'info');
+
+          // Limpiar el siteId de la BD
+          await supabase
+            .from('git_repositories')
+            .update({ netlify_site_id: null })
+            .eq('id', repo.id);
+
+          siteId = null; // Resetear para que se cree uno nuevo
+        }
+      }
+
       // Si no hay sitio conectado a este repo, crear uno nuevo ya conectado
       if (!siteId) {
         addLog('🆕 Creando nuevo sitio de Netlify conectado al repositorio...', 'info');
