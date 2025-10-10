@@ -1,9 +1,6 @@
-// Helper to prepare project files for deployment
+// Helper to prepare project files for deployment with real auth components
 
 export async function getProjectFiles(): Promise<Record<string, string>> {
-  // This would ideally read from the actual project structure
-  // For now, we'll return the essential files structure
-
   const files: Record<string, string> = {};
 
   // Package.json - minimal version for deployed projects
@@ -18,6 +15,7 @@ export async function getProjectFiles(): Promise<Record<string, string>> {
     },
     "dependencies": {
       "@supabase/supabase-js": "^2.57.4",
+      "lucide-react": "^0.344.0",
       "react": "^18.3.1",
       "react-dom": "^18.3.1",
       "react-router-dom": "^7.9.3"
@@ -72,6 +70,17 @@ export default defineConfig({
     "references": [{ "path": "./tsconfig.node.json" }]
   }, null, 2);
 
+  files['tsconfig.node.json'] = JSON.stringify({
+    "compilerOptions": {
+      "composite": true,
+      "skipLibCheck": true,
+      "module": "ESNext",
+      "moduleResolution": "bundler",
+      "allowSyntheticDefaultImports": true
+    },
+    "include": ["vite.config.ts"]
+  }, null, 2);
+
   // Tailwind config
   files['tailwind.config.js'] = `/** @type {import('tailwindcss').Config} */
 export default {
@@ -120,55 +129,47 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   </React.StrictMode>,
 );`;
 
-  // Main App component
-  files['src/App.tsx'] = `import React from 'react';
-import { createBrowserRouter, RouterProvider } from 'react-router-dom';
-import LoginPage from './pages/LoginPage';
-import RegisterPage from './pages/RegisterPage';
-import DashboardPage from './pages/DashboardPage';
-
-const router = createBrowserRouter([
-  {
-    path: '/',
-    element: <LoginPage />,
-  },
-  {
-    path: '/login',
-    element: <LoginPage />,
-  },
-  {
-    path: '/register',
-    element: <RegisterPage />,
-  },
-  {
-    path: '/dashboard',
-    element: <DashboardPage />,
-  },
-]);
-
-function App() {
-  return <RouterProvider router={router} />;
-}
-
-export default App;`;
-
-  // CSS
+  // Main CSS
   files['src/index.css'] = `@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-body {
+* {
   margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}`;
+
+  // Main App component with routing
+  files['src/App.tsx'] = `import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import PublicAuthRouter from './components/auth/PublicAuthRouter';
+
+function App() {
+  // Get app_id from environment variable
+  const appId = import.meta.env.VITE_APP_ID || 'demo-app';
+
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/login" element={<PublicAuthRouter appId={appId} formType="login" />} />
+        <Route path="/register" element={<PublicAuthRouter appId={appId} formType="register" />} />
+        <Route path="/reset-password" element={<PublicAuthRouter appId={appId} formType="reset-password" />} />
+        <Route path="/" element={<Navigate to="/login" replace />} />
+      </Routes>
+    </BrowserRouter>
+  );
 }
 
-#root {
-  min-height: 100vh;
-}`;
+export default App;`;
 
   // Supabase client
   files['src/lib/supabase.ts'] = `import { createClient } from '@supabase/supabase-js';
@@ -176,292 +177,352 @@ body {
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);`;
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: true
+  }
+});`;
 
-  // Login Page
-  files['src/pages/LoginPage.tsx'] = `import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
-
-function LoginPage() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const navigate = useNavigate();
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-
+  // IP Service
+  files['src/services/ipService.ts'] = `export const ipService = {
+  async getClientIP(): Promise<string> {
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      const response = await fetch('https://api.ipify.org?format=json', {
+        method: 'GET',
       });
 
-      if (error) throw error;
-      if (data.user) {
-        navigate('/dashboard');
-      }
-    } catch (err: any) {
-      setError(err.message || 'Error al iniciar sesión');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            Iniciar Sesión
-          </h2>
-        </div>
-        <form className="mt-8 space-y-6" onSubmit={handleLogin}>
-          {error && (
-            <div className="rounded-md bg-red-50 p-4">
-              <p className="text-sm text-red-800">{error}</p>
-            </div>
-          )}
-          <div className="rounded-md shadow-sm -space-y-px">
-            <div>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                placeholder="Email"
-              />
-            </div>
-            <div>
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                placeholder="Contraseña"
-              />
-            </div>
-          </div>
-
-          <div>
-            <button
-              type="submit"
-              disabled={loading}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-            >
-              {loading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
-            </button>
-          </div>
-
-          <div className="text-center">
-            <button
-              type="button"
-              onClick={() => navigate('/register')}
-              className="text-sm text-blue-600 hover:text-blue-500"
-            >
-              ¿No tienes cuenta? Regístrate
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-export default LoginPage;`;
-
-  // Register Page
-  files['src/pages/RegisterPage.tsx'] = `import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
-
-function RegisterPage() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
-  const navigate = useNavigate();
-
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    setSuccess(false);
-
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-      });
-
-      if (error) throw error;
-      if (data.user) {
-        setSuccess(true);
-        setTimeout(() => navigate('/login'), 2000);
-      }
-    } catch (err: any) {
-      setError(err.message || 'Error al registrarse');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            Crear Cuenta
-          </h2>
-        </div>
-        <form className="mt-8 space-y-6" onSubmit={handleRegister}>
-          {error && (
-            <div className="rounded-md bg-red-50 p-4">
-              <p className="text-sm text-red-800">{error}</p>
-            </div>
-          )}
-          {success && (
-            <div className="rounded-md bg-green-50 p-4">
-              <p className="text-sm text-green-800">¡Cuenta creada! Redirigiendo...</p>
-            </div>
-          )}
-          <div className="rounded-md shadow-sm -space-y-px">
-            <div>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                placeholder="Email"
-              />
-            </div>
-            <div>
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                placeholder="Contraseña"
-              />
-            </div>
-          </div>
-
-          <div>
-            <button
-              type="submit"
-              disabled={loading}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-            >
-              {loading ? 'Creando cuenta...' : 'Registrarse'}
-            </button>
-          </div>
-
-          <div className="text-center">
-            <button
-              type="button"
-              onClick={() => navigate('/login')}
-              className="text-sm text-blue-600 hover:text-blue-500"
-            >
-              ¿Ya tienes cuenta? Inicia sesión
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-export default RegisterPage;`;
-
-  // Dashboard Page
-  files['src/pages/DashboardPage.tsx'] = `import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
-
-function DashboardPage() {
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    checkUser();
-  }, []);
-
-  const checkUser = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        navigate('/login');
-      } else {
-        setUser(user);
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Detected client IP:', data.ip);
+        return data.ip;
       }
     } catch (error) {
-      console.error('Error checking user:', error);
-      navigate('/login');
+      console.error('Error detecting client IP:', error);
+    }
+
+    return '0.0.0.0';
+  },
+
+  async checkIPStatus(clientIp?: string): Promise<{
+    is_blocked: boolean;
+    blocked_info: any;
+    ip_address: string;
+  }> {
+    try {
+      const ipToCheck = clientIp || await this.getClientIP();
+
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const apiUrl = \`\${supabaseUrl}/functions/v1/check-ip-status\`;
+
+      console.log('🔍 Checking IP status for:', ipToCheck);
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': \`Bearer \${supabaseAnonKey}\`,
+          'apikey': supabaseAnonKey
+        },
+        body: JSON.stringify({ client_ip: ipToCheck })
+      });
+
+      console.log('📡 Response status:', response.status);
+
+      const result = await response.json();
+      console.log('📦 Response data:', result);
+
+      if (result.success) {
+        return {
+          is_blocked: result.data.is_blocked,
+          blocked_info: result.data.blocked_info,
+          ip_address: result.data.ip_address
+        };
+      }
+
+      return {
+        is_blocked: false,
+        blocked_info: null,
+        ip_address: ipToCheck
+      };
+    } catch (error) {
+      console.error('❌ Error checking IP status:', error);
+      return {
+        is_blocked: false,
+        blocked_info: null,
+        ip_address: '0.0.0.0'
+      };
+    }
+  }
+};`;
+
+  // Application Service
+  files['src/services/applicationService.ts'] = `import { supabase } from '../lib/supabase';
+
+export const applicationService = {
+  async getBranding(applicationId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('applications')
+        .select('metadata')
+        .eq('id', applicationId)
+        .single();
+
+      if (error) throw error;
+
+      return data?.metadata?.branding || null;
+    } catch (error) {
+      console.error('Error loading branding:', error);
+      return null;
+    }
+  }
+};`;
+
+  // Roles Service
+  files['src/services/rolesService.ts'] = `import { supabase } from '../lib/supabase';
+
+export const rolesService = {
+  async getRolesByApplication(applicationId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('roles')
+        .select('*')
+        .eq('application_id', applicationId)
+        .eq('is_active', true);
+
+      if (error) throw error;
+
+      return data || [];
+    } catch (error) {
+      console.error('Error loading roles:', error);
+      return [];
+    }
+  }
+};`;
+
+  // Public Auth Router Component
+  files['src/components/auth/PublicAuthRouter.tsx'] = `import React, { useEffect, useState } from 'react';
+import PublicAuthForms from './PublicAuthForms';
+import { applicationService } from '../../services/applicationService';
+import { supabase } from '../../lib/supabase';
+import { useSearchParams } from 'react-router-dom';
+
+interface PublicAuthRouterProps {
+  appId: string;
+  formType: string;
+}
+
+export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterProps) {
+  const [appData, setAppData] = useState<any>(null);
+  const [apiKey, setApiKey] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [searchParams] = useSearchParams();
+
+  const validFormType = ['login', 'register', 'reset-password'].includes(formType)
+    ? formType as 'login' | 'register' | 'reset-password'
+    : 'login';
+
+  useEffect(() => {
+    loadApplicationData();
+  }, [appId]);
+
+  const loadApplicationData = async () => {
+    try {
+      setLoading(true);
+      console.log('Loading application data for:', appId);
+
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+      if (!supabaseUrl || !supabaseKey ||
+          supabaseUrl === 'https://your-project-id.supabase.co' ||
+          supabaseKey === 'your_supabase_anon_key_here') {
+
+        console.warn('⚠️ Supabase not configured, using mock data');
+
+        const mockApp = {
+          id: appId,
+          application_id: appId,
+          name: 'Demo Application',
+          domain: 'demo.com',
+          description: 'Demo application for testing',
+          status: 'active',
+          created_at: new Date().toISOString(),
+          metadata: {
+            environment_urls: {
+              development: {
+                base_url: 'http://localhost:5173',
+                callback_url: 'http://localhost:5173/auth/callback'
+              }
+            }
+          }
+        };
+
+        setApiKey('ak_development_cd9bac61b17b0a09f307afe54e93d40f');
+
+        const mockBranding = {
+          primary_color: '#3B82F6',
+          secondary_color: '#1E40AF',
+          background_color: '#FFFFFF',
+          text_color: '#1F2937',
+          font_family: 'Inter',
+          border_radius: 8,
+          button_style: 'rounded'
+        };
+
+        setAppData({
+          ...mockApp,
+          branding: mockBranding
+        });
+
+        console.log('✅ Mock application data loaded:', mockApp);
+        return;
+      }
+
+      try {
+        const { data: app, error: appError } = await supabase
+          .from('applications')
+          .select('*')
+          .eq('application_id', appId)
+          .single();
+
+        if (appError || !app) {
+          console.error('Application not found:', appId, appError);
+
+          console.warn('⚠️ Application not found in database, using mock data for development');
+
+          const mockApp = {
+            id: appId,
+            application_id: appId,
+            name: 'Demo Application',
+            domain: 'demo.com',
+            description: 'Demo application for testing',
+            status: 'active',
+            created_at: new Date().toISOString(),
+            metadata: {
+              environment_urls: {
+                development: {
+                  base_url: 'http://localhost:5173',
+                  callback_url: 'http://localhost:5173/auth/callback'
+                }
+              }
+            }
+          };
+
+          setApiKey('ak_development_cd9bac61b17b0a09f307afe54e93d40f');
+
+          const mockBranding = {
+            primary_color: '#3B82F6',
+            secondary_color: '#1E40AF',
+            background_color: '#FFFFFF',
+            text_color: '#1F2937',
+            font_family: 'Inter',
+            border_radius: 8,
+            button_style: 'rounded'
+          };
+
+          setAppData({
+            ...mockApp,
+            branding: mockBranding
+          });
+
+          console.log('✅ Mock application data loaded for development');
+          return;
+        }
+
+        const environment = searchParams.get('env') || 'development';
+
+        const { data: apiKeys, error: apiKeyError } = await supabase
+          .from('api_keys')
+          .select('*')
+          .eq('application_id', app.id)
+          .eq('is_active', true)
+          .or('expires_at.is.null,expires_at.gt.' + new Date().toISOString())
+          .limit(1);
+
+        if (apiKeyError) {
+          console.error('Error loading API keys:', apiKeyError);
+          setApiKey('ak_development_cd9bac61b17b0a09f307afe54e93d40f');
+        } else if (!apiKeys || apiKeys.length === 0) {
+          console.warn('No active API keys found for application, using mock key');
+          setApiKey('ak_development_cd9bac61b17b0a09f307afe54e93d40f');
+        } else {
+          setApiKey(apiKeys[0].key_hash);
+        }
+
+        try {
+          const branding = await applicationService.getBranding(app.id);
+          setAppData({
+            ...app,
+            branding: branding || {}
+          });
+        } catch (brandingError) {
+          console.warn('Could not load branding, using defaults:', brandingError);
+          setAppData({
+            ...app,
+            branding: {}
+          });
+        }
+
+        console.log('Application loaded:', app);
+
+      } catch (supabaseError) {
+        console.error('Supabase connection error:', supabaseError);
+        setError('Failed to connect to database. Please check Supabase configuration.');
+      }
+
+    } catch (error) {
+      console.error('Error loading application:', error);
+      setError('Failed to load application');
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    navigate('/login');
   };
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p>Cargando...</p>
+        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Error</h1>
+          <p className="text-gray-600">{error}</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <h1 className="text-xl font-bold text-gray-900">Dashboard</h1>
-            </div>
-            <div className="flex items-center">
-              <button
-                onClick={handleLogout}
-                className="ml-4 px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-              >
-                Cerrar Sesión
-              </button>
-            </div>
-          </div>
-        </div>
-      </nav>
-
-      <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        <div className="px-4 py-6 sm:px-0">
-          <div className="border-4 border-dashed border-gray-200 rounded-lg p-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">
-              Bienvenido, {user?.email}
-            </h2>
-            <p className="text-gray-600">
-              Estás autenticado con AuthSystem
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
+    <PublicAuthForms
+      applicationId={appId!}
+      internalApplicationId={appData?.id}
+      formType={validFormType}
+      apiKey={apiKey}
+      branding={appData?.branding}
+      appInfo={appData}
+      onSuccess={(data) => {
+        console.log('Auth success:', data);
+      }}
+      onError={(error) => {
+        console.error('Auth error:', error);
+      }}
+    />
   );
-}
+}`;
 
-export default DashboardPage;`;
+  // PublicAuthForms Component - Import the actual source code
+  // We import this dynamically to avoid embedding 700+ lines inline
+  const PublicAuthFormsModule = await import('../components/auth/PublicAuthForms.tsx?raw');
+  files['src/components/auth/PublicAuthForms.tsx'] = PublicAuthFormsModule.default;
 
   // Netlify config
   files['netlify.toml'] = `[build]
@@ -472,6 +533,9 @@ export default DashboardPage;`;
   from = "/*"
   to = "/index.html"
   status = 200`;
+
+  // Redirects for Netlify
+  files['_redirects'] = `/*  /index.html  200`;
 
   // .gitignore
   files['.gitignore'] = `# Environment variables
@@ -496,6 +560,23 @@ Thumbs.db
 # Editor directories
 .vscode/
 .idea/`;
+
+  // .env.example
+  files['.env.example'] = `# Supabase Configuration
+VITE_SUPABASE_URL=https://your-project-id.supabase.co
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key_here
+
+# Application Configuration
+VITE_APP_ID=your_application_id_here
+
+# Branding (Optional - these will override database settings)
+VITE_BRAND_NAME=My Application
+VITE_PRIMARY_COLOR=#3B82F6
+VITE_SECONDARY_COLOR=#1E40AF
+VITE_BACKGROUND_COLOR=#FFFFFF
+VITE_TEXT_COLOR=#1F2937
+VITE_LOGO_URL=
+VITE_FONT_FAMILY=Inter`;
 
   return files;
 }
