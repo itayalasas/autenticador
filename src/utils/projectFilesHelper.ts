@@ -344,7 +344,7 @@ function generateStandaloneFormHTML(
       };
 
       const targetRoute = formRoutes[formType] || '/login';
-      window.location.href = \`\${targetRoute}?\${params.toString()}\`;
+      window.location.href = targetRoute + '?' + params.toString();
     }
 
     // Toggle Password Visibility
@@ -411,18 +411,18 @@ function generateStandaloneFormHTML(
           callback_url: redirectUri
         };
 
-        console.log('🚀 Sending login request to:', \`\${SUPABASE_URL}/functions/v1/auth-login\`);
+        console.log('🚀 Sending login request to:', SUPABASE_URL + '/functions/v1/auth-login');
         console.log('📦 Payload:', {
           ...loginPayload,
           password: '***hidden***',
           api_key: API_KEY ? API_KEY.substring(0, 15) + '...' : 'MISSING'
         });
 
-        const response = await fetch(\`\${SUPABASE_URL}/functions/v1/auth-login\`, {
+        const response = await fetch(SUPABASE_URL + '/functions/v1/auth-login', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`,
+            'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
             'apikey': SUPABASE_ANON_KEY,
             'X-Client-Info': 'authsystem-static-form/1.0'
           },
@@ -461,18 +461,18 @@ function generateStandaloneFormHTML(
           callback_url: redirectUri
         };
 
-        console.log('🚀 Sending register request to:', \`\${SUPABASE_URL}/functions/v1/auth-register\`);
+        console.log('🚀 Sending register request to:', SUPABASE_URL + '/functions/v1/auth-register');
         console.log('📦 Payload:', {
           ...registerPayload,
           password: '***hidden***',
           api_key: API_KEY ? API_KEY.substring(0, 15) + '...' : 'MISSING'
         });
 
-        const response = await fetch(\`\${SUPABASE_URL}/functions/v1/auth-register\`, {
+        const response = await fetch(SUPABASE_URL + '/functions/v1/auth-register', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`,
+            'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
             'apikey': SUPABASE_ANON_KEY,
             'X-Client-Info': 'authsystem-static-form/1.0'
           },
@@ -505,17 +505,17 @@ function generateStandaloneFormHTML(
           callback_url: redirectUri
         };
 
-        console.log('🚀 Sending reset password request to:', \`\${SUPABASE_URL}/functions/v1/auth-reset-password\`);
+        console.log('🚀 Sending reset password request to:', SUPABASE_URL + '/functions/v1/auth-reset-password');
         console.log('📦 Payload:', {
           ...resetPayload,
           api_key: API_KEY ? API_KEY.substring(0, 15) + '...' : 'MISSING'
         });
 
-        const response = await fetch(\`\${SUPABASE_URL}/functions/v1/auth-reset-password\`, {
+        const response = await fetch(SUPABASE_URL + '/functions/v1/auth-reset-password', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`,
+            'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
             'apikey': SUPABASE_ANON_KEY,
             'X-Client-Info': 'authsystem-static-form/1.0'
           },
@@ -554,13 +554,13 @@ function generateStandaloneFormHTML(
         console.log('🎨 Loading branding for app:', APPLICATION_ID);
 
         // PASO 1: Obtener la aplicación para conseguir el UUID
-        const appUrl = \`\${SUPABASE_URL}/rest/v1/applications?application_id=eq.\${encodeURIComponent(APPLICATION_ID)}&select=id,name\`;
+        const appUrl = SUPABASE_URL + '/rest/v1/applications?application_id=eq.' + encodeURIComponent(APPLICATION_ID) + '&select=id,name';
         console.log('📡 Fetching app:', appUrl);
 
         const appResponse = await fetch(appUrl, {
           headers: {
             'apikey': SUPABASE_ANON_KEY,
-            'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`
+            'Authorization': 'Bearer ' + SUPABASE_ANON_KEY
           }
         });
 
@@ -581,13 +581,13 @@ function generateStandaloneFormHTML(
         const app = apps[0];
 
         // PASO 2: Obtener el branding usando el UUID
-        const brandingUrl = \`\${SUPABASE_URL}/rest/v1/branding_configs?application_id=eq.\${app.id}&select=primary_color,logo_url,secondary_color,accent_color\`;
+        const brandingUrl = SUPABASE_URL + '/rest/v1/branding_configs?application_id=eq.' + app.id + '&select=primary_color,logo_url,secondary_color,accent_color';
         console.log('📡 Fetching branding:', brandingUrl);
 
         const brandingResponse = await fetch(brandingUrl, {
           headers: {
             'apikey': SUPABASE_ANON_KEY,
-            'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`
+            'Authorization': 'Bearer ' + SUPABASE_ANON_KEY
           }
         });
 
@@ -621,17 +621,17 @@ function generateStandaloneFormHTML(
           // Aplicar logo
           const logoContainer = document.getElementById('app-logo-container');
           if (logoContainer && branding.logo_url) {
-            logoContainer.innerHTML = \`<img src="\${branding.logo_url}" alt="\${app.name}" class="h-16 mx-auto mb-4" />\`;
+            logoContainer.innerHTML = '<img src="' + branding.logo_url + '" alt="' + app.name + '" class="h-16 mx-auto mb-4" />';
           } else if (logoContainer && app.name) {
             // Actualizar la inicial con el nombre real de la app
             const firstLetter = (app.name || 'A').charAt(0).toUpperCase();
             const bgColor = branding.primary_color || '${primaryColor}';
-            logoContainer.innerHTML = \`<div class="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center text-white text-2xl font-bold" style="background-color: \${bgColor};">\${firstLetter}</div>\`;
+            logoContainer.innerHTML = '<div class="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center text-white text-2xl font-bold" style="background-color: ' + bgColor + ';">' + firstLetter + '</div>';
           }
 
           // Actualizar el título con el nombre de la app
           if (app.name) {
-            document.title = \`${formTitle} - \${app.name}\`;
+            document.title = '${formTitle} - ' + app.name;
           }
         }
       } catch (error) {
