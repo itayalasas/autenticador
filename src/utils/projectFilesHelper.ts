@@ -33,39 +33,45 @@ export async function getStaticProjectFiles(
   from = "/auth"
   to = "/login.html"
   status = 200
+  force = false
 
 [[redirects]]
   from = "/login"
   to = "/login.html"
   status = 200
+  force = false
 
 [[redirects]]
   from = "/register"
   to = "/register.html"
   status = 200
+  force = false
 
 [[redirects]]
   from = "/reset"
   to = "/reset.html"
   status = 200
+  force = false
 
 [[redirects]]
   from = "/reset-password"
   to = "/reset.html"
   status = 200
+  force = false
 
 [[redirects]]
-  from = "/"
+  from = "/*"
   to = "/login.html"
-  status = 200`;
+  status = 200
+  force = false`;
 
-  // _redirects for Netlify
+  // _redirects for Netlify (estos PRESERVAN query params automáticamente)
   files['_redirects'] = `/auth /login.html 200
 /login /login.html 200
 /register /register.html 200
 /reset /reset.html 200
 /reset-password /reset.html 200
-/ /login.html 200`;
+/* /login.html 200`;
 
   return files;
 }
@@ -277,15 +283,18 @@ function generateStandaloneFormHTML(
 
     // Get URL parameters
     const urlParams = new URLSearchParams(window.location.search);
-    const APPLICATION_ID = urlParams.get('app_id') || '${applicationId}';
+    let APPLICATION_ID = urlParams.get('app_id') || '${applicationId}';
     const redirectUri = urlParams.get('redirect_uri') || urlParams.get('callback_url');
+
+    // Limpiar el app_id por si viene con caracteres extra
+    APPLICATION_ID = APPLICATION_ID.trim();
 
     // Configuración pública de Supabase (segura para exponer)
     const SUPABASE_URL = '${supabaseUrl}';
     const SUPABASE_ANON_KEY = '${supabaseAnonKey}';
 
     // Validar que tenemos el app_id
-    if (!APPLICATION_ID) {
+    if (!APPLICATION_ID || APPLICATION_ID === 'undefined') {
       document.getElementById('message').innerHTML = \`
         <div class="flex items-center space-x-2 bg-red-50 border border-red-200 p-3 rounded-lg">
           <i data-lucide="alert-circle" class="w-5 h-5 text-red-500"></i>
@@ -297,6 +306,8 @@ function generateStandaloneFormHTML(
     }
 
     console.log('🔧 Auth Form Init:', {
+      fullUrl: window.location.href,
+      searchParams: window.location.search,
       applicationId: APPLICATION_ID,
       redirectUri: redirectUri,
       formType: '${formType}',
@@ -508,14 +519,29 @@ function generateStandaloneFormHTML(
       try {
         console.log('🎨 Loading branding for app:', APPLICATION_ID);
 
-        const response = await fetch(\`\${SUPABASE_URL}/rest/v1/applications?application_id=eq.\${APPLICATION_ID}&select=branding,name\`, {
+        // Construir URL con encoding correcto
+        const apiUrl = \`\${SUPABASE_URL}/rest/v1/applications?application_id=eq.\${encodeURIComponent(APPLICATION_ID)}&select=branding,name\`;
+        console.log('📡 API URL:', apiUrl);
+
+        const response = await fetch(apiUrl, {
           headers: {
             'apikey': SUPABASE_ANON_KEY,
-            'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`
+            'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=representation'
           }
         });
 
+        console.log('📥 Response status:', response.status, response.statusText);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('❌ API Error:', errorText);
+          throw new Error(\`API Error: \${response.status} - \${errorText}\`);
+        }
+
         const apps = await response.json();
+        console.log('📦 Apps received:', apps);
 
         if (apps && apps.length > 0) {
           const app = apps[0];
