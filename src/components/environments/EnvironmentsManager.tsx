@@ -780,28 +780,33 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
         } catch (error: any) {
           console.error('Error creating site from repo:', error);
 
-          if (error.message === 'REPO_ACCESS_REQUIRED') {
-            addLog('⚠️ Netlify necesita acceso al repositorio', 'warning');
-            addLog('', 'info');
-            addLog('Por favor, conecta Netlify con GitHub manualmente:', 'warning');
-            addLog('1. Ve a: https://app.netlify.com/sites', 'info');
-            addLog('2. Click en "Add new site" → "Import an existing project"', 'info');
-            addLog('3. Conecta con GitHub y autoriza el acceso', 'info');
-            addLog(`4. Selecciona el repositorio: ${repo.repo_full_name}`, 'info');
-            addLog('5. Configura:', 'info');
-            addLog('   - Build command: (dejar vacío)', 'info');
-            addLog('   - Publish directory: .', 'info');
-            addLog('6. Haz click en "Deploy site"', 'info');
-            addLog('', 'info');
-            addLog('Una vez creado el sitio, copia el Site ID y pégalo aquí.', 'warning');
+          // No se pudo crear sitio automáticamente
+          addLog('   ⚠️ No se pudo crear sitio automáticamente', 'warning');
+          addLog('', 'info');
 
-            setIsNetlifyDeploying(false);
-            return;
+          if (error.message === 'REPO_ACCESS_REQUIRED') {
+            addLog('🔍 Netlify necesita acceso al repositorio de GitHub', 'warning');
+            addLog('', 'info');
+            addLog('📋 OPCIONES DISPONIBLES:', 'info');
+            addLog('', 'info');
+            addLog('OPCIÓN 1: Seleccionar un sitio existente (recomendado)', 'info');
+            addLog('   → Se mostrará un selector con tus sitios de Netlify', 'info');
+            addLog('   → Selecciona uno y continuará el deploy', 'info');
+            addLog('', 'info');
+            addLog('OPCIÓN 2: Crear sitio manualmente en Netlify', 'info');
+            addLog('   1. Ve a: https://app.netlify.com/sites', 'info');
+            addLog('   2. Click en "Add new site" → "Import an existing project"', 'info');
+            addLog('   3. Conecta con GitHub y autoriza el acceso', 'info');
+            addLog(`   4. Selecciona el repositorio: ${repo.repo_full_name}`, 'info');
+            addLog('   5. Configura:', 'info');
+            addLog('      - Build command: (dejar vacío)', 'info');
+            addLog('      - Publish directory: .', 'info');
+            addLog('   6. Haz click en "Deploy site"', 'info');
+            addLog('   7. Copia el Site ID y selecciónalo en el selector', 'info');
+            addLog('', 'info');
           }
 
-          // Si falla, intentar con sitio existente
-          addLog('   ⚠️ No se pudo crear sitio automáticamente', 'warning');
-          addLog('📋 Selecciona un sitio existente de Netlify...', 'info');
+          addLog('📋 Cargando sitios disponibles de Netlify...', 'info');
           await loadNetlifySites();
           setShowNetlifySiteSelector(true);
           setIsNetlifyDeploying(false);
@@ -2489,14 +2494,43 @@ try {
             </div>
 
             <div className="space-y-6">
+              {/* Instructions for GitHub Connection */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="font-semibold text-blue-900 mb-2 flex items-center space-x-2">
+                  <AlertCircle className="w-5 h-5" />
+                  <span>Conexión con Repositorio de GitHub</span>
+                </h4>
+                <p className="text-sm text-blue-800 mb-3">
+                  Para que Netlify pueda deployar desde tu repositorio, necesitas crear el sitio manualmente conectándolo con GitHub:
+                </p>
+                <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside mb-3">
+                  <li>Ve a <a href="https://app.netlify.com/sites" target="_blank" rel="noopener noreferrer" className="underline font-medium">Netlify → Sites</a></li>
+                  <li>Click en "Add new site" → "Import an existing project"</li>
+                  <li>Selecciona "Deploy with GitHub" y autoriza el acceso</li>
+                  <li>Selecciona el repositorio: <code className="bg-blue-100 px-1 rounded">{repo?.repo_full_name}</code></li>
+                  <li>Configuración:
+                    <ul className="ml-6 mt-1 space-y-0.5">
+                      <li>• Branch: main</li>
+                      <li>• Build command: (dejar vacío)</li>
+                      <li>• Publish directory: . (punto)</li>
+                    </ul>
+                  </li>
+                  <li>Click en "Deploy site"</li>
+                  <li>Una vez creado, recarga esta página para ver el sitio en la lista de abajo</li>
+                </ol>
+                <p className="text-xs text-blue-700">
+                  💡 Después de crear el sitio en Netlify, selecciónalo de la lista de "Sitios Existentes" más abajo.
+                </p>
+              </div>
+
               {/* Create New Site Section */}
-              <div className="border border-gray-200 rounded-lg p-4">
+              <div className="border border-gray-200 rounded-lg p-4 opacity-50">
                 <h4 className="font-semibold text-gray-900 mb-3 flex items-center space-x-2">
                   <Plus className="w-5 h-5 text-green-500" />
-                  <span>Crear Nuevo Sitio</span>
+                  <span>Crear Nuevo Sitio (Sin Repositorio)</span>
                 </h4>
                 <p className="text-sm text-gray-600 mb-4">
-                  Para tu primer deploy, crea un nuevo sitio en Netlify. El Site ID se generará automáticamente.
+                  Esta opción crea un sitio vacío sin conexión a GitHub. No recomendado para este caso.
                 </p>
                 <div className="flex items-center space-x-3">
                   <input
@@ -2504,28 +2538,20 @@ try {
                     value={newSiteName}
                     onChange={(e) => setNewSiteName(e.target.value)}
                     placeholder="auth-system (opcional)"
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    disabled
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-gray-100"
                   />
                   <button
                     onClick={handleCreateNetlifySite}
-                    disabled={creatingNetlifySite}
-                    className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center space-x-2 transition-colors disabled:opacity-50"
+                    disabled={true}
+                    className="px-4 py-2 bg-gray-400 text-white rounded-lg flex items-center space-x-2 cursor-not-allowed"
                   >
-                    {creatingNetlifySite ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        <span>Creando...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="w-4 h-4" />
-                        <span>Crear Sitio</span>
-                      </>
-                    )}
+                    <Plus className="w-4 h-4" />
+                    <span>No Disponible</span>
                   </button>
                 </div>
                 <p className="text-xs text-gray-500 mt-2">
-                  Si no especificas un nombre, se generará uno automáticamente
+                  Usa la opción de arriba para crear un sitio conectado a GitHub
                 </p>
               </div>
 
