@@ -53,6 +53,7 @@ export default function EnvironmentsManager() {
   const [showIntegrationGuide, setShowIntegrationGuide] = useState<string | null>(null);
   const [showEditModal, setShowEditModal] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [showDeleteLogConfirm, setShowDeleteLogConfirm] = useState<string | null>(null);
   const [showLogsHistory, setShowLogsHistory] = useState<string | null>(null);
   const [showLogDetail, setShowLogDetail] = useState<any>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -184,6 +185,27 @@ export default function EnvironmentsManager() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const handleDeleteLog = async (logId: string) => {
+    try {
+      const { error } = await supabase
+        .from('deployment_logs')
+        .delete()
+        .eq('id', logId);
+
+      if (error) throw error;
+
+      // Reload the logs for the current environment
+      if (showLogsHistory) {
+        await loadDeploymentHistory(showLogsHistory);
+      }
+
+      showNotification('success', 'Log Eliminado', 'El log de deployment ha sido eliminado correctamente');
+    } catch (error) {
+      console.error('Error deleting log:', error);
+      showNotification('error', 'Error', 'No se pudo eliminar el log de deployment');
+    }
   };
 
   const loadSubscription = async () => {
@@ -2808,6 +2830,28 @@ try {
         );
       })()}
 
+      {/* Delete Log Confirmation Modal */}
+      {showDeleteLogConfirm && (() => {
+        const log = historicalLogs.find(l => l.id === showDeleteLogConfirm);
+        if (!log) return null;
+
+        return (
+          <ConfirmationModal
+            isOpen={true}
+            title="Eliminar Log de Deployment"
+            message={`¿Estás seguro de que deseas eliminar este log de deployment del ${new Date(log.created_at).toLocaleString('es-ES')}? Esta acción no se puede deshacer.`}
+            confirmText="Eliminar"
+            cancelText="Cancelar"
+            onConfirm={() => {
+              handleDeleteLog(showDeleteLogConfirm);
+              setShowDeleteLogConfirm(null);
+            }}
+            onCancel={() => setShowDeleteLogConfirm(null)}
+            type="danger"
+          />
+        );
+      })()}
+
       {/* Create Environment Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -3235,6 +3279,13 @@ try {
                           title="Descargar Log"
                         >
                           <Download className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setShowDeleteLogConfirm(log.id)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded"
+                          title="Eliminar Log"
+                        >
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </div>
