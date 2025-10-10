@@ -6,6 +6,7 @@ import { netlifyService } from '../../services/netlifyService';
 import { githubService } from '../../services/githubService';
 import { connectorsService } from '../../services/connectorsService';
 import { environmentVariablesService } from '../../services/environmentVariablesService';
+import { getStaticProjectFiles } from '../../utils/projectFilesHelper';
 import { supabase } from '../../lib/supabase';
 import ConfirmationModal from '../ui/ConfirmationModal';
 import NotificationModal from '../ui/NotificationModal';
@@ -679,7 +680,6 @@ export default function EnvironmentsManager() {
       const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
       // Generar archivos HTML estáticos (sin build requerido)
-      const { getStaticProjectFiles } = await import('../../utils/projectFilesHelper');
       const files = await getStaticProjectFiles(
         app.application_id,
         apiKey,
