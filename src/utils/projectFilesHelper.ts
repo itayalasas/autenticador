@@ -1,6 +1,262 @@
 // Helper to prepare project files for deployment with real auth components
 import { PUBLIC_AUTH_FORMS_TEMPLATE } from './publicAuthFormsTemplate';
 
+// Generate static standalone HTML files (no build required)
+export async function getStaticProjectFiles(
+  applicationId: string,
+  apiKey: string,
+  supabaseUrl: string,
+  supabaseAnonKey: string,
+  branding?: any
+): Promise<Record<string, string>> {
+  const files: Record<string, string> = {};
+
+  // Generate standalone HTML files for each form type
+  const formTypes = ['login', 'register', 'reset'];
+
+  for (const formType of formTypes) {
+    files[`${formType}.html`] = generateStandaloneFormHTML(
+      formType,
+      applicationId,
+      apiKey,
+      supabaseUrl,
+      supabaseAnonKey,
+      branding
+    );
+  }
+
+  // Netlify config - NO BUILD COMMAND (static files only)
+  files['netlify.toml'] = `[build]
+  publish = "."
+
+[[redirects]]
+  from = "/login"
+  to = "/login.html"
+  status = 200
+
+[[redirects]]
+  from = "/register"
+  to = "/register.html"
+  status = 200
+
+[[redirects]]
+  from = "/reset"
+  to = "/reset.html"
+  status = 200`;
+
+  // _redirects for Netlify
+  files['_redirects'] = `/login /login.html 200
+/register /register.html 200
+/reset /reset.html 200`;
+
+  return files;
+}
+
+// Helper function to generate standalone HTML
+function generateStandaloneFormHTML(
+  formType: string,
+  applicationId: string,
+  apiKey: string,
+  supabaseUrl: string,
+  supabaseAnonKey: string,
+  branding?: any
+): string {
+  const primaryColor = branding?.primary_color || '#3b82f6';
+  const logoUrl = branding?.logo_url || '';
+  const appName = branding?.app_name || 'AuthSystem';
+
+  const formTitle = {
+    'login': 'Iniciar Sesión',
+    'register': 'Registrarse',
+    'reset': 'Recuperar Contraseña'
+  }[formType] || 'Autenticación';
+
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${formTitle} - ${appName}</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --primary-color: ${primaryColor};
+    }
+    .btn-primary {
+      background-color: var(--primary-color);
+    }
+    .btn-primary:hover {
+      filter: brightness(0.9);
+    }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen flex items-center justify-center p-4">
+  <div class="w-full max-w-md">
+    <div class="bg-white rounded-lg shadow-lg p-8">
+      ${logoUrl ? `<div class="text-center mb-6"><img src="${logoUrl}" alt="${appName}" class="h-12 mx-auto" /></div>` : ''}
+      <h1 class="text-2xl font-bold text-center mb-6">${formTitle}</h1>
+
+      <form id="auth-form" class="space-y-4">
+        ${formType === 'register' ? `
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
+          <input type="text" id="name" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+        ` : ''}
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+          <input type="email" id="email" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+
+        ${formType !== 'reset' ? `
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Contraseña</label>
+          <input type="password" id="password" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+        ` : ''}
+
+        <button type="submit" class="w-full btn-primary text-white py-2 px-4 rounded-md hover:opacity-90 transition">
+          ${formTitle}
+        </button>
+      </form>
+
+      <div id="message" class="mt-4 p-3 rounded-md hidden"></div>
+
+      <div class="mt-6 text-center text-sm">
+        ${formType === 'login' ? `
+          <a href="/register" class="text-blue-600 hover:underline">¿No tienes cuenta? Regístrate</a>
+          <br />
+          <a href="/reset" class="text-blue-600 hover:underline mt-2 inline-block">¿Olvidaste tu contraseña?</a>
+        ` : formType === 'register' ? `
+          <a href="/login" class="text-blue-600 hover:underline">¿Ya tienes cuenta? Inicia sesión</a>
+        ` : `
+          <a href="/login" class="text-blue-600 hover:underline">Volver al inicio de sesión</a>
+        `}
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const AUTHSYSTEM_API_URL = '${supabaseUrl}';
+    const AUTHSYSTEM_API_KEY = '${apiKey}';
+    const APPLICATION_ID = '${applicationId}';
+    const SUPABASE_URL = '${supabaseUrl}';
+    const SUPABASE_ANON_KEY = '${supabaseAnonKey}';
+
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    function showMessage(message, type) {
+      const messageEl = document.getElementById('message');
+      messageEl.textContent = message;
+      messageEl.className = 'mt-4 p-3 rounded-md ' + (type === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700');
+      messageEl.classList.remove('hidden');
+    }
+
+    document.getElementById('auth-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const email = document.getElementById('email').value;
+      const submitBtn = e.target.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Procesando...';
+
+      try {
+        ${formType === 'login' ? `
+        const password = document.getElementById('password').value;
+
+        const response = await fetch(\`\${AUTHSYSTEM_API_URL}/functions/v1/auth-login\`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`,
+            'apikey': SUPABASE_ANON_KEY
+          },
+          body: JSON.stringify({
+            application_id: APPLICATION_ID,
+            api_key: AUTHSYSTEM_API_KEY,
+            email,
+            password
+          })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          showMessage('Inicio de sesión exitoso', 'success');
+          setTimeout(() => {
+            window.location.href = data.redirect_url || '/dashboard';
+          }, 1500);
+        } else {
+          showMessage(data.error || 'Error al iniciar sesión', 'error');
+        }
+        ` : formType === 'register' ? `
+        const password = document.getElementById('password').value;
+        const name = document.getElementById('name').value;
+
+        const response = await fetch(\`\${AUTHSYSTEM_API_URL}/functions/v1/auth-register\`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`,
+            'apikey': SUPABASE_ANON_KEY
+          },
+          body: JSON.stringify({
+            application_id: APPLICATION_ID,
+            api_key: AUTHSYSTEM_API_KEY,
+            email,
+            password,
+            metadata: { name }
+          })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          showMessage('Registro exitoso. Redirigiendo...', 'success');
+          setTimeout(() => {
+            window.location.href = data.redirect_url || '/dashboard';
+          }, 1500);
+        } else {
+          showMessage(data.error || 'Error al registrarse', 'error');
+        }
+        ` : `
+        const response = await fetch(\`\${AUTHSYSTEM_API_URL}/functions/v1/auth-reset-password\`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`,
+            'apikey': SUPABASE_ANON_KEY
+          },
+          body: JSON.stringify({
+            application_id: APPLICATION_ID,
+            api_key: AUTHSYSTEM_API_KEY,
+            email
+          })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          showMessage('Email de recuperación enviado. Revisa tu correo.', 'success');
+        } else {
+          showMessage(data.error || 'Error al enviar email', 'error');
+        }
+        `}
+      } catch (error) {
+        console.error('Error:', error);
+        showMessage('Error de conexión', 'error');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = '${formTitle}';
+      }
+    });
+  </script>
+</body>
+</html>`;
+}
+
 export async function getProjectFiles(): Promise<Record<string, string>> {
   const files: Record<string, string> = {};
 

@@ -6,7 +6,6 @@ import { netlifyService } from '../../services/netlifyService';
 import { githubService } from '../../services/githubService';
 import { connectorsService } from '../../services/connectorsService';
 import { environmentVariablesService } from '../../services/environmentVariablesService';
-import { getProjectFiles } from '../../utils/projectFilesHelper';
 import { supabase } from '../../lib/supabase';
 import ConfirmationModal from '../ui/ConfirmationModal';
 import NotificationModal from '../ui/NotificationModal';
@@ -568,54 +567,61 @@ export default function EnvironmentsManager() {
 
       // STEP 5.2: Cargar variables de entorno para este ambiente
       const envVars = await environmentVariablesService.getVariablesForEnvironment(app.id, environmentId);
-      const envFileContent = environmentVariablesService.buildEnvFileContent(envVars);
       addLog(`   ✓ ${envVars.length} variables de entorno cargadas`, 'success');
 
-      // STEP 5.3: Obtener archivos del proyecto completo
-      addLog('📁 Preparando archivos del proyecto...', 'info');
-      const projectFiles = await getProjectFiles();
+      // STEP 5.3: Obtener credenciales necesarias para los formularios
+      addLog('📁 Preparando formularios estáticos...', 'info');
 
-      // Agregar README y .env.example
-      projectFiles['README.md'] = `# ${selectedApp} - ${environmentName}
+      // Obtener API key y configuración
+      const { data: apiKeys } = await supabase
+        .from('api_keys')
+        .select('key')
+        .eq('application_id', app.id)
+        .eq('environment', environmentId)
+        .eq('is_active', true)
+        .limit(1);
 
-Deploy automático desde AuthSystem
+      if (!apiKeys || apiKeys.length === 0) {
+        throw new Error('No se encontró API Key activa para este ambiente');
+      }
 
+      const apiKey = apiKeys[0].key;
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+      // Generar archivos HTML estáticos (sin build requerido)
+      const { getStaticProjectFiles } = await import('../../utils/projectFilesHelper');
+      const files = await getStaticProjectFiles(
+        app.application_id,
+        apiKey,
+        supabaseUrl,
+        supabaseAnonKey,
+        app.branding
+      );
+
+      // Agregar README simple
+      files['README.md'] = `# ${selectedApp} - ${environmentName}
+
+Formularios de autenticación estáticos
+
+Generado automáticamente por AuthSystem
 Fecha: ${new Date().toISOString()}
 
-## Variables de Entorno
+## URLs Disponibles
 
-Copia \`.env.example\` a \`.env\` y configura los valores:
+- Login: https://tu-sitio.netlify.app/login
+- Registro: https://tu-sitio.netlify.app/register
+- Recuperar contraseña: https://tu-sitio.netlify.app/reset
 
-\`\`\`bash
-cp .env.example .env
-\`\`\`
+## Configuración
 
-## Instalación
+Estos formularios están pre-configurados y listos para usar.
+No requieren instalación ni build.
 
-\`\`\`bash
-npm install
-\`\`\`
-
-## Desarrollo
-
-\`\`\`bash
-npm run dev
-\`\`\`
-
-## Build
-
-\`\`\`bash
-npm run build
-\`\`\`
+Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
 `;
 
-      projectFiles['.env.example'] = envFileContent.split('\n').map(line => {
-        const [key] = line.split('=');
-        return `${key}=`;
-      }).join('\n');
-
-      const files = projectFiles;
-      addLog(`   ✓ ${Object.keys(files).length} archivos preparados`, 'success');
+      addLog(`   ✓ ${Object.keys(files).length} archivos generados (HTML estáticos)`, 'success');
 
       // STEP 6: Hacer commit y push a GitHub
       addLog(`📤 Subiendo código a GitHub (${repo.repo_full_name})...`, 'info');
@@ -652,25 +658,14 @@ npm run build
           .eq('id', repo.id);
       }
 
-      // STEP 8.5: Configurar variables de entorno en Netlify
-      addLog('⚙️  Configurando variables de entorno en Netlify...', 'info');
-      try {
-        const netlifyEnvVars = environmentVariablesService.buildNetlifyEnvObject(envVars);
-        await netlifyService.updateSiteEnvironmentVariables(siteId, netlifyEnvVars);
-        addLog(`   ✓ ${Object.keys(netlifyEnvVars).length} variables configuradas en Netlify`, 'success');
-      } catch (error) {
-        addLog('   ⚠️  No se pudieron configurar todas las variables en Netlify', 'warning');
-        console.error('Error setting Netlify env vars:', error);
-      }
-
       // STEP 9: Conectar repositorio a Netlify (si no está conectado)
       addLog('🔗 Conectando repositorio a Netlify...', 'info');
       try {
         await netlifyService.connectRepositoryToSite(
           siteId,
           repo.repo_full_name,
-          'npm run build',
-          'dist'
+          '', // Sin build command (archivos estáticos)
+          '.' // Publicar desde raíz
         );
         addLog('   ✓ Repositorio conectado a Netlify', 'success');
       } catch (error: any) {
@@ -683,9 +678,9 @@ npm run build
         }
       }
 
-      // STEP 10: Triggear build en Netlify
-      addLog('☁️ Triggeando build en Netlify...', 'info');
-      addLog('   Netlify compilará el proyecto automáticamente', 'info');
+      // STEP 10: Triggear deploy en Netlify
+      addLog('☁️ Triggeando deploy en Netlify...', 'info');
+      addLog('   Netlify publicará los archivos HTML estáticos', 'info');
 
       let triggerResult;
       try {
@@ -694,7 +689,7 @@ npm run build
           branch: 'main',
           title: `Deploy ${environmentName} - ${new Date().toLocaleString()}`
         });
-        addLog('   ✓ Build iniciado en Netlify', 'success');
+        addLog('   ✓ Deploy iniciado en Netlify', 'success');
       } catch (error: any) {
         console.error('Error triggering deploy:', error);
         throw new Error(`Error al triggear deploy: ${error.message}`);
