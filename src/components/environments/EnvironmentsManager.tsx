@@ -3277,9 +3277,9 @@ try {
                 {showLogDetail.logs.length === 0 ? (
                   <div className="text-gray-500">No hay logs disponibles</div>
                 ) : (
-                  showLogDetail.logs.map((entry: LogEntry) => (
-                    <div key={entry.id} className="mb-1">
-                      <span className="text-gray-500">[{new Date(entry.timestamp).toLocaleTimeString()}]</span>
+                  showLogDetail.logs.map((entry: any, index: number) => (
+                    <div key={index} className="mb-1">
+                      <span className="text-gray-500">[{entry.timestamp}]</span>
                       <span className={`ml-2 ${
                         entry.level === 'success' ? 'text-green-400' :
                         entry.level === 'error' ? 'text-red-400' :
