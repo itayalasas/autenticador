@@ -13,7 +13,8 @@ import {
   Activity,
   HelpCircle,
   LogOut,
-  X
+  X,
+  Link as LinkIcon
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -31,6 +32,7 @@ const sidebarItems = [
   { id: 'authentication', label: 'Autenticación', icon: Shield },
   { id: 'branding', label: 'Branding', icon: Palette },
   { id: 'environments', label: 'Ambientes', icon: Database },
+  { id: 'connectors', label: 'Conectores', icon: LinkIcon },
   { id: 'api-keys', label: 'API Keys', icon: Key },
   { id: 'logs', label: 'Logs de Actividad', icon: Activity },
   { id: 'documentation', label: 'Documentación', icon: FileText },

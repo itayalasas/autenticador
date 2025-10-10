@@ -38,12 +38,14 @@ export default function GitHubConnector({ onRepositorySelected }: GitHubConnecto
     }
   };
 
-  const handleConnect = () => {
-    if (!githubService.isConfigured()) {
-      alert(githubService.getSetupInstructions());
+  const handleConnect = async () => {
+    const configured = await githubService.isConfigured();
+    if (!configured) {
+      const instructions = await githubService.getSetupInstructions();
+      alert(instructions);
       return;
     }
-    githubService.initiateOAuth();
+    await githubService.initiateOAuth();
   };
 
   const handleDisconnect = async () => {
@@ -147,13 +149,11 @@ export default function GitHubConnector({ onRepositorySelected }: GitHubConnecto
           <span>Conectar con GitHub</span>
         </button>
 
-        {!githubService.isConfigured() && (
-          <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-            <p className="text-sm text-yellow-800">
-              GitHub OAuth no está configurado. Contacta al administrador.
-            </p>
-          </div>
-        )}
+        <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <p className="text-sm text-blue-800">
+            💡 Si GitHub no está configurado, ve a <strong>Conectores</strong> en el menú para configurarlo.
+          </p>
+        </div>
       </div>
     );
   }

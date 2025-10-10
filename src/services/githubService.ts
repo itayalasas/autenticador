@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { connectorsService } from './connectorsService';
 
 interface GitHubUser {
   login: string;
@@ -43,22 +44,23 @@ interface GitRepository {
 }
 
 class GitHubService {
-  private readonly clientId: string;
-  private readonly redirectUri: string;
   private readonly scopes = ['repo', 'user:email'];
 
-  constructor() {
-    // GitHub OAuth App credentials
-    // Users will need to create a GitHub OAuth App at: https://github.com/settings/developers
-    this.clientId = import.meta.env.VITE_GITHUB_CLIENT_ID || '';
-    this.redirectUri = import.meta.env.VITE_GITHUB_REDIRECT_URI || `${window.location.origin}/github/callback`;
+  private async getConfig() {
+    const config = await connectorsService.getGitHubConfig();
+    if (!config) {
+      throw new Error('GitHub no está configurado. Ve a Conectores para configurarlo.');
+    }
+    return config;
   }
 
   // Step 1: Redirect to GitHub OAuth
-  initiateOAuth(): void {
+  async initiateOAuth(): Promise<void> {
+    const config = await this.getConfig();
+
     const authUrl = new URL('https://github.com/login/oauth/authorize');
-    authUrl.searchParams.append('client_id', this.clientId);
-    authUrl.searchParams.append('redirect_uri', this.redirectUri);
+    authUrl.searchParams.append('client_id', config.client_id);
+    authUrl.searchParams.append('redirect_uri', config.redirect_uri);
     authUrl.searchParams.append('scope', this.scopes.join(' '));
     authUrl.searchParams.append('state', this.generateState());
 
@@ -321,29 +323,17 @@ class GitHubService {
   }
 
   // Check if GitHub is configured
-  isConfigured(): boolean {
-    return !!this.clientId;
+  async isConfigured(): Promise<boolean> {
+    return await connectorsService.isGitHubConfigured();
   }
 
-  getSetupInstructions(): string {
-    if (this.isConfigured()) {
+  async getSetupInstructions(): Promise<string> {
+    const configured = await this.isConfigured();
+    if (configured) {
       return 'GitHub OAuth está configurado';
     }
 
-    return `
-Para habilitar la integración con GitHub:
-
-1. Ve a https://github.com/settings/developers
-2. Crea una nueva OAuth App con estos valores:
-   - Application name: AuthSystem
-   - Homepage URL: ${window.location.origin}
-   - Authorization callback URL: ${window.location.origin}/github/callback
-3. Copia el Client ID y Client Secret
-4. Agrégalos a tu archivo .env:
-   VITE_GITHUB_CLIENT_ID=tu_client_id
-   VITE_GITHUB_CLIENT_SECRET=tu_client_secret (servidor)
-5. Reinicia la aplicación
-    `.trim();
+    return 'GitHub no está configurado. Ve a la sección "Conectores" en el menú para configurarlo.';
   }
 }
 

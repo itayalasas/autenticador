@@ -18,6 +18,7 @@ import AuthenticationSettings from './components/authentication/AuthenticationSe
 import SettingsPage from './components/settings/SettingsPage';
 import SubscriptionManager from './components/subscription/SubscriptionManager';
 import LogsViewer from './components/activity/LogsViewer';
+import ConnectorsPage from './components/connectors/ConnectorsPage';
 
 // Component for handling public auth routes
 function PublicAuthRoute() {
@@ -119,6 +120,7 @@ function MainApp() {
       case 'authentication': return 'Autenticación';
       case 'branding': return 'Gestión de Branding';
       case 'environments': return 'Ambientes';
+      case 'connectors': return 'Conectores';
       case 'api-keys': return 'API Keys';
       case 'logs': return 'Logs de Actividad';
       case 'documentation': return 'Documentación';
@@ -136,6 +138,7 @@ function MainApp() {
       case 'authentication': return 'Configura métodos de autenticación';
       case 'branding': return 'Personaliza la apariencia de tus formularios';
       case 'environments': return 'Gestiona ambientes de desarrollo, testing y producción';
+      case 'connectors': return 'Configura integraciones con GitHub, Netlify y más';
       case 'api-keys': return 'Administra claves de API para integración';
       case 'logs': return 'Monitorea actividad y eventos del sistema';
       case 'documentation': return 'Guías y referencias de API';
@@ -160,6 +163,8 @@ function MainApp() {
         return <BrandingManager />;
       case 'environments':
         return <EnvironmentsManager />;
+      case 'connectors':
+        return <ConnectorsPage />;
       case 'api-keys':
         return <ApiKeysManager />;
       case 'logs':

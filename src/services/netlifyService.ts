@@ -55,77 +55,39 @@ class NetlifyService {
   }
 
   async loadConfigFromDatabase() {
-    const { supabase } = await import('../lib/supabase');
+    const { connectorsService } = await import('./connectorsService');
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
+    const config = await connectorsService.getNetlifyConfig();
 
-    const { data, error } = await supabase
-      .from('netlify_config')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .order('created_at', { ascending: false })
-      .maybeSingle();
-
-    if (error) {
-      console.error('Error loading Netlify config from database:', error);
-      return null;
-    }
-
-    if (data) {
-      this.accessToken = data.access_token;
-      this.siteId = data.site_id;
-      return data;
+    if (config) {
+      this.accessToken = config.access_token;
+      if (config.site_id) {
+        this.siteId = config.site_id;
+      }
+      return config;
     }
 
     return null;
   }
 
   async saveConfigToDatabase(accessToken: string, siteId: string, siteName?: string, siteUrl?: string) {
-    const { supabase } = await import('../lib/supabase');
+    const { connectorsService } = await import('./connectorsService');
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('User not authenticated');
-
-    // Deactivate any existing configs
-    await supabase
-      .from('netlify_config')
-      .update({ is_active: false })
-      .eq('user_id', user.id);
-
-    // Insert or update the config
-    const { data, error } = await supabase
-      .from('netlify_config')
-      .upsert({
-        user_id: user.id,
-        access_token: accessToken,
-        site_id: siteId,
-        site_name: siteName,
-        site_url: siteUrl,
-        is_active: true,
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: 'user_id,site_id'
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error saving Netlify config to database:', error);
-      throw error;
-    }
+    const config = await connectorsService.saveNetlifyConfig({
+      access_token: accessToken,
+      site_id: siteId,
+    });
 
     // Update in-memory values
     this.accessToken = accessToken;
     this.siteId = siteId;
 
-    return data;
+    return config;
   }
 
   private async makeRequest(endpoint: string, options: RequestInit = {}): Promise<any> {
     if (!this.accessToken) {
-      throw new Error('Netlify access token no configurado. Por favor configura VITE_NETLIFY_ACCESS_TOKEN en tu archivo .env');
+      throw new Error('Netlify access token no configurado. Por favor ve a Conectores para configurarlo.');
     }
 
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
@@ -374,15 +336,7 @@ class NetlifyService {
     const hasSite = await this.hasSiteId();
 
     if (!hasToken) {
-      return `
-Para habilitar el deploy automático a Netlify:
-
-1. Ve a https://app.netlify.com/user/applications/personal
-2. Crea un nuevo Personal Access Token
-3. Guárdalo usando el formulario de configuración de Netlify en el sistema
-
-El token se guardará de forma segura en la base de datos.
-      `.trim();
+      return 'Netlify no está configurado. Por favor ve a la sección "Conectores" en el menú para configurarlo.';
     }
 
     if (!hasSite) {
