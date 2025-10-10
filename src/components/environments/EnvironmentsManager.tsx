@@ -587,12 +587,13 @@ export default function EnvironmentsManager() {
         // No hay API Key, verificar el plan de suscripción
         addLog('   No se encontró API Key, creando una nueva...', 'info');
 
-        const subscription = await subscriptionService.getActiveSubscription();
+        const subscription = await subscriptionService.getCurrentSubscription();
         if (!subscription) {
           throw new Error('No hay suscripción activa');
         }
 
-        const plan = await subscriptionService.getSubscriptionPlan(subscription.plan_id);
+        // El plan viene anidado en la suscripción
+        const plan = subscription.subscription_plans;
         if (!plan) {
           throw new Error('No se pudo obtener información del plan');
         }
@@ -606,8 +607,10 @@ export default function EnvironmentsManager() {
 
         const currentKeyCount = count || 0;
 
-        if (currentKeyCount >= plan.max_api_keys) {
-          throw new Error(`Has alcanzado el límite de ${plan.max_api_keys} API Keys para tu plan. Desactiva una API Key existente o actualiza tu plan.`);
+        const maxApiKeys = plan.max_api_keys || 3; // Default 3 si no está definido
+
+        if (currentKeyCount >= maxApiKeys) {
+          throw new Error(`Has alcanzado el límite de ${maxApiKeys} API Keys para tu plan. Desactiva una API Key existente o actualiza tu plan.`);
         }
 
         // Generar nueva API Key
