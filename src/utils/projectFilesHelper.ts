@@ -303,58 +303,6 @@ function generateStandaloneFormHTML(
       supabaseUrl: SUPABASE_URL
     });
 
-    // Cargar branding dinámicamente desde la base de datos
-    async function loadBranding() {
-      try {
-        console.log('🎨 Loading branding for app:', APPLICATION_ID);
-
-        const response = await fetch(\`\${SUPABASE_URL}/rest/v1/applications?application_id=eq.\${APPLICATION_ID}&select=branding,name\`, {
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`
-          }
-        });
-
-        const apps = await response.json();
-
-        if (apps && apps.length > 0) {
-          const app = apps[0];
-          const branding = app.branding || {};
-
-          console.log('✅ Branding loaded:', branding);
-
-          // Aplicar colores
-          if (branding.primary_color) {
-            document.documentElement.style.setProperty('--primary-color', branding.primary_color);
-            const blobs = document.querySelectorAll('.animate-pulse-bg');
-            if (blobs[0]) blobs[0].style.backgroundColor = branding.primary_color;
-          }
-
-          // Aplicar logo
-          const logoContainer = document.getElementById('app-logo-container');
-          if (logoContainer && branding.logo_url) {
-            logoContainer.innerHTML = \`<img src="\${branding.logo_url}" alt="\${app.name}" class="h-16 mx-auto mb-4" />\`;
-          } else if (logoContainer) {
-            // Actualizar la inicial con el nombre real de la app
-            const firstLetter = (app.name || 'A').charAt(0).toUpperCase();
-            logoContainer.querySelector('.font-bold').textContent = firstLetter;
-          }
-
-          // Actualizar el título con el nombre de la app
-          const titleEl = document.querySelector('h1');
-          if (titleEl && app.name) {
-            document.title = \`${formTitle} - \${app.name}\`;
-          }
-        }
-      } catch (error) {
-        console.error('❌ Error loading branding:', error);
-        // No hacer nada, usar el branding por defecto
-      }
-    }
-
-    // Cargar branding al iniciar
-    loadBranding();
-
     // Initialize Lucide icons
     lucide.createIcons();
 
@@ -551,6 +499,65 @@ function generateStandaloneFormHTML(
         arrowIcon.classList.remove('hidden');
       }
     });
+
+    // ===================================================================
+    // CARGA DINÁMICA DE BRANDING
+    // ===================================================================
+    // Cargar branding dinámicamente desde la base de datos
+    async function loadBranding() {
+      try {
+        console.log('🎨 Loading branding for app:', APPLICATION_ID);
+
+        const response = await fetch(\`\${SUPABASE_URL}/rest/v1/applications?application_id=eq.\${APPLICATION_ID}&select=branding,name\`, {
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`
+          }
+        });
+
+        const apps = await response.json();
+
+        if (apps && apps.length > 0) {
+          const app = apps[0];
+          const branding = app.branding || {};
+
+          console.log('✅ Branding loaded:', branding);
+
+          // Aplicar colores
+          if (branding.primary_color) {
+            document.documentElement.style.setProperty('--primary-color', branding.primary_color);
+            const blobs = document.querySelectorAll('.animate-pulse-bg');
+            if (blobs[0]) blobs[0].style.backgroundColor = branding.primary_color;
+
+            // Actualizar botón
+            const btn = document.querySelector('.btn-primary');
+            if (btn) btn.style.backgroundColor = branding.primary_color;
+          }
+
+          // Aplicar logo
+          const logoContainer = document.getElementById('app-logo-container');
+          if (logoContainer && branding.logo_url) {
+            logoContainer.innerHTML = \`<img src="\${branding.logo_url}" alt="\${app.name}" class="h-16 mx-auto mb-4" />\`;
+          } else if (logoContainer && app.name) {
+            // Actualizar la inicial con el nombre real de la app
+            const firstLetter = (app.name || 'A').charAt(0).toUpperCase();
+            const bgColor = branding.primary_color || '${primaryColor}';
+            logoContainer.innerHTML = \`<div class="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center text-white text-2xl font-bold" style="background-color: \${bgColor};">\${firstLetter}</div>\`;
+          }
+
+          // Actualizar el título con el nombre de la app
+          if (app.name) {
+            document.title = \`${formTitle} - \${app.name}\`;
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error loading branding:', error);
+        // No hacer nada, usar el branding por defecto
+      }
+    }
+
+    // Cargar branding al iniciar
+    loadBranding();
   </script>
 </body>
 </html>`;
