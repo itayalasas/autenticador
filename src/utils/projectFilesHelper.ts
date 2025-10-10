@@ -284,6 +284,7 @@ function generateStandaloneFormHTML(
     // Get URL parameters
     const urlParams = new URLSearchParams(window.location.search);
     let APPLICATION_ID = urlParams.get('app_id') || '${applicationId}';
+    const API_KEY = urlParams.get('api_key') || '';
     const redirectUri = urlParams.get('redirect_uri') || urlParams.get('callback_url');
 
     // Limpiar el app_id por si viene con caracteres extra
@@ -293,7 +294,7 @@ function generateStandaloneFormHTML(
     const SUPABASE_URL = '${supabaseUrl}';
     const SUPABASE_ANON_KEY = '${supabaseAnonKey}';
 
-    // Validar que tenemos el app_id
+    // Validar que tenemos el app_id y api_key
     if (!APPLICATION_ID || APPLICATION_ID === 'undefined') {
       document.getElementById('message').innerHTML = \`
         <div class="flex items-center space-x-2 bg-red-50 border border-red-200 p-3 rounded-lg">
@@ -305,10 +306,22 @@ function generateStandaloneFormHTML(
       document.getElementById('auth-form').style.display = 'none';
     }
 
+    if (!API_KEY) {
+      document.getElementById('message').innerHTML = \`
+        <div class="flex items-center space-x-2 bg-red-50 border border-red-200 p-3 rounded-lg">
+          <i data-lucide="alert-circle" class="w-5 h-5 text-red-500"></i>
+          <span class="text-sm text-red-800">Error: api_key es requerida en la URL</span>
+        </div>
+      \`;
+      document.getElementById('message').classList.remove('hidden');
+      document.getElementById('auth-form').style.display = 'none';
+    }
+
     console.log('🔧 Auth Form Init:', {
       fullUrl: window.location.href,
       searchParams: window.location.search,
       applicationId: APPLICATION_ID,
+      hasApiKey: !!API_KEY,
       redirectUri: redirectUri,
       formType: '${formType}',
       supabaseUrl: SUPABASE_URL
@@ -403,6 +416,7 @@ function generateStandaloneFormHTML(
             application_id: APPLICATION_ID,
             email: email,
             password: password,
+            api_key: API_KEY,
             callback_url: redirectUri
           })
         });
@@ -448,6 +462,7 @@ function generateStandaloneFormHTML(
             email: email,
             password: password,
             name: name,
+            api_key: API_KEY,
             callback_url: redirectUri
           })
         });
@@ -486,6 +501,7 @@ function generateStandaloneFormHTML(
           body: JSON.stringify({
             application_id: APPLICATION_ID,
             email: email,
+            api_key: API_KEY,
             callback_url: redirectUri
           })
         });
