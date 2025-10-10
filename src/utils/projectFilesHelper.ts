@@ -233,6 +233,44 @@ function generateStandaloneFormHTML(
         </div>
         ` : ''}
 
+        ${formType === 'register' ? `
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">Confirmar Contraseña</label>
+          <div class="relative">
+            <div class="icon-container">
+              <i data-lucide="lock" class="w-5 h-5 text-gray-400"></i>
+            </div>
+            <input
+              type="password"
+              id="confirmPassword"
+              required
+              class="w-full input-with-icon pr-12 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50 transition-all"
+              style="--tw-ring-color: ${primaryColor};"
+              placeholder="••••••••"
+            />
+            <button
+              type="button"
+              id="toggle-confirm-password"
+              class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <i data-lucide="eye" id="eye-confirm-icon" class="w-5 h-5"></i>
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">Tipo de Usuario</label>
+          <select
+            id="role"
+            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50 transition-all bg-white"
+            style="--tw-ring-color: ${primaryColor};"
+          >
+            <option value="">Selecciona un rol</option>
+          </select>
+          <p class="text-xs text-gray-500 mt-1">Selecciona el tipo de acceso que necesitas</p>
+        </div>
+        ` : ''}
+
         <button
           type="submit"
           class="w-full btn-primary text-white py-3 px-4 rounded-lg font-medium hover:opacity-90 focus:ring-2 focus:ring-offset-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
@@ -365,6 +403,68 @@ function generateStandaloneFormHTML(
       });
     }
 
+    // Toggle Confirm Password Visibility (for register form)
+    const toggleConfirmPasswordBtn = document.getElementById('toggle-confirm-password');
+    if (toggleConfirmPasswordBtn) {
+      toggleConfirmPasswordBtn.addEventListener('click', function() {
+        const confirmPasswordInput = document.getElementById('confirmPassword');
+        const eyeConfirmIcon = document.getElementById('eye-confirm-icon');
+
+        if (confirmPasswordInput.type === 'password') {
+          confirmPasswordInput.type = 'text';
+          eyeConfirmIcon.setAttribute('data-lucide', 'eye-off');
+        } else {
+          confirmPasswordInput.type = 'password';
+          eyeConfirmIcon.setAttribute('data-lucide', 'eye');
+        }
+        lucide.createIcons();
+      });
+    }
+
+    // Load available roles for register form
+    async function loadRoles() {
+      if ('${formType}' !== 'register') return;
+
+      try {
+        console.log('📋 Loading roles for application:', APPLICATION_ID);
+
+        const rolesUrl = SUPABASE_URL + '/rest/v1/roles?application_id=eq.' + APPLICATION_ID + '&is_active=eq.true&select=id,role_name,description';
+
+        const response = await fetch(rolesUrl, {
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': 'Bearer ' + SUPABASE_ANON_KEY
+          }
+        });
+
+        if (response.ok) {
+          const roles = await response.json();
+          console.log('✅ Roles loaded:', roles);
+
+          const roleSelect = document.getElementById('role');
+          if (roleSelect && roles && roles.length > 0) {
+            // Clear existing options except the first one
+            roleSelect.innerHTML = '<option value="">Selecciona un rol</option>';
+
+            // Add role options
+            roles.forEach(role => {
+              const option = document.createElement('option');
+              option.value = role.id;
+              option.textContent = role.role_name + (role.description ? ' - ' + role.description : '');
+              roleSelect.appendChild(option);
+            });
+          }
+        } else {
+          console.warn('⚠️ Could not load roles, user will register without role');
+        }
+      } catch (error) {
+        console.error('❌ Error loading roles:', error);
+      }
+    }
+
+    // Load roles if register form
+    loadRoles();
+
     function showMessage(message, type) {
       const messageEl = document.getElementById('message');
       const iconHtml = type === 'error'
@@ -450,13 +550,23 @@ function generateStandaloneFormHTML(
         }
         ` : formType === 'register' ? `
         const password = document.getElementById('password').value;
+        const confirmPassword = document.getElementById('confirmPassword').value;
         const name = document.getElementById('name').value;
+        const roleSelect = document.getElementById('role');
+        const selectedRole = roleSelect ? roleSelect.value : '';
+
+        // Validate passwords match
+        if (password !== confirmPassword) {
+          showMessage('Las contraseñas no coinciden', 'error');
+          throw new Error('Las contraseñas no coinciden');
+        }
 
         const registerPayload = {
           application_id: APPLICATION_ID,
           email: email,
           password: password,
           name: name,
+          role: selectedRole || undefined,
           api_key: API_KEY,
           callback_url: redirectUri
         };
