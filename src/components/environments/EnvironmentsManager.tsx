@@ -632,67 +632,115 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
       );
       addLog('✅ Código subido a GitHub exitosamente', 'success');
 
-      // STEP 7: Obtener o crear sitio de Netlify
+      // STEP 7: Obtener o crear sitio de Netlify conectado al repositorio
       const netlifyConfig = await connectorsService.getNetlifyConfig();
       if (!netlifyConfig) {
         throw new Error('Configuración de Netlify no encontrada');
       }
 
-      let siteId = repo.netlify_site_id || netlifyConfig.site_id;
+      let siteId = repo.netlify_site_id;
+      let newSiteCreated = false;
 
-      // Si no hay sitio conectado, preguntar al usuario
+      // Si no hay sitio conectado a este repo, crear uno nuevo ya conectado
       if (!siteId) {
-        addLog('⚠️ No hay sitio de Netlify conectado', 'warning');
-        addLog('📋 Cargando sitios de Netlify...', 'info');
-        await loadNetlifySites();
-        setShowNetlifySiteSelector(true);
-        setIsNetlifyDeploying(false);
-        return;
-      }
+        addLog('🆕 Creando nuevo sitio de Netlify conectado al repositorio...', 'info');
 
-      // STEP 8: Actualizar repo con site_id en BD
-      if (!repo.netlify_site_id) {
-        await supabase
-          .from('git_repositories')
-          .update({ netlify_site_id: siteId })
-          .eq('id', repo.id);
-      }
+        try {
+          // Crear sitio de Netlify ya conectado al repositorio de GitHub
+          const siteName = `${selectedApp?.toLowerCase().replace(/\s+/g, '-')}-${environmentName}`.substring(0, 63);
 
-      // STEP 9: Conectar repositorio a Netlify (si no está conectado)
-      addLog('🔗 Conectando repositorio a Netlify...', 'info');
-      try {
-        await netlifyService.connectRepositoryToSite(
-          siteId,
-          repo.repo_full_name,
-          '', // Sin build command (archivos estáticos)
-          '.' // Publicar desde raíz
-        );
-        addLog('   ✓ Repositorio conectado a Netlify', 'success');
-      } catch (error: any) {
-        // Puede fallar si ya está conectado, lo cual está bien
-        if (error.message?.includes('already')) {
-          addLog('   ✓ Repositorio ya estaba conectado', 'info');
-        } else {
-          addLog('   ⚠️  Advertencia al conectar repositorio', 'warning');
-          console.warn('Error connecting repo:', error);
+          const newSite = await netlifyService.createSiteFromRepo(
+            repo.repo_full_name,
+            {
+              name: siteName,
+              buildCommand: '', // Sin build (archivos estáticos)
+              publishDir: '.', // Publicar desde raíz
+              branch: 'main'
+            }
+          );
+
+          siteId = newSite.id;
+          newSiteCreated = true;
+
+          addLog(`   ✓ Sitio creado: ${newSite.name}`, 'success');
+          addLog(`   ✓ URL: ${newSite.ssl_url || newSite.url}`, 'success');
+          addLog(`   ✓ Repositorio conectado automáticamente`, 'success');
+
+          // Guardar site_id en BD
+          await supabase
+            .from('git_repositories')
+            .update({ netlify_site_id: siteId })
+            .eq('id', repo.id);
+
+        } catch (error: any) {
+          console.error('Error creating site from repo:', error);
+
+          if (error.message === 'REPO_ACCESS_REQUIRED') {
+            addLog('⚠️ Netlify necesita acceso al repositorio', 'warning');
+            addLog('', 'info');
+            addLog('Por favor, conecta Netlify con GitHub manualmente:', 'warning');
+            addLog('1. Ve a: https://app.netlify.com/sites', 'info');
+            addLog('2. Click en "Add new site" → "Import an existing project"', 'info');
+            addLog('3. Conecta con GitHub y autoriza el acceso', 'info');
+            addLog(`4. Selecciona el repositorio: ${repo.repo_full_name}`, 'info');
+            addLog('5. Configura:', 'info');
+            addLog('   - Build command: (dejar vacío)', 'info');
+            addLog('   - Publish directory: .', 'info');
+            addLog('6. Haz click en "Deploy site"', 'info');
+            addLog('', 'info');
+            addLog('Una vez creado el sitio, copia el Site ID y pégalo aquí.', 'warning');
+
+            setIsNetlifyDeploying(false);
+            return;
+          }
+
+          // Si falla, intentar con sitio existente
+          addLog('   ⚠️ No se pudo crear sitio automáticamente', 'warning');
+          addLog('📋 Selecciona un sitio existente de Netlify...', 'info');
+          await loadNetlifySites();
+          setShowNetlifySiteSelector(true);
+          setIsNetlifyDeploying(false);
+          return;
+        }
+      } else {
+        // Si ya hay un sitio, intentar conectar el repositorio
+        addLog('🔗 Verificando conexión del repositorio con Netlify...', 'info');
+
+        try {
+          await netlifyService.setupRepositoryConnection(siteId, repo.repo_full_name);
+          addLog('   ✓ Repositorio conectado a Netlify', 'success');
+        } catch (error: any) {
+          // Puede fallar si ya está conectado, lo cual está bien
+          if (error.message?.includes('already') || error.message?.includes('repo')) {
+            addLog('   ✓ Repositorio ya estaba conectado', 'info');
+          } else {
+            addLog('   ⚠️  No se pudo verificar conexión, continuando...', 'warning');
+            console.warn('Error connecting repo:', error);
+          }
         }
       }
 
-      // STEP 10: Triggear deploy en Netlify
-      addLog('☁️ Triggeando deploy en Netlify...', 'info');
-      addLog('   Netlify publicará los archivos HTML estáticos', 'info');
+      // STEP 8: Netlify auto-deployará cuando detecte el push
+      if (newSiteCreated) {
+        addLog('', 'info');
+        addLog('✅ Netlify detectó el push y está deployando automáticamente', 'success');
+        addLog('   El webhook de GitHub está configurado', 'info');
+      } else {
+        // Si es un sitio existente, triggear deploy manualmente
+        addLog('☁️ Triggeando deploy en Netlify...', 'info');
 
-      let triggerResult;
-      try {
-        triggerResult = await netlifyService.triggerDeploy({
-          siteId,
-          branch: 'main',
-          title: `Deploy ${environmentName} - ${new Date().toLocaleString()}`
-        });
-        addLog('   ✓ Deploy iniciado en Netlify', 'success');
-      } catch (error: any) {
-        console.error('Error triggering deploy:', error);
-        throw new Error(`Error al triggear deploy: ${error.message}`);
+        try {
+          await netlifyService.triggerDeploy({
+            siteId,
+            branch: 'main',
+            title: `Deploy ${environmentName} - ${new Date().toLocaleString()}`
+          });
+          addLog('   ✓ Deploy iniciado en Netlify', 'success');
+        } catch (error: any) {
+          console.error('Error triggering deploy:', error);
+          addLog('   ⚠️ No se pudo triggear deploy automático', 'warning');
+          addLog('   Netlify deployará cuando detecte el próximo push', 'info');
+        }
       }
 
       addLog('', 'info');

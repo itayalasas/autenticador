@@ -134,6 +134,76 @@ class NetlifyService {
     });
   }
 
+  async createSiteFromRepo(
+    repoFullName: string,
+    options: {
+      name?: string;
+      buildCommand?: string;
+      publishDir?: string;
+      branch?: string;
+    } = {}
+  ): Promise<NetlifySite> {
+    // Create a new Netlify site connected to a GitHub repository
+    // This will automatically set up webhooks and deploy on push
+    const body: any = {
+      repo: {
+        provider: 'github',
+        repo: repoFullName, // Format: "owner/repo"
+        branch: options.branch || 'main',
+        cmd: options.buildCommand || '',
+        dir: options.publishDir || '.',
+        private: false,
+        repo_branch: options.branch || 'main',
+        allowed_branches: [options.branch || 'main'],
+      },
+    };
+
+    if (options.name) {
+      body.name = options.name;
+    }
+
+    try {
+      const site = await this.makeRequest('/sites', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      return site;
+    } catch (error: any) {
+      console.error('Error creating site from repo:', error);
+
+      // If connection fails, it might be because Netlify doesn't have access to the repo
+      // In this case, we need to guide the user to connect manually
+      if (error.message?.includes('repository') || error.message?.includes('permission')) {
+        throw new Error('REPO_ACCESS_REQUIRED');
+      }
+
+      throw error;
+    }
+  }
+
+  async setupRepositoryConnection(siteId: string, repoFullName: string): Promise<any> {
+    // Alternative approach: Update existing site with repo connection
+    // This requires that Netlify already has GitHub App installed
+    return this.makeRequest(`/sites/${siteId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        repo: {
+          provider: 'github',
+          repo: repoFullName,
+          branch: 'main',
+          cmd: '',
+          dir: '.',
+          private: false,
+        },
+        build_settings: {
+          cmd: '',
+          dir: '.',
+          provider: 'github',
+        },
+      }),
+    });
+  }
+
   async updateSite(siteId: string, updates: Partial<NetlifySite>): Promise<NetlifySite> {
     return this.makeRequest(`/sites/${siteId}`, {
       method: 'PATCH',
