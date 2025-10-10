@@ -64,6 +64,7 @@ function generateStandaloneFormHTML(
   const primaryColor = branding?.primary_color || '#3b82f6';
   const logoUrl = branding?.logo_url || '';
   const appName = branding?.app_name || 'AuthSystem';
+  const firstLetter = appName.charAt(0).toUpperCase();
 
   const formTitle = {
     'login': 'Iniciar Sesión',
@@ -71,14 +72,21 @@ function generateStandaloneFormHTML(
     'reset': 'Recuperar Contraseña'
   }[formType] || 'Autenticación';
 
+  const formSubtitle = {
+    'login': 'Ingresa tus credenciales',
+    'register': 'Crea tu cuenta para comenzar',
+    'reset': 'Te enviaremos un correo para restablecer tu contraseña'
+  }[formType] || '';
+
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${formTitle} - ${appName}</title>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/lucide-static/0.344.0/lucide.min.css">
+  <script src="https://unpkg.com/lucide@latest"></script>
   <style>
     :root {
       --primary-color: ${primaryColor};
@@ -89,51 +97,152 @@ function generateStandaloneFormHTML(
     .btn-primary:hover {
       filter: brightness(0.9);
     }
+    @keyframes pulse-bg {
+      0%, 100% { opacity: 0.2; }
+      50% { opacity: 0.3; }
+    }
+    .animate-pulse-bg {
+      animation: pulse-bg 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+    .input-with-icon {
+      padding-left: 2.5rem;
+    }
+    .icon-container {
+      position: absolute;
+      left: 0.75rem;
+      top: 50%;
+      transform: translateY(-50%);
+      pointer-events: none;
+    }
   </style>
 </head>
-<body class="bg-gray-50 min-h-screen flex items-center justify-center p-4">
-  <div class="w-full max-w-md">
-    <div class="bg-white rounded-lg shadow-lg p-8">
-      ${logoUrl ? `<div class="text-center mb-6"><img src="${logoUrl}" alt="${appName}" class="h-12 mx-auto" /></div>` : ''}
-      <h1 class="text-2xl font-bold text-center mb-6">${formTitle}</h1>
+<body class="min-h-screen flex items-center justify-center p-4" style="background-color: #f9fafb;">
+  <!-- Animated Background Blobs -->
+  <div class="absolute inset-0 overflow-hidden pointer-events-none">
+    <div class="absolute -top-40 -right-40 w-80 h-80 rounded-full mix-blend-multiply filter blur-xl animate-pulse-bg" style="background-color: ${primaryColor};"></div>
+    <div class="absolute -bottom-40 -left-40 w-80 h-80 rounded-full mix-blend-multiply filter blur-xl animate-pulse-bg" style="background-color: #1e40af; animation-delay: 2s;"></div>
+  </div>
+
+  <div class="relative w-full max-w-md">
+    <!-- Logo / App Initial -->
+    <div class="text-center mb-8">
+      ${logoUrl ? `
+        <img src="${logoUrl}" alt="${appName}" class="h-16 mx-auto mb-4" />
+      ` : `
+        <div class="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center text-white text-2xl font-bold" style="background-color: ${primaryColor};">
+          ${firstLetter}
+        </div>
+      `}
+      <h1 class="text-3xl font-bold text-gray-900 mb-2">${formTitle}</h1>
+      <p class="text-gray-600">${formSubtitle}</p>
+    </div>
+
+    <!-- Form Card -->
+    <div class="bg-white/80 backdrop-blur-lg shadow-2xl rounded-2xl border border-white/20 p-8">
+      <!-- Message Area -->
+      <div id="message" class="mb-4 p-3 rounded-lg hidden"></div>
 
       <form id="auth-form" class="space-y-4">
         ${formType === 'register' ? `
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
-          <input type="text" id="name" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <label class="block text-sm font-medium text-gray-700 mb-2">Nombre Completo</label>
+          <div class="relative">
+            <div class="icon-container">
+              <i data-lucide="user" class="w-5 h-5 text-gray-400"></i>
+            </div>
+            <input
+              type="text"
+              id="name"
+              required
+              class="w-full input-with-icon pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50 transition-all"
+              style="--tw-ring-color: ${primaryColor};"
+              placeholder="Tu nombre completo"
+            />
+          </div>
         </div>
         ` : ''}
 
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-          <input type="email" id="email" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <label class="block text-sm font-medium text-gray-700 mb-2">Email</label>
+          <div class="relative">
+            <div class="icon-container">
+              <i data-lucide="mail" class="w-5 h-5 text-gray-400"></i>
+            </div>
+            <input
+              type="email"
+              id="email"
+              required
+              class="w-full input-with-icon pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50 transition-all"
+              style="--tw-ring-color: ${primaryColor};"
+              placeholder="tu@email.com"
+            />
+          </div>
         </div>
 
         ${formType !== 'reset' ? `
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Contraseña</label>
-          <input type="password" id="password" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <label class="block text-sm font-medium text-gray-700 mb-2">Contraseña</label>
+          <div class="relative">
+            <div class="icon-container">
+              <i data-lucide="lock" class="w-5 h-5 text-gray-400"></i>
+            </div>
+            <input
+              type="password"
+              id="password"
+              required
+              class="w-full input-with-icon pr-12 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50 transition-all"
+              style="--tw-ring-color: ${primaryColor};"
+              placeholder="••••••••"
+            />
+            <button
+              type="button"
+              id="toggle-password"
+              class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <i data-lucide="eye" id="eye-icon" class="w-5 h-5"></i>
+            </button>
+          </div>
         </div>
         ` : ''}
 
-        <button type="submit" class="w-full btn-primary text-white py-2 px-4 rounded-md hover:opacity-90 transition">
-          ${formTitle}
+        <button
+          type="submit"
+          class="w-full btn-primary text-white py-3 px-4 rounded-lg font-medium hover:opacity-90 focus:ring-2 focus:ring-offset-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+          style="--tw-ring-color: ${primaryColor};"
+        >
+          <span id="button-text">${formTitle}</span>
+          <i data-lucide="arrow-right" class="w-5 h-5" id="arrow-icon"></i>
+          <div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin hidden" id="spinner"></div>
         </button>
       </form>
 
-      <div id="message" class="mt-4 p-3 rounded-md hidden"></div>
-
-      <div class="mt-6 text-center text-sm">
+      <!-- Links -->
+      <div class="mt-6 text-center space-y-2 text-sm">
         ${formType === 'login' ? `
-          <a href="/register" class="text-blue-600 hover:underline">¿No tienes cuenta? Regístrate</a>
-          <br />
-          <a href="/reset" class="text-blue-600 hover:underline mt-2 inline-block">¿Olvidaste tu contraseña?</a>
+          <a href="/reset?app_id=${applicationId}&env=production" class="block text-amber-600 hover:underline">¿Olvidaste tu contraseña?</a>
+          <p class="text-gray-600">
+            ¿No tienes cuenta?
+            <a href="/register?app_id=${applicationId}&env=production" class="text-amber-600 hover:underline">Regístrate aquí</a>
+          </p>
         ` : formType === 'register' ? `
-          <a href="/login" class="text-blue-600 hover:underline">¿Ya tienes cuenta? Inicia sesión</a>
+          <p class="text-gray-600">
+            ¿Ya tienes cuenta?
+            <a href="/login?app_id=${applicationId}&env=production" class="text-amber-600 hover:underline">Inicia sesión</a>
+          </p>
         ` : `
-          <a href="/login" class="text-blue-600 hover:underline">Volver al inicio de sesión</a>
+          <p class="text-gray-600">
+            ¿Recordaste tu contraseña?
+            <a href="/login?app_id=${applicationId}&env=production" class="text-amber-600 hover:underline">Inicia sesión</a>
+          </p>
         `}
+      </div>
+    </div>
+
+    <!-- Footer Badge -->
+    <div class="mt-6 text-center">
+      <div class="inline-flex items-center space-x-2 text-sm text-gray-500">
+        <i data-lucide="shield" class="w-4 h-4"></i>
+        <span>Protegido por AuthSystem</span>
       </div>
     </div>
   </div>
@@ -145,13 +254,41 @@ function generateStandaloneFormHTML(
     const SUPABASE_URL = '${supabaseUrl}';
     const SUPABASE_ANON_KEY = '${supabaseAnonKey}';
 
-    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // Initialize Lucide icons
+    lucide.createIcons();
+
+    // Toggle Password Visibility
+    const togglePasswordBtn = document.getElementById('toggle-password');
+    if (togglePasswordBtn) {
+      togglePasswordBtn.addEventListener('click', function() {
+        const passwordInput = document.getElementById('password');
+        const eyeIcon = document.getElementById('eye-icon');
+
+        if (passwordInput.type === 'password') {
+          passwordInput.type = 'text';
+          eyeIcon.setAttribute('data-lucide', 'eye-off');
+        } else {
+          passwordInput.type = 'password';
+          eyeIcon.setAttribute('data-lucide', 'eye');
+        }
+        lucide.createIcons();
+      });
+    }
 
     function showMessage(message, type) {
       const messageEl = document.getElementById('message');
-      messageEl.textContent = message;
-      messageEl.className = 'mt-4 p-3 rounded-md ' + (type === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700');
+      const iconHtml = type === 'error'
+        ? '<i data-lucide="alert-circle" class="w-5 h-5 text-red-500"></i>'
+        : '<i data-lucide="check-circle" class="w-5 h-5 text-green-500"></i>';
+
+      messageEl.innerHTML = \`
+        <div class="flex items-center space-x-2 \${type === 'error' ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'} p-3 rounded-lg">
+          \${iconHtml}
+          <span class="text-sm \${type === 'error' ? 'text-red-800' : 'text-green-800'}">\${message}</span>
+        </div>
+      \`;
       messageEl.classList.remove('hidden');
+      lucide.createIcons();
     }
 
     document.getElementById('auth-form').addEventListener('submit', async (e) => {
@@ -159,8 +296,14 @@ function generateStandaloneFormHTML(
 
       const email = document.getElementById('email').value;
       const submitBtn = e.target.querySelector('button[type="submit"]');
+      const buttonText = document.getElementById('button-text');
+      const arrowIcon = document.getElementById('arrow-icon');
+      const spinner = document.getElementById('spinner');
+
       submitBtn.disabled = true;
-      submitBtn.textContent = 'Procesando...';
+      buttonText.textContent = 'Procesando...';
+      arrowIcon.classList.add('hidden');
+      spinner.classList.remove('hidden');
 
       try {
         ${formType === 'login' ? `
@@ -249,7 +392,9 @@ function generateStandaloneFormHTML(
         showMessage('Error de conexión', 'error');
       } finally {
         submitBtn.disabled = false;
-        submitBtn.textContent = '${formTitle}';
+        buttonText.textContent = '${formTitle}';
+        spinner.classList.add('hidden');
+        arrowIcon.classList.remove('hidden');
       }
     });
   </script>
