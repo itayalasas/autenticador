@@ -86,6 +86,7 @@ export default function EnvironmentsManager() {
   const [savedRepo, setSavedRepo] = useState<any>(null);
   const consoleRef = useRef<HTMLDivElement>(null);
   const logIdCounter = useRef(0);
+  const logsRef = useRef<LogEntry[]>([]);
   const [notification, setNotification] = useState({
     isOpen: false,
     type: 'success' as 'success' | 'error' | 'warning' | 'info',
@@ -147,10 +148,12 @@ export default function EnvironmentsManager() {
       level,
       message
     };
+    logsRef.current = [...logsRef.current, newLog];
     setConsoleLogs(prev => [...prev, newLog]);
   };
 
   const clearLogs = () => {
+    logsRef.current = [];
     setConsoleLogs([]);
   };
 
@@ -670,20 +673,26 @@ export default function EnvironmentsManager() {
 
       addLog('⏸️  Deploy pausado - Esperando selección de sitio...', 'info');
 
-      // Save final logs to database
+      // Save partial logs to database (deployment continues in handleSelectNetlifySite)
       if (deploymentLogId) {
         await supabase
           .from('deployment_logs')
           .update({
-            status: 'success',
-            completed_at: new Date().toISOString(),
-            logs: consoleLogs.map(log => ({
+            status: 'partial',
+            logs: logsRef.current.map(log => ({
               timestamp: log.timestamp,
               level: log.level,
               message: log.message
-            }))
+            })),
+            metadata: {
+              environment_name: environmentName,
+              pending_site_selection: true
+            }
           })
           .eq('id', deploymentLogId);
+
+        // Store deploymentLogId for continuation
+        setCurrentDeploymentLogId(deploymentLogId);
       }
 
       return true;
@@ -699,7 +708,7 @@ export default function EnvironmentsManager() {
           .update({
             status: 'failed',
             completed_at: new Date().toISOString(),
-            logs: consoleLogs.map(log => ({
+            logs: logsRef.current.map(log => ({
               timestamp: log.timestamp,
               level: log.level,
               message: log.message
@@ -1445,6 +1454,32 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
           addLog('', 'info');
           addLog('💡 Netlify deployará automáticamente en cada push a GitHub', 'info');
 
+          // Save final logs to database
+          if (currentDeploymentLogId) {
+            await supabase
+              .from('deployment_logs')
+              .update({
+                status: 'success',
+                completed_at: new Date().toISOString(),
+                logs: logsRef.current.map(log => ({
+                  timestamp: log.timestamp,
+                  level: log.level,
+                  message: log.message
+                })),
+                metadata: {
+                  environment_name: pendingDeployData.environmentName,
+                  netlify_site_id: siteId,
+                  netlify_site_name: siteName,
+                  netlify_site_url: siteUrl,
+                  github_repo: pendingDeployData.repo.repo_full_name
+                }
+              })
+              .eq('id', currentDeploymentLogId);
+
+            addLog(`📝 Logs guardados en BD (${logsRef.current.length} entradas)`, 'info');
+            setCurrentDeploymentLogId(null);
+          }
+
           // Limpiar datos pendientes
           setPendingDeployData(null);
 
@@ -1452,6 +1487,28 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
           await loadEnvironments();
         } catch (error: any) {
           addLog(`❌ Error durante el deploy: ${error.message}`, 'error');
+
+          // Save failed logs to database
+          if (currentDeploymentLogId) {
+            await supabase
+              .from('deployment_logs')
+              .update({
+                status: 'failed',
+                completed_at: new Date().toISOString(),
+                logs: logsRef.current.map(log => ({
+                  timestamp: log.timestamp,
+                  level: log.level,
+                  message: log.message
+                })),
+                metadata: {
+                  error: error.message || 'Unknown error'
+                }
+              })
+              .eq('id', currentDeploymentLogId);
+
+            setCurrentDeploymentLogId(null);
+          }
+
           setPendingDeployData(null);
         }
       } else {
