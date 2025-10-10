@@ -334,6 +334,7 @@ function generateStandaloneFormHTML(
     function navigateToForm(formType) {
       const params = new URLSearchParams();
       if (APPLICATION_ID) params.append('app_id', APPLICATION_ID);
+      if (API_KEY) params.append('api_key', API_KEY);
       if (redirectUri) params.append('redirect_uri', redirectUri);
 
       const formRoutes = {
