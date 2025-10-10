@@ -15,6 +15,7 @@ interface RegisterRequest {
   password: string
   name: string
   application_id: string
+  api_key: string
   callback_url?: string
   client_ip?: string
   metadata?: Record<string, any>
@@ -412,9 +413,9 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { email, password, name, application_id, callback_url, client_ip, metadata }: RegisterRequest = requestBody;
+    const { email, password, name, application_id, api_key, callback_url, client_ip, metadata }: RegisterRequest = requestBody;
 
-    if (!email || !password || !name || !application_id) {
+    if (!email || !password || !name || !application_id || !api_key) {
       const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0';
       
       await supabase.from('auth_logs').insert({
@@ -448,14 +449,58 @@ Deno.serve(async (req) => {
     }
 
     const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0';
-    
+
     console.log('🔍 Processing register request:', {
       email,
       name,
       application_id,
       ip_address: ipAddress,
-      has_password: !!password
+      has_password: !!password,
+      has_api_key: !!api_key
     });
+
+    // Validate API Key
+    console.log('🔑 Validating API Key...');
+    const { data: apiKeyData, error: apiKeyError } = await supabase
+      .from('api_keys')
+      .select('*')
+      .eq('key_hash', api_key)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (apiKeyError || !apiKeyData) {
+      console.log('❌ Invalid API Key provided');
+
+      await supabase.from('auth_logs').insert({
+        application_id: null,
+        event_type: 'failed_register',
+        ip_address: ipAddress,
+        user_agent: req.headers.get('user-agent') || 'unknown',
+        success: false,
+        error_message: 'API Key inválida',
+        metadata: {
+          email,
+          application_id,
+          error_type: 'invalid_api_key'
+        }
+      });
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'INVALID_API_KEY',
+            message: 'API Key inválida o inactiva'
+          }
+        }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    console.log('✅ API Key validated successfully');
 
     const { data: blockedIP } = await supabase
       .from('blocked_ips')

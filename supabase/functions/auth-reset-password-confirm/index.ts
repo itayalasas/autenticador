@@ -14,6 +14,7 @@ interface ResetPasswordConfirmRequest {
   token: string;
   email: string;
   new_password: string;
+  api_key: string;
 }
 
 async function generateAuthTokens(userId: string, applicationId: string, jwtSecret: string) {
@@ -99,9 +100,9 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { token, email, new_password }: ResetPasswordConfirmRequest = requestBody;
+    const { token, email, new_password, api_key }: ResetPasswordConfirmRequest = requestBody;
 
-    if (!token || !email || !new_password) {
+    if (!token || !email || !new_password || !api_key) {
       return new Response(
         JSON.stringify({
           success: false,
@@ -116,6 +117,35 @@ Deno.serve(async (req) => {
         }
       );
     }
+
+    // Validate API Key
+    console.log('🔑 Validating API Key...');
+    const { data: apiKeyData, error: apiKeyError } = await supabase
+      .from('api_keys')
+      .select('*')
+      .eq('key_hash', api_key)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (apiKeyError || !apiKeyData) {
+      console.log('❌ Invalid API Key provided');
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'INVALID_API_KEY',
+            message: 'API Key inválida o inactiva'
+          }
+        }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    console.log('✅ API Key validated successfully');
 
     console.log("🔍 Validating reset token for:", email);
 

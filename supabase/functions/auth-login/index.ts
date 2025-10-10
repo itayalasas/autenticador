@@ -13,6 +13,7 @@ interface LoginRequest {
   email: string
   password: string
   application_id: string
+  api_key: string
   callback_url?: string
   client_ip?: string
 }
@@ -66,9 +67,9 @@ Deno.serve(async (req) => {
       )
     }
 
-    const { email, password, application_id, callback_url, client_ip }: LoginRequest = requestBody
+    const { email, password, application_id, api_key, callback_url, client_ip }: LoginRequest = requestBody
 
-    if (!email || !password || !application_id) {
+    if (!email || !password || !application_id || !api_key) {
       const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0'
       
       // Log missing fields error
@@ -91,7 +92,7 @@ Deno.serve(async (req) => {
           success: false,
           error: {
             code: 'MISSING_FIELDS',
-            message: 'Email, password, and application_id are required'
+            message: 'Email, password, application_id, and api_key are required'
           }
         }),
         {
@@ -102,13 +103,90 @@ Deno.serve(async (req) => {
     }
 
     const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0'
-    
+
     console.log('🔍 Processing login request:', {
       email,
       application_id,
       ip_address: ipAddress,
-      has_password: !!password
+      has_password: !!password,
+      has_api_key: !!api_key
     });
+
+    // Validate API Key
+    console.log('🔑 Validating API Key...');
+    const { data: apiKeyData, error: apiKeyError } = await supabase
+      .from('api_keys')
+      .select('*')
+      .eq('key_hash', api_key) // API key is stored as-is in key_hash field
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (apiKeyError || !apiKeyData) {
+      console.log('❌ Invalid API Key provided');
+
+      await supabase.from('auth_logs').insert({
+        application_id: null,
+        event_type: 'failed_login',
+        ip_address: ipAddress,
+        user_agent: req.headers.get('user-agent') || 'unknown',
+        success: false,
+        error_message: 'API Key inválida',
+        metadata: {
+          email,
+          application_id,
+          error_type: 'invalid_api_key'
+        }
+      });
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'INVALID_API_KEY',
+            message: 'API Key inválida o inactiva'
+          }
+        }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    // Verify API Key belongs to the application
+    if (apiKeyData.application_id !== application_id) {
+      console.log('❌ API Key does not belong to this application');
+
+      await supabase.from('auth_logs').insert({
+        application_id: null,
+        event_type: 'failed_login',
+        ip_address: ipAddress,
+        user_agent: req.headers.get('user-agent') || 'unknown',
+        success: false,
+        error_message: 'API Key no pertenece a esta aplicación',
+        metadata: {
+          email,
+          application_id,
+          error_type: 'api_key_mismatch'
+        }
+      });
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'API_KEY_MISMATCH',
+            message: 'API Key no pertenece a esta aplicación'
+          }
+        }),
+        {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    console.log('✅ API Key validated successfully');
 
     const { data: blockedIP } = await supabase
       .from('blocked_ips')
