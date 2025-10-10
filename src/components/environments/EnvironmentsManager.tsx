@@ -551,7 +551,7 @@ export default function EnvironmentsManager() {
 
       // STEP 5.1: Inicializar variables de entorno si no existen
       addLog('🔧 Configurando variables de entorno...', 'info');
-      const app = applications.find(a => a.name === selectedApp);
+      const app = applications.find(a => a.id === selectedApp);
       if (!app) {
         throw new Error('Aplicación no encontrada');
       }
