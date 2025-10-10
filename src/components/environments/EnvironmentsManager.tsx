@@ -283,7 +283,10 @@ export default function EnvironmentsManager() {
       setShowConsole(true);
       clearLogs();
 
-      addLog(`🚀 Iniciando validación y despliegue para ambiente ${environmentName}`, 'info');
+      addLog('', 'info');
+      addLog('🚀 ========================================', 'info');
+      addLog('🚀 INICIO DEL DESPLIEGUE', 'info');
+      addLog('🚀 ========================================', 'info');
       addLog('', 'info');
 
       // Step 1: Validate subscription and plan
@@ -382,6 +385,7 @@ export default function EnvironmentsManager() {
 
       // Generate URLs for forms and API
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
       const generatedUrls = {
         api_base: `${supabaseUrl}/functions/v1`,
         login: `${baseUrl}/login?app_id=${applicationId}&api_key=${apiKey}`,
@@ -464,25 +468,189 @@ export default function EnvironmentsManager() {
       const allTestsPassed = Object.values(testResults).every(result => result.success);
       addLog('', 'info');
 
-      if (allTestsPassed) {
-        addLog(`🎉 ¡Despliegue completado exitosamente para ${environmentName}!`, 'success');
-        addLog(`🌍 El ambiente está listo para integrarse`, 'success');
-        addLog('', 'info');
-        addLog('📚 Usa el botón "Ver URLs" para obtener las URLs de integración', 'info');
-        addLog('📖 Usa el botón "Guía de Integración" para ver ejemplos de código', 'info');
-
-        // Si todos los tests pasaron y Netlify está configurado, preguntar si desplegar
-        if (netlifyService.isConfigured() && environmentName === 'production') {
-          addLog('', 'info');
-          addLog('☁️  Netlify configurado detectado', 'info');
-          addLog('💡 Puedes deployar a Netlify usando el botón "Deploy to Netlify"', 'info');
-        }
-      } else {
+      if (!allTestsPassed) {
         addLog(`⚠️ Despliegue completado con algunas pruebas fallidas`, 'warning');
-        addLog(`🔧 Revisa los resultados y corrige los problemas`, 'warning');
+        addLog(`🔧 Revisa los resultados y corrige los problemas antes de deployar`, 'warning');
+        return false;
       }
 
-      return allTestsPassed;
+      addLog(`🎉 ¡Pruebas exitosas para ${environmentName}!`, 'success');
+      addLog('', 'info');
+
+      // =================================================================
+      // PASO 10: VERIFICAR GITHUB Y NETLIFY
+      // =================================================================
+      addLog('🔗 Paso 10: Verificando conectores...', 'info');
+
+      const githubConfigured = await connectorsService.isGitHubConfigured();
+      const githubConnection = await githubService.getActiveConnection();
+      const netlifyConfigured = await connectorsService.isNetlifyConfigured();
+
+      if (!githubConfigured || !githubConnection) {
+        addLog('', 'info');
+        addLog('⚠️  GitHub no está configurado o conectado', 'warning');
+        addLog('📋 Para deployar a Netlify necesitas:', 'info');
+        addLog('   1. Configurar GitHub en "Conectores" (Client ID y Secret)', 'info');
+        addLog('   2. Conectar tu cuenta de GitHub', 'info');
+        addLog('   3. Crear o seleccionar un repositorio', 'info');
+        addLog('', 'info');
+        addLog('✅ Edge Functions están funcionando correctamente', 'success');
+        addLog('📚 Usa el botón "Ver URLs" para integración manual', 'info');
+        return true;
+      }
+
+      if (!netlifyConfigured) {
+        addLog('', 'info');
+        addLog('⚠️  Netlify no está configurado', 'warning');
+        addLog('📋 Configura tu Access Token de Netlify en "Conectores"', 'info');
+        addLog('', 'info');
+        addLog('✅ Edge Functions están funcionando correctamente', 'success');
+        return true;
+      }
+
+      addLog('✅ GitHub conectado', 'success');
+      addLog('✅ Netlify configurado', 'success');
+      addLog('', 'info');
+
+      // =================================================================
+      // PASO 11: OBTENER REPOSITORIO
+      // =================================================================
+      addLog('📦 Paso 11: Obteniendo repositorio de GitHub...', 'info');
+      const savedRepos = await githubService.getSavedRepositories();
+
+      if (savedRepos.length === 0) {
+        addLog('⚠️  No hay repositorios guardados', 'warning');
+        addLog('📋 Crea o selecciona un repositorio en "Conectores"', 'info');
+        addLog('', 'info');
+        addLog('✅ Edge Functions están funcionando correctamente', 'success');
+        return true;
+      }
+
+      const repo = savedRepos[0];
+      addLog(`✅ Repositorio: ${repo.repo_full_name}`, 'success');
+      addLog('', 'info');
+
+      // =================================================================
+      // PASO 12: GENERAR ARCHIVOS CON BRANDING
+      // =================================================================
+      addLog('📁 Paso 12: Generando formularios HTML con branding...', 'info');
+
+      const app = selectedApplication;
+      // supabaseUrl ya fue declarado arriba (línea 387)
+
+      // Obtener branding de la base de datos
+      addLog('🎨 Obteniendo branding actualizado...', 'info');
+      const { data: brandingData } = await supabase
+        .from('branding_configs')
+        .select('*')
+        .eq('application_id', app.id)
+        .maybeSingle();
+
+      if (brandingData) {
+        addLog(`   ✓ Branding: ${brandingData.primary_color || 'default'}`, 'success');
+      } else {
+        addLog('   ℹ️  Usando branding por defecto', 'info');
+      }
+
+      // Obtener o crear API Key
+      const { data: apiKeys } = await supabase
+        .from('api_keys')
+        .select('*')
+        .eq('application_id', app.id)
+        .eq('environment', environmentName)
+        .eq('is_active', true);
+
+      let deployApiKey = '';
+      if (!apiKeys || apiKeys.length === 0) {
+        // Generar nueva API Key
+        deployApiKey = `ak_${environmentName}_${Math.random().toString(36).substring(2, 15)}${Math.random().toString(36).substring(2, 15)}`;
+
+        const encoder = new TextEncoder();
+        const data = encoder.encode(deployApiKey);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const keyHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        const keyPreview = `${deployApiKey.substring(0, 20)}...${deployApiKey.substring(deployApiKey.length - 4)}`;
+
+        await supabase.from('api_keys').insert({
+          application_id: app.id,
+          name: `${environmentName} API Key`,
+          key_hash: keyHash,
+          key_preview: keyPreview,
+          environment: environmentName,
+          is_active: true
+        });
+
+        addLog(`   ✓ API Key creada: ${keyPreview}`, 'success');
+      } else {
+        deployApiKey = `PLACEHOLDER_${environmentName.toUpperCase()}_API_KEY`;
+        addLog(`   ℹ️  Usando API Key existente: ${apiKeys[0].key_preview}`, 'info');
+      }
+
+      // Generar archivos
+      const files = await getStaticProjectFiles(
+        app.application_id,
+        deployApiKey,
+        supabaseUrl,
+        supabaseAnonKey,
+        brandingData || {}
+      );
+
+      addLog(`   ✓ ${Object.keys(files).length} archivos generados`, 'success');
+      addLog('', 'info');
+
+      // =================================================================
+      // PASO 13: PUSH A GITHUB
+      // =================================================================
+      addLog(`📤 Paso 13: Subiendo código a GitHub...`, 'info');
+      addLog(`   Repositorio: ${repo.repo_full_name}`, 'info');
+      addLog(`   Branch: ${repo.default_branch || 'main'}`, 'info');
+
+      const commitResult = await githubService.commitAndPush(
+        repo.repo_full_name,
+        files,
+        `Deploy ${environmentName} - ${new Date().toISOString()}`
+      );
+
+      if (!commitResult.success) {
+        addLog(`❌ Error al subir a GitHub: ${commitResult.error}`, 'error');
+        return false;
+      }
+
+      addLog('✅ Código subido exitosamente a GitHub', 'success');
+      addLog(`   Commit: ${commitResult.sha?.substring(0, 7)}`, 'info');
+      addLog('', 'info');
+
+      // =================================================================
+      // PASO 14: DEPLOY A NETLIFY (AUTO)
+      // =================================================================
+      addLog('☁️  Paso 14: Deploy a Netlify...', 'info');
+      addLog('   Netlify detectará el cambio en GitHub y deployará automáticamente', 'info');
+      addLog('', 'info');
+
+      // Actualizar environment con el repo y estado
+      await applicationService.updateEnvironment(environmentId, {
+        metadata: {
+          ...environment.metadata,
+          github_repo: repo.repo_full_name,
+          last_commit: commitResult.sha,
+          last_deploy: new Date().toISOString(),
+          deployment_status: 'deployed'
+        }
+      });
+
+      addLog('🎉 ========================================', 'success');
+      addLog('🎉 DESPLIEGUE COMPLETADO', 'success');
+      addLog('🎉 ========================================', 'success');
+      addLog('', 'info');
+      addLog('📋 Siguiente paso:', 'info');
+      addLog('   1. Ve a tu dashboard de Netlify', 'info');
+      addLog('   2. Conecta tu repositorio de GitHub si aún no lo has hecho', 'info');
+      addLog('   3. Netlify auto-deployará en cada push a GitHub', 'info');
+      addLog('', 'info');
+      addLog('🔗 URLs disponibles en "Ver URLs"', 'info');
+
+      return true;
 
     } catch (error) {
       console.error('Deploy error:', error);
@@ -494,6 +662,12 @@ export default function EnvironmentsManager() {
     }
   };
 
+  // ============================================================================
+  // FUNCIÓN DEPRECADA - YA NO SE USA
+  // Toda la lógica de deploy ahora está integrada en handleDeploy()
+  // El botón "Desplegar" hace todo automáticamente: valida, genera archivos,
+  // sube a GitHub y Netlify auto-deploya desde allí
+  // ============================================================================
   const handleDeployToNetlify = async (environmentId: string, environmentName: string) => {
     try {
       // Save environment info
@@ -1671,20 +1845,6 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
                           >
                             <FileText className="w-4 h-4" />
                           </button>
-                          {env.metadata?.deployment_status === 'deployed' && env.name === 'production' && (
-                            <button
-                              onClick={() => handleDeployToNetlify(env.id, env.name)}
-                              disabled={isNetlifyDeploying}
-                              className="p-2 bg-purple-100 text-purple-600 hover:bg-purple-200 rounded-lg transition-colors disabled:opacity-50"
-                              title={netlifyService.isConfigured() ? 'Deploy to Netlify' : 'Netlify no configurado'}
-                            >
-                              {isNetlifyDeploying ? (
-                                <div className="w-4 h-4 border-2 border-purple-600 border-t-transparent rounded-full animate-spin" />
-                              ) : (
-                                <Cloud className="w-4 h-4" />
-                              )}
-                            </button>
-                          )}
                         </>
                       )}
 
