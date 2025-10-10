@@ -1084,23 +1084,25 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
       addLog(`📋 Seleccionando sitio: ${siteName}`, 'info');
       addLog(`   Site ID: ${siteId}`, 'info');
 
-      // Get the access token from netlifyService or ask user
-      const hasToken = await netlifyService.hasAccessToken();
-      if (!hasToken) {
+      // Load existing configuration to preserve the access token
+      addLog('🔍 Cargando configuración existente...', 'info');
+      const existingConfig = await netlifyService.loadConfigFromDatabase();
+
+      if (!existingConfig || !existingConfig.access_token) {
         addLog('❌ Falta el Access Token. Por favor guárdalo primero en Configuración de Netlify', 'error');
         setShowNetlifySiteSelector(false);
         setShowNetlifyConfig(true);
         return;
       }
 
-      // Get current access token (it's already loaded in netlifyService)
-      const token = netlifyAccessToken || import.meta.env.VITE_NETLIFY_ACCESS_TOKEN || '';
+      // Use the existing access token (DON'T overwrite it)
+      const token = existingConfig.access_token;
 
-      // Save to database
-      addLog('💾 Guardando configuración en la base de datos...', 'info');
+      // Save to database - only updating the Site ID
+      addLog('💾 Actualizando Site ID en la base de datos...', 'info');
       await netlifyService.saveConfigToDatabase(token, siteId, siteName, siteUrl);
 
-      addLog('✅ Configuración guardada exitosamente!', 'success');
+      addLog('✅ Configuración actualizada exitosamente!', 'success');
       addLog('', 'info');
       addLog('🎉 Netlify está configurado y listo para usar', 'success');
       addLog('💡 Ya puedes hacer deploy sin reiniciar la aplicación', 'info');
