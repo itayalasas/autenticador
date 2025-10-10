@@ -2824,7 +2824,7 @@ try {
             confirmText="Eliminar"
             cancelText="Cancelar"
             onConfirm={handleDeleteEnvironment}
-            onCancel={() => setShowDeleteConfirm(null)}
+            onClose={() => setShowDeleteConfirm(null)}
             type="danger"
           />
         );
@@ -2846,7 +2846,7 @@ try {
               handleDeleteLog(showDeleteLogConfirm);
               setShowDeleteLogConfirm(null);
             }}
-            onCancel={() => setShowDeleteLogConfirm(null)}
+            onClose={() => setShowDeleteLogConfirm(null)}
             type="danger"
           />
         );
