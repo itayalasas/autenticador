@@ -613,14 +613,6 @@ export default function PublicAuthForms({
               </div>
             )}
 
-            {/* Debug info - remove after testing */}
-            {formType === 'register' && (
-              <div className="p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
-                <strong>Debug:</strong> formType={formType}, roles count={availableRoles.length},
-                roles={JSON.stringify(availableRoles.map(r => r.name))}
-              </div>
-            )}
-
             {formType === 'register' && availableRoles.length > 0 && (
               <div>
                 <label
