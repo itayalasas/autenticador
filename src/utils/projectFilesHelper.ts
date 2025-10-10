@@ -1,4 +1,5 @@
 // Helper to prepare project files for deployment with real auth components
+import { PUBLIC_AUTH_FORMS_TEMPLATE } from './publicAuthFormsTemplate';
 
 export async function getProjectFiles(): Promise<Record<string, string>> {
   const files: Record<string, string> = {};
@@ -299,6 +300,25 @@ export const rolesService = {
       console.error('Error loading roles:', error);
       return [];
     }
+  },
+
+  async getAvailableRolesForRegistration(applicationId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('roles')
+        .select('*')
+        .eq('application_id', applicationId)
+        .eq('is_active', true)
+        .eq('is_available_for_registration', true)
+        .order('display_order', { ascending: true });
+
+      if (error) throw error;
+
+      return data || [];
+    } catch (error) {
+      console.error('Error loading roles for registration:', error);
+      return [];
+    }
   }
 };`;
 
@@ -519,10 +539,8 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
   );
 }`;
 
-  // PublicAuthForms Component - Import the actual source code
-  // We import this dynamically to avoid embedding 700+ lines inline
-  const PublicAuthFormsModule = await import('../components/auth/PublicAuthForms.tsx?raw');
-  files['src/components/auth/PublicAuthForms.tsx'] = PublicAuthFormsModule.default;
+  // PublicAuthForms Component - Use the template
+  files['src/components/auth/PublicAuthForms.tsx'] = PUBLIC_AUTH_FORMS_TEMPLATE;
 
   // Netlify config
   files['netlify.toml'] = `[build]
