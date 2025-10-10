@@ -1346,9 +1346,12 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
           addLog(`🌐 URL del sitio: ${siteUrl}`, 'info');
           addLog('', 'info');
           addLog('📋 Los formularios estarán disponibles en:', 'info');
-          addLog(`   Login: ${siteUrl}/login?app_id=${pendingDeployData.applicationId}&api_key=${pendingDeployData.apiKey}`, 'info');
-          addLog(`   Register: ${siteUrl}/register?app_id=${pendingDeployData.applicationId}&api_key=${pendingDeployData.apiKey}`, 'info');
-          addLog(`   Reset: ${siteUrl}/reset-password?app_id=${pendingDeployData.applicationId}&api_key=${pendingDeployData.apiKey}`, 'info');
+
+          const redirectUri = encodeURIComponent(pendingDeployData.environment.callback_url || `https://${pendingDeployData.environment.name}/auth/callback`);
+
+          addLog(`   Login: ${siteUrl}/login?app_id=${pendingDeployData.applicationId}&redirect_uri=${redirectUri}&api_key=${pendingDeployData.apiKey}`, 'info');
+          addLog(`   Register: ${siteUrl}/register?app_id=${pendingDeployData.applicationId}&redirect_uri=${redirectUri}&api_key=${pendingDeployData.apiKey}`, 'info');
+          addLog(`   Reset: ${siteUrl}/reset-password?app_id=${pendingDeployData.applicationId}&redirect_uri=${redirectUri}&api_key=${pendingDeployData.apiKey}`, 'info');
           addLog('', 'info');
           addLog('💡 Netlify deployará automáticamente en cada push a GitHub', 'info');
 
