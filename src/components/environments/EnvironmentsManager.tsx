@@ -720,6 +720,8 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
         `Deploy ${environmentName} - ${new Date().toLocaleString()}`
       );
       addLog('✅ Código subido a GitHub exitosamente', 'success');
+      addLog('', 'info');
+      addLog('📡 GitHub notificará a Netlify sobre el nuevo código', 'info');
 
       // STEP 7: Obtener o crear sitio de Netlify conectado al repositorio
       const netlifyConfig = await connectorsService.getNetlifyConfig();
@@ -835,26 +837,13 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
       }
 
       // STEP 8: Netlify auto-deployará cuando detecte el push
+      addLog('', 'info');
       if (newSiteCreated) {
-        addLog('', 'info');
-        addLog('✅ Netlify detectó el push y está deployando automáticamente', 'success');
-        addLog('   El webhook de GitHub está configurado', 'info');
+        addLog('✅ Sitio nuevo conectado - Netlify está deployando automáticamente', 'success');
+        addLog('   📡 El webhook de GitHub se configuró automáticamente', 'info');
       } else {
-        // Si es un sitio existente, triggear deploy manualmente
-        addLog('☁️ Triggeando deploy en Netlify...', 'info');
-
-        try {
-          await netlifyService.triggerDeploy({
-            siteId,
-            branch: 'main',
-            title: `Deploy ${environmentName} - ${new Date().toLocaleString()}`
-          });
-          addLog('   ✓ Deploy iniciado en Netlify', 'success');
-        } catch (error: any) {
-          console.error('Error triggering deploy:', error);
-          addLog('   ⚠️ No se pudo triggear deploy automático', 'warning');
-          addLog('   Netlify deployará cuando detecte el próximo push', 'info');
-        }
+        addLog('✅ Netlify detectó el push y está deployando automáticamente', 'success');
+        addLog('   📡 El webhook de GitHub ya estaba configurado', 'info');
       }
 
       addLog('', 'info');
@@ -891,11 +880,19 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
       );
 
       addLog('', 'info');
-      addLog('🎉 ¡DEPLOY AUTOMÁTICO COMPLETADO EXITOSAMENTE!', 'success');
+      addLog('🎉 ¡DEPLOY COMPLETADO EXITOSAMENTE!', 'success');
       addLog('', 'info');
       addLog(`🌐 URL del sitio: ${finalDeploy.ssl_url}`, 'success');
       addLog(`🔗 URL del deploy: ${finalDeploy.deploy_ssl_url}`, 'info');
       addLog(`⚙️  Admin URL: ${finalDeploy.admin_url}`, 'info');
+      addLog('', 'info');
+      addLog('✨ IMPORTANTE:', 'success');
+      addLog('📦 A partir de ahora, cada vez que hagas push a GitHub:', 'info');
+      addLog('   • Netlify detectará los cambios automáticamente', 'info');
+      addLog('   • Se ejecutará un nuevo deploy sin intervención manual', 'info');
+      addLog('   • No necesitas volver a deployar desde aquí', 'info');
+      addLog('', 'info');
+      addLog('💡 Solo necesitas usar este botón si cambias de repositorio o sitio', 'info');
       addLog('', 'info');
       addLog(`✅ Deploy completado a las: ${new Date(finalDeploy.updated_at).toLocaleString()}`, 'success');
       addLog('', 'info');
@@ -1104,8 +1101,11 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
 
       addLog('✅ Configuración actualizada exitosamente!', 'success');
       addLog('', 'info');
-      addLog('🎉 Netlify está configurado y listo para usar', 'success');
-      addLog('💡 Ya puedes hacer deploy sin reiniciar la aplicación', 'info');
+      addLog('🎉 ¡Configuración completa!', 'success');
+      addLog('', 'info');
+      addLog('✨ Tu repositorio ya está conectado con Netlify', 'info');
+      addLog('📦 Los deploys se realizarán automáticamente cuando hagas push a GitHub', 'info');
+      addLog('💡 No necesitas hacer deploy manual - Netlify lo hace por ti', 'info');
 
       setShowNetlifySiteSelector(false);
     } catch (error: any) {
