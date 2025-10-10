@@ -143,37 +143,41 @@ class NetlifyService {
       branch?: string;
     } = {}
   ): Promise<NetlifySite> {
-    // Create a new Netlify site connected to a GitHub repository
-    // This will automatically set up webhooks and deploy on push
-    const body: any = {
-      repo: {
-        provider: 'github',
-        repo: repoFullName, // Format: "owner/repo"
-        branch: options.branch || 'main',
-        cmd: options.buildCommand || '',
-        dir: options.publishDir || '.',
-        private: false,
-        repo_branch: options.branch || 'main',
-        allowed_branches: [options.branch || 'main'],
-      },
-    };
-
-    if (options.name) {
-      body.name = options.name;
-    }
+    // Strategy: Create empty site first, then connect repo
+    // This is more reliable than trying to create with repo in one step
 
     try {
-      const site = await this.makeRequest('/sites', {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      return site;
+      // Step 1: Create an empty site
+      const emptySite = await this.createSite({ name: options.name });
+
+      // Step 2: Try to connect the repository
+      try {
+        await this.setupRepositoryConnection(emptySite.id, repoFullName, options.branch);
+
+        // Refetch site to get updated info with repo connection
+        const connectedSite = await this.getSite(emptySite.id);
+        return connectedSite;
+      } catch (repoError: any) {
+        console.warn('Could not connect repo automatically:', repoError);
+
+        // Site was created but repo connection failed
+        // Return the site anyway, it can be connected manually
+        if (repoError.message?.includes('repository') ||
+            repoError.message?.includes('permission') ||
+            repoError.message?.includes('access')) {
+          throw new Error('REPO_ACCESS_REQUIRED');
+        }
+
+        // Return the empty site, connection can be done manually
+        return emptySite;
+      }
     } catch (error: any) {
       console.error('Error creating site from repo:', error);
 
       // If connection fails, it might be because Netlify doesn't have access to the repo
-      // In this case, we need to guide the user to connect manually
-      if (error.message?.includes('repository') || error.message?.includes('permission')) {
+      if (error.message?.includes('repository') ||
+          error.message?.includes('permission') ||
+          error.message?.includes('422')) {
         throw new Error('REPO_ACCESS_REQUIRED');
       }
 
@@ -181,7 +185,7 @@ class NetlifyService {
     }
   }
 
-  async setupRepositoryConnection(siteId: string, repoFullName: string): Promise<any> {
+  async setupRepositoryConnection(siteId: string, repoFullName: string, branch: string = 'main'): Promise<any> {
     // Alternative approach: Update existing site with repo connection
     // This requires that Netlify already has GitHub App installed
     return this.makeRequest(`/sites/${siteId}`, {
@@ -190,7 +194,7 @@ class NetlifyService {
         repo: {
           provider: 'github',
           repo: repoFullName,
-          branch: 'main',
+          branch: branch,
           cmd: '',
           dir: '.',
           private: false,

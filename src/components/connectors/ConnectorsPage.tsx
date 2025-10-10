@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Github, Cloud, CheckCircle, AlertCircle, Settings, Link as LinkIcon, Trash2 } from 'lucide-react';
+import { Github, Cloud, CheckCircle, AlertCircle, Settings, Link as LinkIcon, Trash2, Unlink } from 'lucide-react';
 import { connectorsService, GitHubConfig, NetlifyConfig } from '../../services/connectorsService';
 import NotificationModal from '../ui/NotificationModal';
 import GitHubConnector from '../github/GitHubConnector';
+import { supabase } from '../../lib/supabase';
+import { GitRepository } from '../../services/githubService';
 
 export default function ConnectorsPage() {
   const [githubConfig, setGitHubConfig] = useState<GitHubConfig>({
@@ -19,6 +21,7 @@ export default function ConnectorsPage() {
   const [testing, setTesting] = useState<string | null>(null);
   const [summary, setSummary] = useState<any>(null);
   const [testResults, setTestResults] = useState<Record<string, any>>({});
+  const [connectedRepos, setConnectedRepos] = useState<GitRepository[]>([]);
   const [notification, setNotification] = useState({
     isOpen: false,
     type: 'success' as 'success' | 'error' | 'warning' | 'info',
@@ -29,6 +32,7 @@ export default function ConnectorsPage() {
   useEffect(() => {
     loadConfigs();
     loadSummary();
+    loadConnectedRepos();
   }, []);
 
   const showNotification = (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => {
@@ -75,6 +79,42 @@ export default function ConnectorsPage() {
       setSummary(sum);
     } catch (error) {
       console.error('Error loading summary:', error);
+    }
+  };
+
+  const loadConnectedRepos = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('git_repositories')
+        .select('*')
+        .not('netlify_site_id', 'is', null)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setConnectedRepos(data || []);
+    } catch (error) {
+      console.error('Error loading connected repos:', error);
+    }
+  };
+
+  const handleUnlinkNetlifySite = async (repoId: string, repoName: string) => {
+    if (!confirm(`¿Estás seguro de desvincular Netlify del repositorio "${repoName}"?\n\nEsto eliminará la conexión, pero no borrará el sitio en Netlify. Podrás crear un nuevo deploy desde cero.`)) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('git_repositories')
+        .update({ netlify_site_id: null })
+        .eq('id', repoId);
+
+      if (error) throw error;
+
+      await loadConnectedRepos();
+      await loadSummary();
+      showNotification('success', 'Desvinculado', `El repositorio "${repoName}" ha sido desvinculado de Netlify.`);
+    } catch (error: any) {
+      showNotification('error', 'Error al Desvincular', error.message || 'No se pudo desvincular el repositorio.');
     }
   };
 
@@ -447,6 +487,45 @@ export default function ConnectorsPage() {
             </div>
           )}
         </div>
+
+        {/* Repositorios Conectados a Netlify */}
+        {connectedRepos.length > 0 && (
+          <div className="mt-6 border-t border-gray-200 pt-6">
+            <h4 className="font-semibold text-gray-900 mb-3 flex items-center space-x-2">
+              <LinkIcon className="w-4 h-4" />
+              <span>Repositorios Conectados a Netlify</span>
+            </h4>
+            <div className="space-y-2">
+              {connectedRepos.map((repo) => (
+                <div
+                  key={repo.id}
+                  className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg"
+                >
+                  <div className="flex-1">
+                    <p className="font-medium text-gray-900">{repo.repo_name}</p>
+                    <p className="text-xs text-gray-500">{repo.repo_full_name}</p>
+                    <p className="text-xs text-green-600 mt-1">
+                      Site ID: {repo.netlify_site_id}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleUnlinkNetlifySite(repo.id, repo.repo_name)}
+                    className="text-red-600 hover:text-red-700 text-sm flex items-center space-x-1 px-3 py-2 rounded-lg hover:bg-red-50 transition-colors"
+                    title="Desvincular de Netlify"
+                  >
+                    <Unlink className="w-4 h-4" />
+                    <span>Desvincular</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-sm text-blue-800">
+                💡 Al desvincular un repositorio, podrás crear un nuevo sitio desde cero en el próximo deploy.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Notification Modal */}
