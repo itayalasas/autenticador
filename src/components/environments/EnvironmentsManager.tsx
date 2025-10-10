@@ -569,23 +569,76 @@ export default function EnvironmentsManager() {
       const envVars = await environmentVariablesService.getVariablesForEnvironment(app.id, environmentId);
       addLog(`   ✓ ${envVars.length} variables de entorno cargadas`, 'success');
 
-      // STEP 5.3: Obtener credenciales necesarias para los formularios
-      addLog('📁 Preparando formularios estáticos...', 'info');
+      // STEP 5.3: Obtener o crear API Key para el ambiente
+      addLog('🔑 Verificando API Key para el ambiente...', 'info');
 
-      // Obtener API key y configuración
-      const { data: apiKeys } = await supabase
+      // Buscar API key existente para este ambiente
+      let { data: apiKeys } = await supabase
         .from('api_keys')
-        .select('key')
+        .select('key, name')
         .eq('application_id', app.id)
         .eq('environment', environmentId)
         .eq('is_active', true)
         .limit(1);
 
+      let apiKey: string;
+
       if (!apiKeys || apiKeys.length === 0) {
-        throw new Error('No se encontró API Key activa para este ambiente');
+        // No hay API Key, verificar el plan de suscripción
+        addLog('   No se encontró API Key, creando una nueva...', 'info');
+
+        const subscription = await subscriptionService.getActiveSubscription();
+        if (!subscription) {
+          throw new Error('No hay suscripción activa');
+        }
+
+        const plan = await subscriptionService.getSubscriptionPlan(subscription.plan_id);
+        if (!plan) {
+          throw new Error('No se pudo obtener información del plan');
+        }
+
+        // Verificar límite de API Keys
+        const { data: existingKeys, count } = await supabase
+          .from('api_keys')
+          .select('*', { count: 'exact', head: true })
+          .eq('application_id', app.id)
+          .eq('is_active', true);
+
+        const currentKeyCount = count || 0;
+
+        if (currentKeyCount >= plan.max_api_keys) {
+          throw new Error(`Has alcanzado el límite de ${plan.max_api_keys} API Keys para tu plan. Desactiva una API Key existente o actualiza tu plan.`);
+        }
+
+        // Generar nueva API Key
+        const keyPrefix = `ak_${environmentId}_`;
+        const randomPart = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+        apiKey = keyPrefix + randomPart;
+
+        const { error: insertError } = await supabase
+          .from('api_keys')
+          .insert({
+            application_id: app.id,
+            key: apiKey,
+            name: `${environmentName} API Key`,
+            environment: environmentId,
+            is_active: true
+          });
+
+        if (insertError) {
+          console.error('Error creating API key:', insertError);
+          throw new Error(`Error al crear API Key: ${insertError.message}`);
+        }
+
+        addLog(`   ✓ API Key creada para ${environmentName}`, 'success');
+      } else {
+        apiKey = apiKeys[0].key;
+        addLog(`   ✓ Usando API Key existente: ${apiKeys[0].name}`, 'success');
       }
 
-      const apiKey = apiKeys[0].key;
+      addLog('📁 Preparando formularios estáticos...', 'info');
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
