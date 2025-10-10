@@ -237,12 +237,12 @@ export default function App() {
   files['src/services/rolesService.ts'] = `import { supabase } from '../lib/supabase';
 
 export const rolesService = {
-  async getRolesByApplicationId(applicationId: string) {
+  async getRolesByApplication(internalAppId: string) {
     try {
       const { data, error } = await supabase
         .from('roles')
         .select('*')
-        .eq('application_id', applicationId)
+        .eq('application_id', internalAppId)
         .eq('is_active', true)
         .order('name');
 
@@ -266,7 +266,7 @@ export const applicationService = {
         .from('applications')
         .select('*')
         .eq('application_id', applicationId)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
       return data;
@@ -291,6 +291,22 @@ export const applicationService = {
     } catch (error) {
       console.error('Error verifying API key:', error);
       return false;
+    }
+  },
+
+  async getBrandingByApplicationId(internalAppId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('branding_configs')
+        .select('*')
+        .eq('application_id', internalAppId)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error fetching branding:', error);
+      return null;
     }
   }
 };

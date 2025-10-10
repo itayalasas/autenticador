@@ -48,6 +48,7 @@ export default function PublicAuthForms({
   const [availableRoles, setAvailableRoles] = useState<any[]>([]);
   const [selectedRole, setSelectedRole] = useState('');
   const [customTexts, setCustomTexts] = useState<any>({});
+  const [loadedBranding, setLoadedBranding] = useState<any>(null);
   const [searchParams] = useSearchParams();
   
   const [formData, setFormData] = useState({
@@ -57,7 +58,7 @@ export default function PublicAuthForms({
     confirmPassword: ''
   });
 
-  // Default branding values
+  // Merge default branding with loaded branding from database and prop branding
   const defaultBranding = {
     primary_color: '#3B82F6',
     secondary_color: '#1E40AF',
@@ -68,6 +69,7 @@ export default function PublicAuthForms({
     logo_url: '',
     border_radius: 8,
     button_style: 'rounded',
+    ...loadedBranding,
     ...branding
   };
 
@@ -75,11 +77,7 @@ export default function PublicAuthForms({
   useEffect(() => {
     checkIPStatus();
     loadApplicationInfo();
-    loadCustomTexts();
-    if (formType === 'register') {
-      loadAvailableRoles();
-    }
-  }, [applicationId]);
+  }, [applicationId, formType]);
 
   const checkIPStatus = async () => {
     try {
@@ -104,44 +102,35 @@ export default function PublicAuthForms({
 
   const loadApplicationInfo = async () => {
     try {
-      setAppInfo({
-        name: 'Mi Aplicación',
-        domain: 'miapp.com',
-        description: 'Sistema de autenticación'
-      });
+      if (!applicationId) return;
+
+      const app = await applicationService.getApplicationByApplicationId(applicationId);
+      if (app) {
+        setAppInfo(app);
+
+        const brandingData = await applicationService.getBrandingByApplicationId(app.id);
+        if (brandingData) {
+          setLoadedBranding(brandingData);
+          if (brandingData.custom_texts) {
+            setCustomTexts(brandingData.custom_texts);
+          }
+        }
+
+        if (formType === 'register') {
+          const roles = await rolesService.getRolesByApplication(app.id);
+          setAvailableRoles(roles);
+
+          const defaultRole = roles.find(role => role.is_default);
+          if (defaultRole) {
+            setSelectedRole(defaultRole.name);
+          }
+        }
+      }
     } catch (error) {
       console.error('Error loading application info:', error);
     }
   };
 
-  const loadCustomTexts = async () => {
-    try {
-      if (internalApplicationId) {
-        const brandingConfig = await applicationService.getBranding(internalApplicationId);
-        if (brandingConfig && brandingConfig.custom_texts) {
-          setCustomTexts(brandingConfig.custom_texts);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading custom texts:', error);
-    }
-  };
-  
-  const loadAvailableRoles = async () => {
-    try {
-      if (internalApplicationId) {
-        const roles = await rolesService.getRolesByApplication(internalApplicationId);
-        setAvailableRoles(roles);
-        
-        const defaultRole = roles.find(role => role.is_default);
-        if (defaultRole) {
-          setSelectedRole(defaultRole.name);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading available roles:', error);
-    }
-  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData(prev => ({
