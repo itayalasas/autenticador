@@ -572,19 +572,24 @@ export default function EnvironmentsManager() {
       // STEP 5.3: Obtener o crear API Key para el ambiente
       addLog('🔑 Verificando API Key para el ambiente...', 'info');
 
-      // Buscar API key existente para este ambiente
-      let { data: apiKeys } = await supabase
+      // Buscar API key existente para este ambiente (seleccionando todas las columnas)
+      let { data: apiKeys, error: selectError } = await supabase
         .from('api_keys')
-        .select('key, name')
+        .select('*')
         .eq('application_id', app.id)
         .eq('environment', environmentId)
         .eq('is_active', true)
         .limit(1);
 
+      if (selectError) {
+        console.error('Error selecting API keys:', selectError);
+        throw new Error(`Error al buscar API Key: ${selectError.message}`);
+      }
+
       let apiKey: string;
 
       if (!apiKeys || apiKeys.length === 0) {
-        // No hay API Key, verificar el plan de suscripción
+        // No hay API Key para este ambiente, crear una nueva
         addLog('   No se encontró API Key, creando una nueva...', 'info');
 
         const subscription = await subscriptionService.getCurrentSubscription();
@@ -598,19 +603,21 @@ export default function EnvironmentsManager() {
           throw new Error('No se pudo obtener información del plan');
         }
 
-        // Verificar límite de API Keys
-        const { data: existingKeys, count } = await supabase
+        // Verificar límite de API Keys POR AMBIENTE (no total)
+        const { count: envKeyCount } = await supabase
           .from('api_keys')
-          .select('*', { count: 'exact', head: true })
+          .select('id', { count: 'exact', head: true })
           .eq('application_id', app.id)
+          .eq('environment', environmentId)
           .eq('is_active', true);
 
-        const currentKeyCount = count || 0;
+        const currentEnvKeyCount = envKeyCount || 0;
 
-        const maxApiKeys = plan.max_api_keys || 3; // Default 3 si no está definido
+        // El límite es por ambiente, no total
+        const maxApiKeysPerEnv = plan.api_keys_per_environment || plan.max_api_keys || 1;
 
-        if (currentKeyCount >= maxApiKeys) {
-          throw new Error(`Has alcanzado el límite de ${maxApiKeys} API Keys para tu plan. Desactiva una API Key existente o actualiza tu plan.`);
+        if (currentEnvKeyCount >= maxApiKeysPerEnv) {
+          throw new Error(`Has alcanzado el límite de ${maxApiKeysPerEnv} API Keys para el ambiente ${environmentName}. Desactiva una API Key existente o actualiza tu plan.`);
         }
 
         // Generar nueva API Key
@@ -637,6 +644,7 @@ export default function EnvironmentsManager() {
 
         addLog(`   ✓ API Key creada para ${environmentName}`, 'success');
       } else {
+        // Ya existe una API Key para este ambiente
         apiKey = apiKeys[0].key;
         addLog(`   ✓ Usando API Key existente: ${apiKeys[0].name}`, 'success');
       }
