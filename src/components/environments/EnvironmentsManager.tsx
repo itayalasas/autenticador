@@ -571,10 +571,10 @@ export default function EnvironmentsManager() {
       addLog(`   ✓ ${envVars.length} variables de entorno cargadas`, 'success');
 
       // Preparar archivos para commit (esto debería venir de tu aplicación)
-      const files = {
+      const files: Record<string, string> = {
         'README.md': `# ${selectedApp} - ${environmentName}\n\nDeploy automático desde AuthSystem\n\nFecha: ${new Date().toISOString()}`,
         'index.html': '<!DOCTYPE html><html><head><title>AuthSystem</title></head><body><h1>AuthSystem Deploy</h1></body></html>',
-        '.env': envFileContent,
+        '.gitignore': `# Environment variables\n.env\n.env.local\n\n# Dependencies\nnode_modules/\n\n# Build output\ndist/\nbuild/\n\n# Logs\n*.log\nnpm-debug.log*\n\n# OS files\n.DS_Store\nThumbs.db`,
         '.env.example': envFileContent.split('\n').map(line => {
           const [key] = line.split('=');
           return `${key}=`;
