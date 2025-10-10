@@ -179,6 +179,22 @@ class NetlifyService {
     });
   }
 
+  async connectRepositoryToSite(siteId: string, repoUrl: string, buildCommand: string = 'npm run build', publishDir: string = 'dist'): Promise<any> {
+    // Connect a GitHub repository to a Netlify site
+    return this.makeRequest(`/sites/${siteId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        repo: {
+          provider: 'github',
+          repo: repoUrl, // Format: "owner/repo"
+          branch: 'main',
+          cmd: buildCommand,
+          dir: publishDir,
+        },
+      }),
+    });
+  }
+
   async deleteSite(siteId: string): Promise<void> {
     return this.makeRequest(`/sites/${siteId}`, {
       method: 'DELETE',
