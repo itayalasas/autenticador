@@ -71,10 +71,12 @@ export async function getStaticProjectFiles(
 }
 
 // Helper function to generate standalone HTML
+// NOTA: Este HTML NO debe contener API Keys ni configuración sensible
+// Solo usa: app_id (desde URL), Supabase URL y Anon Key (públicos y seguros)
 function generateStandaloneFormHTML(
   formType: string,
   applicationId: string,
-  apiKey: string,
+  apiKey: string, // NO SE USA - solo para compatibilidad
   supabaseUrl: string,
   supabaseAnonKey: string,
   branding?: any
@@ -266,26 +268,37 @@ function generateStandaloneFormHTML(
   </div>
 
   <script>
+    // ===================================================================
+    // CONFIGURACIÓN SEGURA - Solo usa app_id público
+    // NO contiene API Keys ni configuración sensible del sistema
+    // ===================================================================
+
     // Get URL parameters
     const urlParams = new URLSearchParams(window.location.search);
-    const appIdFromUrl = urlParams.get('app_id');
+    const APPLICATION_ID = urlParams.get('app_id') || '${applicationId}';
     const redirectUri = urlParams.get('redirect_uri') || urlParams.get('callback_url');
-    const apiKeyFromUrl = urlParams.get('api_key');
-    const mode = urlParams.get('mode');
 
-    // Use URL parameters if provided, otherwise fall back to defaults
-    const AUTHSYSTEM_API_URL = '${supabaseUrl}';
-    const AUTHSYSTEM_API_KEY = apiKeyFromUrl || '${apiKey}';
-    const APPLICATION_ID = appIdFromUrl || '${applicationId}';
+    // Configuración pública de Supabase (segura para exponer)
     const SUPABASE_URL = '${supabaseUrl}';
     const SUPABASE_ANON_KEY = '${supabaseAnonKey}';
 
-    console.log('🔧 Auth Form Config:', {
+    // Validar que tenemos el app_id
+    if (!APPLICATION_ID) {
+      document.getElementById('message').innerHTML = \`
+        <div class="flex items-center space-x-2 bg-red-50 border border-red-200 p-3 rounded-lg">
+          <i data-lucide="alert-circle" class="w-5 h-5 text-red-500"></i>
+          <span class="text-sm text-red-800">Error: app_id es requerido en la URL</span>
+        </div>
+      \`;
+      document.getElementById('message').classList.remove('hidden');
+      document.getElementById('auth-form').style.display = 'none';
+    }
+
+    console.log('🔧 Auth Form Init:', {
       applicationId: APPLICATION_ID,
-      hasApiKey: !!AUTHSYSTEM_API_KEY,
       redirectUri: redirectUri,
-      mode: mode,
-      formType: '${formType}'
+      formType: '${formType}',
+      supabaseUrl: SUPABASE_URL
     });
 
     // Initialize Lucide icons
@@ -296,9 +309,6 @@ function generateStandaloneFormHTML(
       const params = new URLSearchParams();
       if (APPLICATION_ID) params.append('app_id', APPLICATION_ID);
       if (redirectUri) params.append('redirect_uri', redirectUri);
-      if (AUTHSYSTEM_API_KEY && AUTHSYSTEM_API_KEY !== '${apiKey}') {
-        params.append('api_key', AUTHSYSTEM_API_KEY);
-      }
 
       const formRoutes = {
         'login': '/login',
@@ -368,7 +378,7 @@ function generateStandaloneFormHTML(
           callback_url: redirectUri
         });
 
-        const response = await fetch(\`\${AUTHSYSTEM_API_URL}/functions/v1/auth-login\`, {
+        const response = await fetch(\`\${SUPABASE_URL}/functions/v1/auth-login\`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -412,7 +422,7 @@ function generateStandaloneFormHTML(
           callback_url: redirectUri
         });
 
-        const response = await fetch(\`\${AUTHSYSTEM_API_URL}/functions/v1/auth-register\`, {
+        const response = await fetch(\`\${SUPABASE_URL}/functions/v1/auth-register\`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -452,7 +462,7 @@ function generateStandaloneFormHTML(
           callback_url: redirectUri
         });
 
-        const response = await fetch(\`\${AUTHSYSTEM_API_URL}/functions/v1/auth-reset-password\`, {
+        const response = await fetch(\`\${SUPABASE_URL}/functions/v1/auth-reset-password\`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
