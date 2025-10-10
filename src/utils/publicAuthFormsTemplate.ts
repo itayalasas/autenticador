@@ -41,6 +41,7 @@ export default function PublicAuthForms({
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [checkingIP, setCheckingIP] = useState(true);
+  const [loadingApp, setLoadingApp] = useState(true);
   const [ipBlocked, setIpBlocked] = useState(false);
   const [blockedInfo, setBlockedInfo] = useState<any>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
@@ -103,8 +104,11 @@ export default function PublicAuthForms({
   const loadApplicationInfo = async () => {
     try {
       console.log('📋 Loading application info for:', applicationId);
+      setLoadingApp(true);
+
       if (!applicationId) {
         console.log('❌ No applicationId provided');
+        setLoadingApp(false);
         return;
       }
 
@@ -139,6 +143,8 @@ export default function PublicAuthForms({
       }
     } catch (error) {
       console.error('❌ Error loading application info:', error);
+    } finally {
+      setLoadingApp(false);
     }
   };
 
@@ -334,12 +340,30 @@ export default function PublicAuthForms({
 
   const urlParams = new URLSearchParams(window.location.search);
 
-  if (checkingIP) {
+  if (checkingIP || loadingApp) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-gray-50">
+      <div
+        className="min-h-screen flex items-center justify-center p-4"
+        style={{ backgroundColor: defaultBranding.background_color || '#F9FAFB' }}
+      >
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">Verificando acceso...</p>
+          <div
+            className="w-16 h-16 border-4 border-t-transparent rounded-full animate-spin mx-auto mb-4"
+            style={{
+              borderColor: \`\${defaultBranding.primary_color || '#3B82F6'}33\`,
+              borderTopColor: 'transparent'
+            }}
+          ></div>
+          <div
+            className="w-16 h-16 border-4 border-transparent border-t-current rounded-full animate-spin mx-auto -mt-20 mb-4"
+            style={{ color: defaultBranding.primary_color || '#3B82F6' }}
+          ></div>
+          <p
+            className="text-base font-medium mt-2"
+            style={{ color: defaultBranding.text_color || '#4B5563' }}
+          >
+            Verificando acceso...
+          </p>
         </div>
       </div>
     );
@@ -589,9 +613,17 @@ export default function PublicAuthForms({
               </div>
             )}
 
+            {/* Debug info - remove after testing */}
+            {formType === 'register' && (
+              <div className="p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
+                <strong>Debug:</strong> formType={formType}, roles count={availableRoles.length},
+                roles={JSON.stringify(availableRoles.map(r => r.name))}
+              </div>
+            )}
+
             {formType === 'register' && availableRoles.length > 0 && (
               <div>
-                <label 
+                <label
                   className="block text-sm font-medium mb-2"
                   style={{ color: defaultBranding.text_color }}
                 >
@@ -601,10 +633,11 @@ export default function PublicAuthForms({
                   value={selectedRole}
                   onChange={(e) => setSelectedRole(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 focus:ring-2 focus:border-transparent transition-all"
-                  style={{ 
+                  style={{
                     borderRadius: \`\${defaultBranding.border_radius}px\`,
                     '--tw-ring-color': defaultBranding.primary_color
                   } as React.CSSProperties}
+                  required
                 >
                   <option value="">{getText('role_selection_placeholder', 'Selecciona un rol')}</option>
                   {availableRoles.map((role) => (
