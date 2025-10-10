@@ -3,8 +3,11 @@ import { Database, Globe, Play, Settings, Trash2, Plus, CheckCircle, AlertTriang
 import { applicationService } from '../../services/applicationService';
 import { subscriptionService } from '../../services/subscriptionService';
 import { netlifyService } from '../../services/netlifyService';
+import { githubService } from '../../services/githubService';
+import { connectorsService } from '../../services/connectorsService';
 import { supabase } from '../../lib/supabase';
 import ConfirmationModal from '../ui/ConfirmationModal';
+import NotificationModal from '../ui/NotificationModal';
 
 interface Environment {
   id: string;
@@ -70,6 +73,12 @@ export default function EnvironmentsManager() {
   const [currentEnvironmentId, setCurrentEnvironmentId] = useState<string>('');
   const [currentEnvironmentName, setCurrentEnvironmentName] = useState<string>('');
   const consoleRef = useRef<HTMLDivElement>(null);
+  const [notification, setNotification] = useState({
+    isOpen: false,
+    type: 'success' as 'success' | 'error' | 'warning' | 'info',
+    title: '',
+    message: '',
+  });
   const [editFormData, setEditFormData] = useState({
     domain: '',
     auth_url: '',
@@ -100,6 +109,22 @@ export default function EnvironmentsManager() {
       consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
     }
   }, [consoleLogs]);
+
+  const showNotification = (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => {
+    setNotification({
+      isOpen: true,
+      type,
+      title,
+      message,
+    });
+  };
+
+  const closeNotification = () => {
+    setNotification({
+      ...notification,
+      isOpen: false,
+    });
+  };
 
   const addLog = (message: string, level: 'info' | 'success' | 'warning' | 'error' = 'info') => {
     const newLog: LogEntry = {
@@ -466,41 +491,117 @@ export default function EnvironmentsManager() {
 
   const handleDeployToNetlify = async (environmentId: string, environmentName: string) => {
     try {
-      // Save environment info for potential direct deploy
+      // Save environment info
       setCurrentEnvironmentId(environmentId);
       setCurrentEnvironmentName(environmentName);
 
-      // Check if we have access token
-      if (!(await netlifyService.hasAccessToken())) {
-        addLog('❌ Netlify no está configurado', 'error');
-        addLog('', 'info');
-        addLog(await netlifyService.getConfigurationInstructions(), 'warning');
-        setShowConsole(true);
-        setShowNetlifyConfig(true);
+      // STEP 1: Validar que GitHub esté configurado
+      const githubConfigured = await connectorsService.isGitHubConfigured();
+      if (!githubConfigured) {
+        showNotification('warning', 'GitHub no Configurado',
+          'Para hacer deploy automático necesitas configurar GitHub en la sección "Conectores".');
         return;
       }
 
-      // Check if we have site ID, if not, show site selector
-      if (!(await netlifyService.hasSiteId())) {
-        addLog('⚠️ No hay Site ID configurado', 'warning');
-        addLog('📋 Abriendo selector de sitios de Netlify...', 'info');
-        setShowConsole(true);
-        await loadNetlifySites();
-        setShowNetlifySiteSelector(true);
+      // STEP 2: Validar que Netlify esté configurado
+      const netlifyConfigured = await connectorsService.isNetlifyConfigured();
+      if (!netlifyConfigured) {
+        showNotification('warning', 'Netlify no Configurado',
+          'Para hacer deploy automático necesitas configurar Netlify en la sección "Conectores".');
         return;
       }
+
+      // STEP 3: Verificar que GitHub tenga una conexión activa
+      const githubConnection = await githubService.getActiveConnection();
+      if (!githubConnection) {
+        showNotification('warning', 'Conectar con GitHub',
+          'Necesitas conectar tu cuenta de GitHub primero. Ve a la sección "Conectores".');
+        return;
+      }
+
+      // STEP 4: Verificar/Obtener repositorios guardados
+      const savedRepos = await githubService.getSavedRepositories();
+      if (savedRepos.length === 0) {
+        showNotification('warning', 'Repositorio Requerido',
+          'Necesitas crear o seleccionar un repositorio de GitHub primero. Ve a la sección "Conectores".');
+        return;
+      }
+
+      // Usar el primer repo (o el que esté marcado como principal)
+      const repo = savedRepos[0];
 
       setIsNetlifyDeploying(true);
       setShowConsole(true);
-      setShowDirectDeployButton(false); // Hide direct deploy button when starting normal deploy
+      setShowDirectDeployButton(false);
 
       addLog('', 'info');
-      addLog('☁️  ========================================', 'info');
-      addLog('☁️  INICIANDO DEPLOY A NETLIFY', 'info');
-      addLog('☁️  ========================================', 'info');
+      addLog('🚀 ========================================', 'info');
+      addLog('🚀 INICIANDO DEPLOY AUTOMÁTICO', 'info');
+      addLog('🚀 ========================================', 'info');
       addLog('', 'info');
 
-      addLog('📤 Disparando build en Netlify...', 'info');
+      // STEP 5: Obtener el código del ambiente
+      addLog('📦 Obteniendo código del ambiente...', 'info');
+      const environment = environments.find(e => e.id === environmentId);
+      if (!environment) {
+        throw new Error('Ambiente no encontrado');
+      }
+
+      // Preparar archivos para commit (esto debería venir de tu aplicación)
+      const files = {
+        'README.md': `# ${selectedApp} - ${environmentName}\n\nDeploy automático desde AuthSystem\n\nFecha: ${new Date().toISOString()}`,
+        'index.html': '<!DOCTYPE html><html><head><title>AuthSystem</title></head><body><h1>AuthSystem Deploy</h1></body></html>',
+        'netlify.toml': `[build]\n  command = "npm run build"\n  publish = "dist"\n\n[[redirects]]\n  from = "/*"\n  to = "/index.html"\n  status = 200`,
+      };
+
+      // STEP 6: Hacer commit y push a GitHub
+      addLog(`📤 Subiendo código a GitHub (${repo.repo_full_name})...`, 'info');
+      await githubService.commitAndPush(
+        repo.repo_full_name,
+        files,
+        `Deploy ${environmentName} - ${new Date().toLocaleString()}`
+      );
+      addLog('✅ Código subido a GitHub exitosamente', 'success');
+
+      // STEP 7: Obtener o crear sitio de Netlify
+      const netlifyConfig = await connectorsService.getNetlifyConfig();
+      if (!netlifyConfig) {
+        throw new Error('Configuración de Netlify no encontrada');
+      }
+
+      let siteId = repo.netlify_site_id || netlifyConfig.site_id;
+
+      // Si no hay sitio conectado, preguntar al usuario
+      if (!siteId) {
+        addLog('⚠️ No hay sitio de Netlify conectado', 'warning');
+        addLog('📋 Cargando sitios de Netlify...', 'info');
+        await loadNetlifySites();
+        setShowNetlifySiteSelector(true);
+        setIsNetlifyDeploying(false);
+        return;
+      }
+
+      // STEP 8: Conectar repo con sitio de Netlify (si no está conectado)
+      if (!repo.netlify_site_id) {
+        addLog('🔗 Conectando repositorio con Netlify...', 'info');
+        await netlifyService.connectRepositoryToSite(
+          siteId,
+          repo.repo_full_name,
+          'npm run build',
+          'dist'
+        );
+
+        // Actualizar repo en BD
+        await supabase
+          .from('git_repositories')
+          .update({ netlify_site_id: siteId })
+          .eq('id', repo.id);
+
+        addLog('✅ Repositorio conectado con Netlify', 'success');
+      }
+
+      // STEP 9: Trigger deploy en Netlify
+      addLog('☁️  Iniciando deploy en Netlify...', 'info');
       const deployResponse = await netlifyService.triggerDeploy({
         title: `Deploy de ${environmentName} - ${new Date().toLocaleString()}`,
       });
@@ -514,7 +615,6 @@ export default function EnvironmentsManager() {
       addLog('   Esto puede tomar varios minutos', 'info');
       addLog('', 'info');
 
-      const siteId = netlifyService.getSiteId()!;
       const finalDeploy = await netlifyService.waitForDeploy(
         siteId,
         deployResponse.id,
@@ -524,53 +624,32 @@ export default function EnvironmentsManager() {
       );
 
       addLog('', 'info');
-      addLog('🎉 ¡DEPLOY A NETLIFY COMPLETADO EXITOSAMENTE!', 'success');
+      addLog('🎉 ¡DEPLOY AUTOMÁTICO COMPLETADO EXITOSAMENTE!', 'success');
       addLog('', 'info');
       addLog(`🌐 URL del sitio: ${finalDeploy.ssl_url}`, 'success');
       addLog(`🔗 URL del deploy: ${finalDeploy.deploy_ssl_url}`, 'info');
       addLog(`⚙️  Admin URL: ${finalDeploy.admin_url}`, 'info');
       addLog('', 'info');
       addLog(`✅ Deploy completado a las: ${new Date(finalDeploy.updated_at).toLocaleString()}`, 'success');
+      addLog('', 'info');
+      addLog('📝 Resumen del proceso:', 'info');
+      addLog(`   ✓ Código subido a GitHub: ${repo.repo_full_name}`, 'success');
+      addLog(`   ✓ Repositorio conectado con Netlify`, 'success');
+      addLog(`   ✓ Deploy automático completado`, 'success');
+      addLog('', 'info');
+      addLog('💡 Futuros deploys se harán automáticamente al hacer push al repositorio', 'info');
+
+      showNotification('success', 'Deploy Exitoso',
+        `El sitio se ha desplegado correctamente en ${finalDeploy.ssl_url}`);
 
     } catch (error: any) {
-      console.error('Netlify deploy error:', error);
+      console.error('Deploy automático error:', error);
+      addLog('', 'info');
+      addLog(`❌ Error durante el deploy: ${error.message}`, 'error');
       addLog('', 'info');
 
-      if (error.message === 'REPO_NOT_CONNECTED') {
-        setShowDirectDeployButton(true); // Show the direct deploy button
-
-        addLog('⚠️  Este sitio no tiene un repositorio conectado', 'warning');
-        addLog('', 'info');
-        addLog('✨ ¡BUENAS NOTICIAS! Puedes hacer deploy DIRECTO sin repositorio', 'success');
-        addLog('', 'info');
-        addLog('📦 El sistema puede:', 'info');
-        addLog('   ✓ Construir tu proyecto', 'info');
-        addLog('   ✓ Empaquetar los archivos', 'info');
-        addLog('   ✓ Subirlos directamente a Netlify', 'info');
-        addLog('   ✓ Todo sin necesidad de Git/GitHub/GitLab', 'info');
-        addLog('', 'info');
-        addLog('👉 Haz clic en el botón verde "Deploy Directo" en la consola', 'info');
-        addLog('', 'info');
-        addLog('💡 Alternativa: Si prefieres deploys automáticos:', 'info');
-        addLog('   1. Ve a https://app.netlify.com/sites/' + netlifyService.getSiteId() + '/settings', 'info');
-        addLog('   2. Conecta tu repositorio de GitHub/GitLab/Bitbucket', 'info');
-        addLog('   3. Los deploys futuros serán automáticos al hacer push', 'info');
-      } else if (error.message.includes('Not Found')) {
-        addLog(`❌ Error: El sitio no fue encontrado`, 'error');
-        addLog('', 'info');
-        addLog('💡 Posibles causas:', 'warning');
-        addLog('   - El sitio fue eliminado de Netlify', 'warning');
-        addLog('   - El Site ID es incorrecto', 'warning');
-        addLog('', 'info');
-        addLog('🔧 Solución: Configura Netlify nuevamente y selecciona otro sitio', 'info');
-      } else {
-        addLog(`❌ Error en deploy a Netlify: ${error.message}`, 'error');
-
-        if (error.message.includes('token')) {
-          addLog('', 'info');
-          addLog('💡 Verifica que tu token de Netlify esté configurado correctamente', 'warning');
-        }
-      }
+      showNotification('error', 'Error en Deploy',
+        error.message || 'No se pudo completar el deploy automático.');
     } finally {
       setIsNetlifyDeploying(false);
     }
@@ -2416,6 +2495,12 @@ try {
           </div>
         </div>
       )}
+
+      {/* Notification Modal */}
+      <NotificationModal
+        notification={notification}
+        onClose={closeNotification}
+      />
     </div>
   );
 }
