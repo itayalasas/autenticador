@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Github, Cloud, CheckCircle, AlertCircle, Settings, Link as LinkIcon, Trash2 } from 'lucide-react';
 import { connectorsService, GitHubConfig, NetlifyConfig } from '../../services/connectorsService';
 import NotificationModal from '../ui/NotificationModal';
+import GitHubConnector from '../github/GitHubConnector';
 
 export default function ConnectorsPage() {
   const [githubConfig, setGitHubConfig] = useState<GitHubConfig>({
@@ -325,6 +326,11 @@ export default function ConnectorsPage() {
           )}
         </div>
       </div>
+
+      {/* GitHub Connection & Repositories */}
+      {githubConfig.client_id && (
+        <GitHubConnector />
+      )}
 
       {/* Netlify Connector */}
       <div className="bg-white rounded-lg border border-gray-200 p-6">
