@@ -30,6 +30,11 @@ export async function getStaticProjectFiles(
   publish = "."
 
 [[redirects]]
+  from = "/auth"
+  to = "/login.html"
+  status = 200
+
+[[redirects]]
   from = "/login"
   to = "/login.html"
   status = 200
@@ -42,12 +47,25 @@ export async function getStaticProjectFiles(
 [[redirects]]
   from = "/reset"
   to = "/reset.html"
+  status = 200
+
+[[redirects]]
+  from = "/reset-password"
+  to = "/reset.html"
+  status = 200
+
+[[redirects]]
+  from = "/"
+  to = "/login.html"
   status = 200`;
 
   // _redirects for Netlify
-  files['_redirects'] = `/login /login.html 200
+  files['_redirects'] = `/auth /login.html 200
+/login /login.html 200
 /register /register.html 200
-/reset /reset.html 200`;
+/reset /reset.html 200
+/reset-password /reset.html 200
+/ /login.html 200`;
 
   return files;
 }
@@ -219,20 +237,20 @@ function generateStandaloneFormHTML(
       <!-- Links -->
       <div class="mt-6 text-center space-y-2 text-sm">
         ${formType === 'login' ? `
-          <a href="/reset?app_id=${applicationId}&env=production" class="block text-amber-600 hover:underline">¿Olvidaste tu contraseña?</a>
+          <a href="#" onclick="navigateToForm('reset'); return false;" class="block text-amber-600 hover:underline">¿Olvidaste tu contraseña?</a>
           <p class="text-gray-600">
             ¿No tienes cuenta?
-            <a href="/register?app_id=${applicationId}&env=production" class="text-amber-600 hover:underline">Regístrate aquí</a>
+            <a href="#" onclick="navigateToForm('register'); return false;" class="text-amber-600 hover:underline">Regístrate aquí</a>
           </p>
         ` : formType === 'register' ? `
           <p class="text-gray-600">
             ¿Ya tienes cuenta?
-            <a href="/login?app_id=${applicationId}&env=production" class="text-amber-600 hover:underline">Inicia sesión</a>
+            <a href="#" onclick="navigateToForm('login'); return false;" class="text-amber-600 hover:underline">Inicia sesión</a>
           </p>
         ` : `
           <p class="text-gray-600">
             ¿Recordaste tu contraseña?
-            <a href="/login?app_id=${applicationId}&env=production" class="text-amber-600 hover:underline">Inicia sesión</a>
+            <a href="#" onclick="navigateToForm('login'); return false;" class="text-amber-600 hover:underline">Inicia sesión</a>
           </p>
         `}
       </div>
@@ -248,14 +266,49 @@ function generateStandaloneFormHTML(
   </div>
 
   <script>
+    // Get URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const appIdFromUrl = urlParams.get('app_id');
+    const redirectUri = urlParams.get('redirect_uri') || urlParams.get('callback_url');
+    const apiKeyFromUrl = urlParams.get('api_key');
+    const mode = urlParams.get('mode');
+
+    // Use URL parameters if provided, otherwise fall back to defaults
     const AUTHSYSTEM_API_URL = '${supabaseUrl}';
-    const AUTHSYSTEM_API_KEY = '${apiKey}';
-    const APPLICATION_ID = '${applicationId}';
+    const AUTHSYSTEM_API_KEY = apiKeyFromUrl || '${apiKey}';
+    const APPLICATION_ID = appIdFromUrl || '${applicationId}';
     const SUPABASE_URL = '${supabaseUrl}';
     const SUPABASE_ANON_KEY = '${supabaseAnonKey}';
 
+    console.log('🔧 Auth Form Config:', {
+      applicationId: APPLICATION_ID,
+      hasApiKey: !!AUTHSYSTEM_API_KEY,
+      redirectUri: redirectUri,
+      mode: mode,
+      formType: '${formType}'
+    });
+
     // Initialize Lucide icons
     lucide.createIcons();
+
+    // Function to navigate between forms preserving URL parameters
+    function navigateToForm(formType) {
+      const params = new URLSearchParams();
+      if (APPLICATION_ID) params.append('app_id', APPLICATION_ID);
+      if (redirectUri) params.append('redirect_uri', redirectUri);
+      if (AUTHSYSTEM_API_KEY && AUTHSYSTEM_API_KEY !== '${apiKey}') {
+        params.append('api_key', AUTHSYSTEM_API_KEY);
+      }
+
+      const formRoutes = {
+        'login': '/login',
+        'register': '/register',
+        'reset': '/reset-password'
+      };
+
+      const targetRoute = formRoutes[formType] || '/login';
+      window.location.href = \`\${targetRoute}?\${params.toString()}\`;
+    }
 
     // Toggle Password Visibility
     const togglePasswordBtn = document.getElementById('toggle-password');
@@ -309,82 +362,119 @@ function generateStandaloneFormHTML(
         ${formType === 'login' ? `
         const password = document.getElementById('password').value;
 
+        console.log('🚀 Sending login request...', {
+          application_id: APPLICATION_ID,
+          email: email,
+          callback_url: redirectUri
+        });
+
         const response = await fetch(\`\${AUTHSYSTEM_API_URL}/functions/v1/auth-login\`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`,
-            'apikey': SUPABASE_ANON_KEY
+            'apikey': SUPABASE_ANON_KEY,
+            'X-Client-Info': 'authsystem-static-form/1.0'
           },
           body: JSON.stringify({
             application_id: APPLICATION_ID,
-            api_key: AUTHSYSTEM_API_KEY,
-            email,
-            password
+            email: email,
+            password: password,
+            callback_url: redirectUri
           })
         });
 
         const data = await response.json();
+        console.log('📥 Login response:', data);
 
         if (data.success) {
-          showMessage('Inicio de sesión exitoso', 'success');
+          showMessage('¡Inicio de sesión exitoso!', 'success');
+
+          // Redirect to callback URL or use the one from response
+          const targetUrl = data.data?.callback_url || redirectUri || data.data?.redirect_url || '/dashboard';
+          console.log('🔄 Redirecting to:', targetUrl);
+
           setTimeout(() => {
-            window.location.href = data.redirect_url || '/dashboard';
+            window.location.href = targetUrl;
           }, 1500);
         } else {
-          showMessage(data.error || 'Error al iniciar sesión', 'error');
+          console.error('❌ Login failed:', data.error);
+          showMessage(data.error?.message || data.error || 'Error al iniciar sesión', 'error');
         }
         ` : formType === 'register' ? `
         const password = document.getElementById('password').value;
         const name = document.getElementById('name').value;
+
+        console.log('🚀 Sending register request...', {
+          application_id: APPLICATION_ID,
+          email: email,
+          name: name,
+          callback_url: redirectUri
+        });
 
         const response = await fetch(\`\${AUTHSYSTEM_API_URL}/functions/v1/auth-register\`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`,
-            'apikey': SUPABASE_ANON_KEY
+            'apikey': SUPABASE_ANON_KEY,
+            'X-Client-Info': 'authsystem-static-form/1.0'
           },
           body: JSON.stringify({
             application_id: APPLICATION_ID,
-            api_key: AUTHSYSTEM_API_KEY,
-            email,
-            password,
-            metadata: { name }
+            email: email,
+            password: password,
+            name: name,
+            callback_url: redirectUri
           })
         });
 
         const data = await response.json();
+        console.log('📥 Register response:', data);
 
         if (data.success) {
-          showMessage('Registro exitoso. Redirigiendo...', 'success');
+          showMessage('¡Registro exitoso! Redirigiendo...', 'success');
+
+          const targetUrl = data.data?.callback_url || redirectUri || data.data?.redirect_url || '/dashboard';
+          console.log('🔄 Redirecting to:', targetUrl);
+
           setTimeout(() => {
-            window.location.href = data.redirect_url || '/dashboard';
+            window.location.href = targetUrl;
           }, 1500);
         } else {
-          showMessage(data.error || 'Error al registrarse', 'error');
+          console.error('❌ Register failed:', data.error);
+          showMessage(data.error?.message || data.error || 'Error al registrarse', 'error');
         }
         ` : `
+        console.log('🚀 Sending reset password request...', {
+          application_id: APPLICATION_ID,
+          email: email,
+          callback_url: redirectUri
+        });
+
         const response = await fetch(\`\${AUTHSYSTEM_API_URL}/functions/v1/auth-reset-password\`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`,
-            'apikey': SUPABASE_ANON_KEY
+            'apikey': SUPABASE_ANON_KEY,
+            'X-Client-Info': 'authsystem-static-form/1.0'
           },
           body: JSON.stringify({
             application_id: APPLICATION_ID,
-            api_key: AUTHSYSTEM_API_KEY,
-            email
+            email: email,
+            callback_url: redirectUri
           })
         });
 
         const data = await response.json();
+        console.log('📥 Reset password response:', data);
 
         if (data.success) {
           showMessage('Email de recuperación enviado. Revisa tu correo.', 'success');
         } else {
-          showMessage(data.error || 'Error al enviar email', 'error');
+          console.error('❌ Reset password failed:', data.error);
+          showMessage(data.error?.message || data.error || 'Error al enviar email', 'error');
         }
         `}
       } catch (error) {
