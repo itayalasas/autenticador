@@ -722,10 +722,78 @@ npm run build
       addLog('', 'info');
       addLog(`✅ Deploy completado a las: ${new Date(finalDeploy.updated_at).toLocaleString()}`, 'success');
       addLog('', 'info');
+
+      // STEP 10: Actualizar metadata de la aplicación con las URLs generadas
+      addLog('💾 Actualizando URLs de autenticación en la base de datos...', 'info');
+      try {
+        const baseUrl = finalDeploy.ssl_url;
+
+        // Obtener metadata actual de la aplicación
+        const { data: currentApp, error: fetchError } = await supabase
+          .from('applications')
+          .select('metadata')
+          .eq('id', app.id)
+          .single();
+
+        if (fetchError) {
+          console.error('Error fetching current app metadata:', fetchError);
+          throw fetchError;
+        }
+
+        // Preparar las URLs de autenticación
+        const authUrls = {
+          base_url: baseUrl,
+          login_url: `${baseUrl}/login`,
+          register_url: `${baseUrl}/register`,
+          reset_password_url: `${baseUrl}/reset-password`,
+          deployed_at: new Date().toISOString(),
+          netlify_deploy_id: finalDeploy.id,
+          netlify_site_id: siteId
+        };
+
+        // Merge con metadata existente
+        const updatedMetadata = {
+          ...(currentApp?.metadata || {}),
+          environment_urls: {
+            ...(currentApp?.metadata?.environment_urls || {}),
+            [environmentName.toLowerCase()]: authUrls
+          }
+        };
+
+        // Actualizar en la base de datos
+        const { error: updateError } = await supabase
+          .from('applications')
+          .update({
+            metadata: updatedMetadata,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', app.id);
+
+        if (updateError) {
+          console.error('Error updating app metadata:', updateError);
+          throw updateError;
+        }
+
+        addLog('   ✓ URLs de autenticación guardadas exitosamente', 'success');
+        addLog(`   Login: ${authUrls.login_url}`, 'info');
+        addLog(`   Register: ${authUrls.register_url}`, 'info');
+        addLog(`   Reset Password: ${authUrls.reset_password_url}`, 'info');
+        addLog('', 'info');
+
+        // Recargar aplicaciones para mostrar las URLs actualizadas
+        await loadApplications();
+      } catch (error: any) {
+        console.error('Error updating auth URLs:', error);
+        addLog(`   ⚠️  No se pudieron guardar las URLs: ${error.message}`, 'warning');
+        addLog('   El deploy fue exitoso, pero deberás configurar las URLs manualmente', 'warning');
+        addLog('', 'info');
+      }
+
       addLog('📝 Resumen del proceso:', 'info');
       addLog(`   ✓ Código subido a GitHub: ${repo.repo_full_name}`, 'success');
       addLog(`   ✓ Repositorio conectado con Netlify`, 'success');
       addLog(`   ✓ Deploy automático completado`, 'success');
+      addLog(`   ✓ URLs de autenticación configuradas`, 'success');
       addLog('', 'info');
       addLog('💡 Futuros deploys se harán automáticamente al hacer push al repositorio', 'info');
 
@@ -1201,12 +1269,111 @@ npm run build
 
                     {/* Environment Info */}
                     <div className="space-y-2 mb-4">
-                      {env.auth_url && (
-                        <div>
-                          <span className="text-xs text-gray-500">Auth URL:</span>
-                          <p className="text-sm text-gray-900 truncate">{env.auth_url}</p>
-                        </div>
-                      )}
+                      {/* Show auth URLs from application metadata if available */}
+                      {(() => {
+                        const app = applications.find(a => a.id === selectedApp);
+                        const envUrls = app?.metadata?.environment_urls?.[env.name.toLowerCase()];
+
+                        if (envUrls) {
+                          return (
+                            <div className="bg-green-50 border border-green-200 rounded-lg p-3 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-medium text-green-700">URLs Desplegadas:</span>
+                                <span className="text-xs text-green-600">
+                                  {new Date(envUrls.deployed_at).toLocaleDateString()}
+                                </span>
+                              </div>
+
+                              <div className="space-y-1">
+                                <div className="flex items-center space-x-2">
+                                  <span className="text-xs text-gray-600 min-w-[60px]">Login:</span>
+                                  <a
+                                    href={envUrls.login_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-blue-600 hover:text-blue-800 truncate flex-1 hover:underline"
+                                  >
+                                    {envUrls.login_url}
+                                  </a>
+                                  <button
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(envUrls.login_url);
+                                      showNotification('success', 'Copiado', 'URL copiada al portapapeles');
+                                    }}
+                                    className="p-1 hover:bg-green-100 rounded"
+                                    title="Copiar URL"
+                                  >
+                                    <svg className="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                    </svg>
+                                  </button>
+                                </div>
+
+                                <div className="flex items-center space-x-2">
+                                  <span className="text-xs text-gray-600 min-w-[60px]">Register:</span>
+                                  <a
+                                    href={envUrls.register_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-blue-600 hover:text-blue-800 truncate flex-1 hover:underline"
+                                  >
+                                    {envUrls.register_url}
+                                  </a>
+                                  <button
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(envUrls.register_url);
+                                      showNotification('success', 'Copiado', 'URL copiada al portapapeles');
+                                    }}
+                                    className="p-1 hover:bg-green-100 rounded"
+                                    title="Copiar URL"
+                                  >
+                                    <svg className="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                    </svg>
+                                  </button>
+                                </div>
+
+                                <div className="flex items-center space-x-2">
+                                  <span className="text-xs text-gray-600 min-w-[60px]">Reset:</span>
+                                  <a
+                                    href={envUrls.reset_password_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-blue-600 hover:text-blue-800 truncate flex-1 hover:underline"
+                                  >
+                                    {envUrls.reset_password_url}
+                                  </a>
+                                  <button
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(envUrls.reset_password_url);
+                                      showNotification('success', 'Copiado', 'URL copiada al portapapeles');
+                                    }}
+                                    className="p-1 hover:bg-green-100 rounded"
+                                    title="Copiar URL"
+                                  >
+                                    <svg className="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        // Fallback to old auth_url if no new URLs
+                        if (env.auth_url) {
+                          return (
+                            <div>
+                              <span className="text-xs text-gray-500">Auth URL:</span>
+                              <p className="text-sm text-gray-900 truncate">{env.auth_url}</p>
+                            </div>
+                          );
+                        }
+
+                        return null;
+                      })()}
+
                       {env.metadata?.api_key && (
                         <div>
                           <span className="text-xs text-gray-500">API Key:</span>
