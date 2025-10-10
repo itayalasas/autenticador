@@ -76,6 +76,8 @@ export default function EnvironmentsManager() {
     environmentId: string;
     environmentName: string;
     environment: any;
+    applicationId: string;
+    apiKey: string;
   } | null>(null);
   const [isDirectDeploying, setIsDirectDeploying] = useState(false);
   const [showDirectDeployButton, setShowDirectDeployButton] = useState(false);
@@ -409,24 +411,6 @@ export default function EnvironmentsManager() {
       addLog(`✅ Token válido generado y guardado en BD (expira en 24h)`, 'success');
       addLog('', 'info');
 
-      // Generate URLs for forms and API
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      const generatedUrls = {
-        api_base: `${supabaseUrl}/functions/v1`,
-        login: `${baseUrl}/login?app_id=${applicationId}&api_key=${apiKey}`,
-        register: `${baseUrl}/register?app_id=${applicationId}&api_key=${apiKey}`,
-        reset_password: `${baseUrl}/reset-password?app_id=${applicationId}&api_key=${apiKey}`,
-        reset_password_confirm: `${baseUrl}/reset-password-confirm?token=${testToken}&email=test@example.com`,
-        callback: callbackUrl
-      };
-
-      addLog('📋 URLs generadas:', 'info');
-      Object.entries(generatedUrls).forEach(([key, url]) => {
-        addLog(`   ${key}: ${url}`, 'info');
-      });
-      addLog('', 'info');
-
       // Save API key to database (solo si no existe)
       addLog('💾 Paso 6: Guardando API key en la base de datos...', 'info');
 
@@ -461,10 +445,11 @@ export default function EnvironmentsManager() {
 
       // Test API endpoints
       addLog('🧪 Paso 7: Probando endpoints de Edge Functions...', 'info');
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const testResults = await testAllEndpoints(supabaseUrl, applicationId, apiKey);
       addLog('', 'info');
 
-      // Update environment with generated URLs and test results
+      // Update environment with test results
       addLog('💾 Paso 8: Actualizando configuración del ambiente...', 'info');
       try {
         await applicationService.updateEnvironment(environmentId, {
@@ -472,7 +457,6 @@ export default function EnvironmentsManager() {
           callback_url: callbackUrl,
           metadata: {
             ...environment.metadata,
-            generated_urls: generatedUrls,
             api_key: apiKey,
             deployment_status: 'deployed',
             test_results: testResults,
@@ -619,7 +603,9 @@ export default function EnvironmentsManager() {
         repo,
         environmentId,
         environmentName,
-        environment
+        environment,
+        applicationId,
+        apiKey
       });
 
       // Cargar sitios y mostrar selector
@@ -1360,9 +1346,9 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
           addLog(`🌐 URL del sitio: ${siteUrl}`, 'info');
           addLog('', 'info');
           addLog('📋 Los formularios estarán disponibles en:', 'info');
-          addLog(`   Login: ${siteUrl}/login`, 'info');
-          addLog(`   Register: ${siteUrl}/register`, 'info');
-          addLog(`   Reset: ${siteUrl}/reset-password`, 'info');
+          addLog(`   Login: ${siteUrl}/login?app_id=${pendingDeployData.applicationId}&api_key=${pendingDeployData.apiKey}`, 'info');
+          addLog(`   Register: ${siteUrl}/register?app_id=${pendingDeployData.applicationId}&api_key=${pendingDeployData.apiKey}`, 'info');
+          addLog(`   Reset: ${siteUrl}/reset-password?app_id=${pendingDeployData.applicationId}&api_key=${pendingDeployData.apiKey}`, 'info');
           addLog('', 'info');
           addLog('💡 Netlify deployará automáticamente en cada push a GitHub', 'info');
 
