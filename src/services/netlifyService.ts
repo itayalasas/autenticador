@@ -234,32 +234,42 @@ class NetlifyService {
     });
   }
 
-  async deployFilesDirectly(siteId: string, files: Record<string, string>): Promise<any> {
-    // Create a manual deploy by uploading files
-    // This works without a connected repository
+  async deployZipDirectly(siteId: string, zipBlob: Blob, title?: string): Promise<any> {
+    // Deploy directly by uploading a ZIP file
+    // This works WITHOUT a connected repository
 
-    // First, create a new deploy
-    const deploy = await this.makeRequest(`/sites/${siteId}/deploys`, {
-      method: 'POST',
-      body: JSON.stringify({
-        files: Object.fromEntries(
-          Object.keys(files).map(path => [path, crypto.createHash ? null : Date.now()])
-        )
-      })
-    });
-
-    // Upload each file
-    for (const [path, content] of Object.entries(files)) {
-      await fetch(deploy.required[path], {
-        method: 'PUT',
-        body: content,
-        headers: {
-          'Content-Type': 'application/octet-stream',
-        }
-      });
+    if (!this.accessToken) {
+      throw new Error('Access token no configurado');
     }
 
-    return deploy;
+    const id = siteId || this.siteId;
+    if (!id) {
+      throw new Error('Site ID no configurado');
+    }
+
+    // Upload the ZIP file directly to Netlify
+    const formData = new FormData();
+    formData.append('file', zipBlob, 'deploy.zip');
+
+    const response = await fetch(`${this.baseUrl}/sites/${id}/deploys`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.accessToken}`,
+        'Content-Type': 'application/zip',
+      },
+      body: zipBlob,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Error desconocido' }));
+      throw new Error(error.message || `Deploy failed: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  async getDeployStatus(siteId: string, deployId: string): Promise<any> {
+    return this.makeRequest(`/sites/${siteId}/deploys/${deployId}`);
   }
 
   async getDeploy(siteId: string, deployId: string): Promise<NetlifyDeployResponse> {
