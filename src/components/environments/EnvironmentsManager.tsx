@@ -59,6 +59,7 @@ export default function EnvironmentsManager() {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [consoleLogs, setConsoleLogs] = useState<LogEntry[]>([]);
   const [historicalLogs, setHistoricalLogs] = useState<any[]>([]);
+  const [latestLogsMap, setLatestLogsMap] = useState<Record<string, any>>({});
   const [isDeploying, setIsDeploying] = useState(false);
   const [subscription, setSubscription] = useState<any>(null);
   const [currentDeploymentLogId, setCurrentDeploymentLogId] = useState<string | null>(null);
@@ -234,10 +235,40 @@ export default function EnvironmentsManager() {
       setLoading(true);
       const envs = await applicationService.getEnvironments(selectedApp);
       setEnvironments(envs);
+
+      // Load latest deployment logs for all environments
+      await loadLatestLogs(envs);
     } catch (error) {
       console.error('Error loading environments:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadLatestLogs = async (envs: any[]) => {
+    try {
+      const logsMap: Record<string, any> = {};
+
+      // Load last successful deployment log for each environment
+      for (const env of envs) {
+        const { data, error } = await supabase
+          .from('deployment_logs')
+          .select('*')
+          .eq('environment_id', env.id)
+          .eq('status', 'success')
+          .not('metadata->>deployed_urls', 'is', null)
+          .order('completed_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (!error && data) {
+          logsMap[env.id] = data;
+        }
+      }
+
+      setLatestLogsMap(logsMap);
+    } catch (error) {
+      console.error('Error loading latest logs:', error);
     }
   };
 
@@ -1470,9 +1501,13 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
 
           const redirectUri = encodeURIComponent(pendingDeployData.environment.callback_url || `https://${pendingDeployData.environment.name}/auth/callback`);
 
-          addLog(`   Login: ${siteUrl}/login?app_id=${pendingDeployData.applicationId}&redirect_uri=${redirectUri}&api_key=${pendingDeployData.apiKey}`, 'info');
-          addLog(`   Register: ${siteUrl}/register?app_id=${pendingDeployData.applicationId}&redirect_uri=${redirectUri}&api_key=${pendingDeployData.apiKey}`, 'info');
-          addLog(`   Reset: ${siteUrl}/reset-password?app_id=${pendingDeployData.applicationId}&redirect_uri=${redirectUri}&api_key=${pendingDeployData.apiKey}`, 'info');
+          const loginUrl = `${siteUrl}/login?app_id=${pendingDeployData.applicationId}&redirect_uri=${redirectUri}&api_key=${pendingDeployData.apiKey}`;
+          const registerUrl = `${siteUrl}/register?app_id=${pendingDeployData.applicationId}&redirect_uri=${redirectUri}&api_key=${pendingDeployData.apiKey}`;
+          const resetUrl = `${siteUrl}/reset-password?app_id=${pendingDeployData.applicationId}&redirect_uri=${redirectUri}&api_key=${pendingDeployData.apiKey}`;
+
+          addLog(`   Login: ${loginUrl}`, 'info');
+          addLog(`   Register: ${registerUrl}`, 'info');
+          addLog(`   Reset: ${resetUrl}`, 'info');
           addLog('', 'info');
           addLog('💡 Netlify deployará automáticamente en cada push a GitHub', 'info');
 
@@ -1493,7 +1528,12 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
                   netlify_site_id: siteId,
                   netlify_site_name: siteName,
                   netlify_site_url: siteUrl,
-                  github_repo: pendingDeployData.repo.repo_full_name
+                  github_repo: pendingDeployData.repo.repo_full_name,
+                  deployed_urls: {
+                    login_url: loginUrl,
+                    register_url: registerUrl,
+                    reset_password_url: resetUrl
+                  }
                 }
               })
               .eq('id', currentDeploymentLogId);
@@ -1505,7 +1545,7 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
           // Limpiar datos pendientes
           setPendingDeployData(null);
 
-          // Recargar ambientes
+          // Recargar ambientes y logs
           await loadEnvironments();
         } catch (error: any) {
           addLog(`❌ Error durante el deploy: ${error.message}`, 'error');
@@ -1923,10 +1963,24 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
 
                     {/* Environment Info */}
                     <div className="space-y-2 mb-4">
-                      {/* Show auth URLs from application metadata if available */}
+                      {/* Show auth URLs from application metadata or last deployment log */}
                       {(() => {
                         const app = applications.find(a => a.id === selectedApp);
-                        const envUrls = app?.metadata?.environment_urls?.[env.name.toLowerCase()];
+                        let envUrls = app?.metadata?.environment_urls?.[env.name.toLowerCase()];
+
+                        // Fallback to last deployment log URLs if not in app metadata
+                        if (!envUrls) {
+                          const lastLog = latestLogsMap[env.id];
+
+                          if (lastLog?.metadata?.deployed_urls) {
+                            envUrls = {
+                              login_url: lastLog.metadata.deployed_urls.login_url,
+                              register_url: lastLog.metadata.deployed_urls.register_url,
+                              reset_password_url: lastLog.metadata.deployed_urls.reset_password_url,
+                              deployed_at: lastLog.completed_at || lastLog.created_at
+                            };
+                          }
+                        }
 
                         if (envUrls) {
                           return (
@@ -1945,7 +1999,8 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
                                     href={envUrls.login_url}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="text-xs text-blue-600 hover:text-blue-800 truncate flex-1 hover:underline"
+                                    className="text-xs text-blue-600 hover:text-blue-800 flex-1 hover:underline block overflow-hidden whitespace-nowrap text-ellipsis"
+                                    title={envUrls.login_url}
                                   >
                                     {envUrls.login_url}
                                   </a>
@@ -1954,7 +2009,7 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
                                       navigator.clipboard.writeText(envUrls.login_url);
                                       showNotification('success', 'Copiado', 'URL copiada al portapapeles');
                                     }}
-                                    className="p-1 hover:bg-green-100 rounded"
+                                    className="p-1 hover:bg-green-100 rounded flex-shrink-0"
                                     title="Copiar URL"
                                   >
                                     <svg className="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1969,7 +2024,8 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
                                     href={envUrls.register_url}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="text-xs text-blue-600 hover:text-blue-800 truncate flex-1 hover:underline"
+                                    className="text-xs text-blue-600 hover:text-blue-800 flex-1 hover:underline block overflow-hidden whitespace-nowrap text-ellipsis"
+                                    title={envUrls.register_url}
                                   >
                                     {envUrls.register_url}
                                   </a>
@@ -1978,7 +2034,7 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
                                       navigator.clipboard.writeText(envUrls.register_url);
                                       showNotification('success', 'Copiado', 'URL copiada al portapapeles');
                                     }}
-                                    className="p-1 hover:bg-green-100 rounded"
+                                    className="p-1 hover:bg-green-100 rounded flex-shrink-0"
                                     title="Copiar URL"
                                   >
                                     <svg className="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1993,7 +2049,8 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
                                     href={envUrls.reset_password_url}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="text-xs text-blue-600 hover:text-blue-800 truncate flex-1 hover:underline"
+                                    className="text-xs text-blue-600 hover:text-blue-800 flex-1 hover:underline block overflow-hidden whitespace-nowrap text-ellipsis"
+                                    title={envUrls.reset_password_url}
                                   >
                                     {envUrls.reset_password_url}
                                   </a>
@@ -2002,7 +2059,7 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
                                       navigator.clipboard.writeText(envUrls.reset_password_url);
                                       showNotification('success', 'Copiado', 'URL copiada al portapapeles');
                                     }}
-                                    className="p-1 hover:bg-green-100 rounded"
+                                    className="p-1 hover:bg-green-100 rounded flex-shrink-0"
                                     title="Copiar URL"
                                   >
                                     <svg className="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2036,26 +2093,6 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
                       )}
                     </div>
 
-                    {/* Test Results Summary */}
-                    {env.metadata?.test_results && (
-                      <div className="mb-4">
-                        <h4 className="text-xs font-medium text-gray-700 mb-2">Últimas Pruebas:</h4>
-                        <div className="flex flex-wrap gap-1">
-                          {Object.entries(env.metadata.test_results).map(([endpoint, result]) => (
-                            <span
-                              key={endpoint}
-                              className={`px-2 py-1 text-xs rounded-full ${
-                                result.success 
-                                  ? 'bg-green-100 text-green-800' 
-                                  : 'bg-red-100 text-red-800'
-                              }`}
-                            >
-                              {endpoint} {result.success ? '✅' : '❌'}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
 
                     {/* Actions */}
                     <div className="flex items-center space-x-2">
