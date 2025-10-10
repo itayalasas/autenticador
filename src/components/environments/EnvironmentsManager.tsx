@@ -601,23 +601,40 @@ export default function EnvironmentsManager() {
       }
 
       // STEP 9: Trigger deploy en Netlify
-      addLog('☁️  Iniciando deploy en Netlify...', 'info');
-      const deployResponse = await netlifyService.triggerDeploy({
+      addLog('☁️ Iniciando deploy en Netlify...', 'info');
+      const buildResponse = await netlifyService.triggerDeploy({
         title: `Deploy de ${environmentName} - ${new Date().toLocaleString()}`,
       });
 
       addLog(`✅ Build iniciado exitosamente!`, 'success');
-      addLog(`   Deploy ID: ${deployResponse.id}`, 'info');
-      addLog(`   Estado: ${deployResponse.state}`, 'info');
+      addLog(`   Build ID: ${buildResponse.id}`, 'info');
+      addLog('', 'info');
+
+      // Wait a bit for the deploy to be created
+      addLog('⏳ Esperando a que Netlify cree el deploy...', 'info');
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      // Get the latest deploy for this site
+      addLog('📥 Obteniendo información del deploy...', 'info');
+      const deploys = await netlifyService.listDeploys(siteId);
+      const latestDeploy = deploys[0]; // Most recent deploy
+
+      if (!latestDeploy) {
+        throw new Error('No se pudo obtener información del deploy');
+      }
+
+      addLog(`   Deploy ID: ${latestDeploy.id}`, 'info');
+      addLog(`   Estado: ${latestDeploy.state}`, 'info');
       addLog('', 'info');
 
       addLog('⏳ Esperando a que el deploy se complete...', 'info');
       addLog('   Esto puede tomar varios minutos', 'info');
+      addLog('   Puedes ver el progreso en: https://app.netlify.com', 'info');
       addLog('', 'info');
 
       const finalDeploy = await netlifyService.waitForDeploy(
         siteId,
-        deployResponse.id,
+        latestDeploy.id,
         (deploy) => {
           addLog(`   Estado actual: ${deploy.state} - ${new Date().toLocaleTimeString()}`, 'info');
         }
