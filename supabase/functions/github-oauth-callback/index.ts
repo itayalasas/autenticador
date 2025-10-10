@@ -30,15 +30,17 @@ Deno.serve(async (req: Request) => {
     // Get GitHub config from database
     const { data: configData, error: configError } = await supabase
       .from("connectors_config")
-      .select("config")
+      .select("config_data")
       .eq("connector_type", "github")
+      .eq("is_active", true)
       .maybeSingle();
 
     if (configError || !configData) {
+      console.error("Config error:", configError);
       throw new Error("GitHub OAuth not configured in database");
     }
 
-    const config = configData.config as { client_id: string; client_secret: string };
+    const config = configData.config_data as { client_id: string; client_secret: string };
     const clientId = config.client_id;
     const clientSecret = config.client_secret;
 
