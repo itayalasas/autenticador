@@ -519,35 +519,59 @@ function generateStandaloneFormHTML(
       try {
         console.log('🎨 Loading branding for app:', APPLICATION_ID);
 
-        // Construir URL con encoding correcto
-        const apiUrl = \`\${SUPABASE_URL}/rest/v1/applications?application_id=eq.\${encodeURIComponent(APPLICATION_ID)}&select=branding,name\`;
-        console.log('📡 API URL:', apiUrl);
+        // PASO 1: Obtener la aplicación para conseguir el UUID
+        const appUrl = \`\${SUPABASE_URL}/rest/v1/applications?application_id=eq.\${encodeURIComponent(APPLICATION_ID)}&select=id,name\`;
+        console.log('📡 Fetching app:', appUrl);
 
-        const response = await fetch(apiUrl, {
+        const appResponse = await fetch(appUrl, {
           headers: {
             'apikey': SUPABASE_ANON_KEY,
-            'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`,
-            'Content-Type': 'application/json',
-            'Prefer': 'return=representation'
+            'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`
           }
         });
 
-        console.log('📥 Response status:', response.status, response.statusText);
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('❌ API Error:', errorText);
-          throw new Error(\`API Error: \${response.status} - \${errorText}\`);
+        if (!appResponse.ok) {
+          const errorText = await appResponse.text();
+          console.error('❌ App fetch error:', errorText);
+          return; // Usar branding por defecto
         }
 
-        const apps = await response.json();
-        console.log('📦 Apps received:', apps);
+        const apps = await appResponse.json();
+        console.log('📦 App data:', apps);
 
-        if (apps && apps.length > 0) {
-          const app = apps[0];
-          const branding = app.branding || {};
+        if (!apps || apps.length === 0) {
+          console.warn('⚠️ App not found');
+          return;
+        }
 
-          console.log('✅ Branding loaded:', branding);
+        const app = apps[0];
+
+        // PASO 2: Obtener el branding usando el UUID
+        const brandingUrl = \`\${SUPABASE_URL}/rest/v1/branding_configs?application_id=eq.\${app.id}&select=primary_color,logo_url,secondary_color,accent_color\`;
+        console.log('📡 Fetching branding:', brandingUrl);
+
+        const brandingResponse = await fetch(brandingUrl, {
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`
+          }
+        });
+
+        if (!brandingResponse.ok) {
+          console.warn('⚠️ Branding fetch failed, using defaults');
+          return;
+        }
+
+        const brandings = await brandingResponse.json();
+        console.log('📦 Branding data:', brandings);
+
+        if (!brandings || brandings.length === 0) {
+          console.warn('⚠️ No branding config found');
+          return;
+        }
+
+        const branding = brandings[0];
+        console.log('✅ Branding loaded:', branding);
 
           // Aplicar colores
           if (branding.primary_color) {
