@@ -212,8 +212,12 @@ class NetlifyService {
     });
   }
 
-  async deployWithFiles(siteId: string, files: Record<string, string>): Promise<any> {
-    // Deploy using edge function that handles file uploads
+  async deployWithFiles(
+    siteId: string,
+    files: Record<string, string>,
+    onProgress?: (progress: number, message: string) => void
+  ): Promise<any> {
+    // Deploy using manual file upload to Netlify API
     // This works WITHOUT a connected repository
 
     if (!this.accessToken) {
@@ -225,28 +229,113 @@ class NetlifyService {
       throw new Error('Site ID no configurado');
     }
 
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    const totalFiles = Object.keys(files).length;
 
-    const response = await fetch(`${supabaseUrl}/functions/v1/deploy-to-netlify`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${supabaseAnonKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        siteId: id,
-        accessToken: this.accessToken,
-        projectFiles: files,
-      }),
-    });
+    // STEP 1: Create deploy (5% progress)
+    onProgress?.(5, 'Creando deploy en Netlify...');
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: 'Error desconocido' }));
-      throw new Error(error.message || `Deploy failed: ${response.status}`);
+    const fileHashes: Record<string, string> = {};
+    const fileContents: Record<string, string> = {};
+
+    // Calculate SHA-1 for each file
+    for (const [path, content] of Object.entries(files)) {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(content);
+      const hashBuffer = await crypto.subtle.digest('SHA-1', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+      fileHashes[path] = hashHex;
+      fileContents[path] = content;
     }
 
-    return response.json();
+    const createDeployResponse = await fetch(
+      `https://api.netlify.com/api/v1/sites/${id}/deploys`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.accessToken}`,
+        },
+        body: JSON.stringify({
+          files: fileHashes,
+          draft: false,
+        }),
+      }
+    );
+
+    if (!createDeployResponse.ok) {
+      const error = await createDeployResponse.text();
+      throw new Error(`Failed to create deploy: ${error}`);
+    }
+
+    const deploy = await createDeployResponse.json();
+    onProgress?.(10, 'Deploy creado, subiendo archivos...');
+
+    // STEP 2: Upload files (10% - 80% progress)
+    const requiredFiles = deploy.required || [];
+    const filesToUpload = Object.entries(fileHashes).filter(([_, hash]) =>
+      requiredFiles.includes(hash)
+    );
+
+    let uploadedCount = 0;
+    const progressPerFile = 70 / Math.max(filesToUpload.length, 1);
+
+    for (const [path, hash] of filesToUpload) {
+      const content = fileContents[path];
+      const uploadUrl = `${deploy.deploy_url}/files/${path}`;
+
+      await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+        },
+        body: content,
+      });
+
+      uploadedCount++;
+      const progress = 10 + (uploadedCount * progressPerFile);
+      const fileName = path.split('/').pop() || path;
+      onProgress?.(
+        Math.round(progress),
+        `Subiendo ${uploadedCount}/${filesToUpload.length}: ${fileName}`
+      );
+    }
+
+    onProgress?.(80, 'Archivos subidos, procesando deploy...');
+
+    // STEP 3: Wait for deploy to be ready (80% - 100% progress)
+    let deployStatus = deploy;
+    let attempts = 0;
+    const maxAttempts = 60;
+
+    while (deployStatus.state !== 'ready' && deployStatus.state !== 'error' && attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+
+      const statusResponse = await fetch(
+        `https://api.netlify.com/api/v1/sites/${id}/deploys/${deploy.id}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${this.accessToken}`,
+          },
+        }
+      );
+
+      deployStatus = await statusResponse.json();
+      attempts++;
+
+      const waitProgress = 80 + (attempts / maxAttempts) * 20;
+      onProgress?.(Math.round(waitProgress), `Esperando build (${attempts}/${maxAttempts})...`);
+    }
+
+    onProgress?.(100, 'Deploy completado!');
+
+    return {
+      success: true,
+      deploy: deployStatus,
+      url: deployStatus.ssl_url || deployStatus.url,
+      deployUrl: deployStatus.deploy_ssl_url || deployStatus.deploy_url,
+    };
   }
 
   async deployZipDirectly(siteId: string, zipBlob: Blob, title?: string): Promise<any> {

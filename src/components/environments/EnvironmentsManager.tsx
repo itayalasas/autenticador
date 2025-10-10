@@ -665,9 +665,14 @@ npm run build
 
       // STEP 9: Deploy manual con archivos (sin conexión a GitHub)
       addLog('☁️ Iniciando deploy en Netlify...', 'info');
-      addLog('   📦 Subiendo archivos directamente...', 'info');
 
-      const deployResult = await netlifyService.deployWithFiles(siteId, files);
+      const deployResult = await netlifyService.deployWithFiles(
+        siteId,
+        files,
+        (progress, message) => {
+          addLog(`   📦 [${progress}%] ${message}`, 'info');
+        }
+      );
 
       if (!deployResult.success) {
         throw new Error(deployResult.error || 'Error al hacer deploy');
