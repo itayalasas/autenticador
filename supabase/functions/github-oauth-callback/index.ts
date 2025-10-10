@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,17 +16,34 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const { code } = await req.json();
+    const { code, userId } = await req.json();
 
     if (!code) {
       throw new Error("Missing authorization code");
     }
 
-    const clientId = Deno.env.get("GITHUB_CLIENT_ID");
-    const clientSecret = Deno.env.get("GITHUB_CLIENT_SECRET");
+    // Initialize Supabase client
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Get GitHub config from database
+    const { data: configData, error: configError } = await supabase
+      .from("connectors_config")
+      .select("config")
+      .eq("connector_type", "github")
+      .maybeSingle();
+
+    if (configError || !configData) {
+      throw new Error("GitHub OAuth not configured in database");
+    }
+
+    const config = configData.config as { client_id: string; client_secret: string };
+    const clientId = config.client_id;
+    const clientSecret = config.client_secret;
 
     if (!clientId || !clientSecret) {
-      throw new Error("GitHub OAuth not configured");
+      throw new Error("GitHub OAuth credentials incomplete");
     }
 
     const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {

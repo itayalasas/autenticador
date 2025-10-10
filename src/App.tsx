@@ -19,6 +19,7 @@ import SettingsPage from './components/settings/SettingsPage';
 import SubscriptionManager from './components/subscription/SubscriptionManager';
 import LogsViewer from './components/activity/LogsViewer';
 import ConnectorsPage from './components/connectors/ConnectorsPage';
+import GitHubCallback from './components/github/GitHubCallback';
 
 // Component for handling public auth routes
 function PublicAuthRoute() {
@@ -211,6 +212,7 @@ function App() {
     <Router>
       <Routes>
         <Route path="/reset-password" element={<ResetPasswordForm />} />
+        <Route path="/github/callback" element={<GitHubCallback />} />
         <Route path="/:action" element={<PublicAuthRoute />} />
         <Route path="/*" element={<MainApp />} />
       </Routes>

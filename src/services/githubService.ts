@@ -80,6 +80,12 @@ class GitHubService {
       throw new Error('Invalid state parameter');
     }
 
+    // Get current user ID
+    const { data: { user: currentUser } } = await supabase.auth.getUser();
+    if (!currentUser) {
+      throw new Error('User not authenticated');
+    }
+
     // Exchange code for access token via Edge Function
     const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/github-oauth-callback`, {
       method: 'POST',
@@ -87,25 +93,26 @@ class GitHubService {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
       },
-      body: JSON.stringify({ code }),
+      body: JSON.stringify({ code, userId: currentUser.id }),
     });
 
     if (!response.ok) {
-      throw new Error('Failed to exchange code for token');
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to exchange code for token');
     }
 
     const { access_token } = await response.json();
 
-    // Get user info
-    const user = await this.getGitHubUser(access_token);
+    // Get GitHub user info
+    const githubUser = await this.getGitHubUser(access_token);
 
     // Save connection to database
     return this.saveConnection({
       provider: 'github',
       access_token,
-      username: user.login,
-      email: user.email,
-      avatar_url: user.avatar_url,
+      username: githubUser.login,
+      email: githubUser.email,
+      avatar_url: githubUser.avatar_url,
     });
   }
 
