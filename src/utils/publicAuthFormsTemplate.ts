@@ -102,13 +102,20 @@ export default function PublicAuthForms({
 
   const loadApplicationInfo = async () => {
     try {
-      if (!applicationId) return;
+      console.log('📋 Loading application info for:', applicationId);
+      if (!applicationId) {
+        console.log('❌ No applicationId provided');
+        return;
+      }
 
       const app = await applicationService.getApplicationByApplicationId(applicationId);
+      console.log('📱 Application loaded:', app);
+
       if (app) {
         setAppInfo(app);
 
         const brandingData = await applicationService.getBrandingByApplicationId(app.id);
+        console.log('🎨 Branding loaded:', brandingData);
         if (brandingData) {
           setLoadedBranding(brandingData);
           if (brandingData.custom_texts) {
@@ -116,18 +123,22 @@ export default function PublicAuthForms({
           }
         }
 
+        console.log('🔍 Form type:', formType);
         if (formType === 'register') {
+          console.log('👥 Loading roles for app.id:', app.id);
           const roles = await rolesService.getRolesByApplication(app.id);
+          console.log('✅ Roles received:', roles);
           setAvailableRoles(roles);
 
           const defaultRole = roles.find(role => role.is_default);
           if (defaultRole) {
+            console.log('⭐ Default role found:', defaultRole.name);
             setSelectedRole(defaultRole.name);
           }
         }
       }
     } catch (error) {
-      console.error('Error loading application info:', error);
+      console.error('❌ Error loading application info:', error);
     }
   };
 
@@ -375,6 +386,14 @@ export default function PublicAuthForms({
       </div>
     );
   }
+
+  // Debug: Log render state
+  console.log('🖼️ Rendering form with:', {
+    formType,
+    availableRolesCount: availableRoles.length,
+    availableRoles,
+    selectedRole
+  });
 
   return (
     <div

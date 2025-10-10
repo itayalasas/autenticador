@@ -240,16 +240,20 @@ export const rolesService = {
   async getRolesByApplication(internalAppId: string) {
     try {
       const { data, error } = await supabase
-        .from('roles')
+        .from('application_roles')
         .select('*')
         .eq('application_id', internalAppId)
-        .eq('is_active', true)
-        .order('name');
+        .order('display_name');
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching roles from DB:', error);
+        throw error;
+      }
+
+      console.log('✅ Roles loaded:', data);
       return data || [];
     } catch (error) {
-      console.error('Error fetching roles:', error);
+      console.error('❌ Error fetching roles:', error);
       return [];
     }
   }
