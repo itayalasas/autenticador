@@ -136,7 +136,7 @@ body {
   // src/App.tsx - Router for public forms
   files['src/App.tsx'] = `import React from 'react';
 import { Routes, Route, Navigate, useSearchParams, useLocation } from 'react-router-dom';
-import PublicAuthForms from './components/PublicAuthForms';
+import PublicAuthForms from './components/auth/PublicAuthForms';
 
 export default function App() {
   const [searchParams] = useSearchParams();
@@ -226,8 +226,116 @@ export default function App() {
 }
 `;
 
-  // src/components/PublicAuthForms.tsx - Using the template
-  files['src/components/PublicAuthForms.tsx'] = PUBLIC_AUTH_FORMS_TEMPLATE;
+  // src/components/auth/PublicAuthForms.tsx - Using the template
+  files['src/components/auth/PublicAuthForms.tsx'] = PUBLIC_AUTH_FORMS_TEMPLATE;
+
+  // ============================================
+  // SERVICE FILES - Required by PublicAuthForms
+  // ============================================
+
+  // src/services/rolesService.ts
+  files['src/services/rolesService.ts'] = `import { supabase } from '../lib/supabase';
+
+export const rolesService = {
+  async getRolesByApplicationId(applicationId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('roles')
+        .select('*')
+        .eq('application_id', applicationId)
+        .eq('is_active', true)
+        .order('name');
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching roles:', error);
+      return [];
+    }
+  }
+};
+`;
+
+  // src/services/applicationService.ts
+  files['src/services/applicationService.ts'] = `import { supabase } from '../lib/supabase';
+
+export const applicationService = {
+  async getApplicationByApplicationId(applicationId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('applications')
+        .select('*')
+        .eq('application_id', applicationId)
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error fetching application:', error);
+      return null;
+    }
+  },
+
+  async verifyApiKey(appId: string, apiKey: string) {
+    try {
+      const { data, error } = await supabase
+        .from('api_keys')
+        .select('*')
+        .eq('application_id', appId)
+        .eq('key', apiKey)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (error) throw error;
+      return !!data;
+    } catch (error) {
+      console.error('Error verifying API key:', error);
+      return false;
+    }
+  }
+};
+`;
+
+  // src/services/ipService.ts
+  files['src/services/ipService.ts'] = `import { supabase } from '../lib/supabase';
+
+export const ipService = {
+  async checkIfBlocked(applicationId: string) {
+    try {
+      // Get user's IP (this is a simplified version)
+      const ipResponse = await fetch('https://api.ipify.org?format=json');
+      const { ip } = await ipResponse.json();
+
+      const { data, error } = await supabase
+        .from('blocked_ips')
+        .select('*')
+        .eq('application_id', applicationId)
+        .eq('ip_address', ip)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (error) throw error;
+      return { blocked: !!data, data: data || null, ip };
+    } catch (error) {
+      console.error('Error checking IP:', error);
+      return { blocked: false, data: null, ip: null };
+    }
+  }
+};
+`;
+
+  // src/lib/supabase.ts
+  files['src/lib/supabase.ts'] = `import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error('Missing Supabase environment variables');
+}
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+`;
 
   // netlify.toml for deployment configuration
   files['netlify.toml'] = `[build]
