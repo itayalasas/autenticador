@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Database, Globe, Play, Settings, Trash2, Plus, CheckCircle, AlertTriangle, Terminal, X, RotateCcw, ExternalLink, Eye, Code, FileText, Shield, CreditCard as Edit, Power, MoreVertical, Upload, Cloud, AlertCircle } from 'lucide-react';
+import { Database, Globe, Play, Settings, Trash2, Plus, CheckCircle, AlertTriangle, Terminal, X, RotateCcw, ExternalLink, Eye, Code, FileText, Shield, CreditCard as Edit, Power, MoreVertical, Upload, Cloud, AlertCircle, History, Download } from 'lucide-react';
 import { applicationService } from '../../services/applicationService';
 import { subscriptionService } from '../../services/subscriptionService';
 import { netlifyService } from '../../services/netlifyService';
@@ -154,6 +154,35 @@ export default function EnvironmentsManager() {
     setConsoleLogs([]);
   };
 
+  const loadDeploymentHistory = async (environmentId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('deployment_logs')
+        .select('*')
+        .eq('environment_id', environmentId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (error) throw error;
+      setHistoricalLogs(data || []);
+    } catch (error) {
+      console.error('Error loading deployment history:', error);
+    }
+  };
+
+  const downloadLog = (log: any) => {
+    const content = JSON.stringify(log, null, 2);
+    const blob = new Blob([content], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `deployment-log-${log.id}-${new Date(log.created_at).toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const loadSubscription = async () => {
     try {
       const sub = await subscriptionService.getCurrentSubscription();
@@ -286,6 +315,8 @@ export default function EnvironmentsManager() {
   };
 
   const handleDeploy = async (environmentId: string, environmentName: string) => {
+    let deploymentLogId: string | null = null;
+
     try {
       setDeployLoading(environmentId);
       setIsDeploying(true);
@@ -297,6 +328,28 @@ export default function EnvironmentsManager() {
       addLog('🚀 INICIO DEL DESPLIEGUE', 'info');
       addLog('🚀 ========================================', 'info');
       addLog('', 'info');
+
+      // Create deployment log record
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data: deploymentLog, error: deployLogError } = await supabase
+        .from('deployment_logs')
+        .insert({
+          environment_id: environmentId,
+          application_id: selectedApp,
+          user_id: user?.id,
+          deployment_type: 'deploy',
+          status: 'running',
+          started_at: new Date().toISOString(),
+          logs: [],
+          metadata: { environment_name: environmentName }
+        })
+        .select()
+        .single();
+
+      if (!deployLogError && deploymentLog) {
+        deploymentLogId = deploymentLog.id;
+        addLog(`📝 Log de deployment creado: ${deploymentLogId.substring(0, 8)}...`, 'info');
+      }
 
       // Step 1: Validate subscription and plan
       addLog('📋 Paso 1: Validando suscripción y plan...', 'info');
@@ -617,11 +670,45 @@ export default function EnvironmentsManager() {
 
       addLog('⏸️  Deploy pausado - Esperando selección de sitio...', 'info');
 
+      // Save final logs to database
+      if (deploymentLogId) {
+        await supabase
+          .from('deployment_logs')
+          .update({
+            status: 'success',
+            completed_at: new Date().toISOString(),
+            logs: consoleLogs.map(log => ({
+              timestamp: log.timestamp,
+              level: log.level,
+              message: log.message
+            }))
+          })
+          .eq('id', deploymentLogId);
+      }
+
       return true;
 
     } catch (error) {
       console.error('Deploy error:', error);
       addLog(`❌ Deployment failed: ${error.message || 'Unknown error'}`, 'error');
+
+      // Update deployment log with error
+      if (deploymentLogId) {
+        await supabase
+          .from('deployment_logs')
+          .update({
+            status: 'failed',
+            completed_at: new Date().toISOString(),
+            logs: consoleLogs.map(log => ({
+              timestamp: log.timestamp,
+              level: log.level,
+              message: log.message
+            })),
+            metadata: { error: error.message || 'Unknown error' }
+          })
+          .eq('id', deploymentLogId);
+      }
+
       return false;
     } finally {
       setDeployLoading(null);
@@ -1959,6 +2046,17 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
                               >
                                 <Power className="w-4 h-4" />
                                 <span>{env.is_active ? 'Desactivar' : 'Activar'}</span>
+                              </button>
+                              <button
+                                onClick={() => {
+                                  loadDeploymentHistory(env.id);
+                                  setShowLogsHistory(env.id);
+                                  setOpenMenuId(null);
+                                }}
+                                className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                              >
+                                <Terminal className="w-4 h-4" />
+                                <span>Ver historial de logs</span>
                               </button>
                               <hr className="my-1" />
                               <button
