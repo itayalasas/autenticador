@@ -212,6 +212,43 @@ class NetlifyService {
     });
   }
 
+  async deployWithFiles(siteId: string, files: Record<string, string>): Promise<any> {
+    // Deploy using edge function that handles file uploads
+    // This works WITHOUT a connected repository
+
+    if (!this.accessToken) {
+      throw new Error('Access token no configurado');
+    }
+
+    const id = siteId || this.siteId;
+    if (!id) {
+      throw new Error('Site ID no configurado');
+    }
+
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/deploy-to-netlify`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${supabaseAnonKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        siteId: id,
+        accessToken: this.accessToken,
+        projectFiles: files,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Error desconocido' }));
+      throw new Error(error.message || `Deploy failed: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
   async deployZipDirectly(siteId: string, zipBlob: Blob, title?: string): Promise<any> {
     // Deploy directly by uploading a ZIP file
     // This works WITHOUT a connected repository

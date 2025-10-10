@@ -644,23 +644,12 @@ npm run build
         return;
       }
 
-      // STEP 8: Conectar repo con sitio de Netlify (si no está conectado)
+      // STEP 8: Actualizar repo con site_id en BD
       if (!repo.netlify_site_id) {
-        addLog('🔗 Conectando repositorio con Netlify...', 'info');
-        await netlifyService.connectRepositoryToSite(
-          siteId,
-          repo.repo_full_name,
-          'npm run build',
-          'dist'
-        );
-
-        // Actualizar repo en BD
         await supabase
           .from('git_repositories')
           .update({ netlify_site_id: siteId })
           .eq('id', repo.id);
-
-        addLog('✅ Repositorio conectado con Netlify', 'success');
       }
 
       // STEP 8.5: Configurar variables de entorno en Netlify
@@ -674,14 +663,19 @@ npm run build
         console.error('Error setting Netlify env vars:', error);
       }
 
-      // STEP 9: Trigger deploy en Netlify
+      // STEP 9: Deploy manual con archivos (sin conexión a GitHub)
       addLog('☁️ Iniciando deploy en Netlify...', 'info');
-      const buildResponse = await netlifyService.triggerDeploy({
-        title: `Deploy de ${environmentName} - ${new Date().toLocaleString()}`,
-      });
+      addLog('   📦 Subiendo archivos directamente...', 'info');
 
-      addLog(`✅ Build iniciado exitosamente!`, 'success');
-      addLog(`   Build ID: ${buildResponse.id}`, 'info');
+      const deployResult = await netlifyService.deployWithFiles(siteId, files);
+
+      if (!deployResult.success) {
+        throw new Error(deployResult.error || 'Error al hacer deploy');
+      }
+
+      addLog(`✅ Deploy completado exitosamente!`, 'success');
+      addLog(`   Deploy ID: ${deployResult.deploy.id}`, 'info');
+      addLog(`   URL: ${deployResult.url}`, 'success');
       addLog('', 'info');
 
       // Wait a bit for the deploy to be created
