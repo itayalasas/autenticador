@@ -1542,10 +1542,55 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
             setCurrentDeploymentLogId(null);
           }
 
+          // Update application metadata with new URLs
+          addLog('💾 Actualizando URLs en metadata de la aplicación...', 'info');
+          try {
+            const { data: currentApp, error: fetchError } = await supabase
+              .from('applications')
+              .select('metadata')
+              .eq('id', selectedApp)
+              .single();
+
+            if (fetchError) throw fetchError;
+
+            const authUrls = {
+              base_url: siteUrl,
+              login_url: loginUrl,
+              register_url: registerUrl,
+              reset_password_url: resetUrl,
+              deployed_at: new Date().toISOString(),
+              netlify_site_id: siteId,
+              netlify_site_name: siteName
+            };
+
+            const updatedMetadata = {
+              ...(currentApp?.metadata || {}),
+              environment_urls: {
+                ...(currentApp?.metadata?.environment_urls || {}),
+                [pendingDeployData.environmentName.toLowerCase()]: authUrls
+              }
+            };
+
+            const { error: updateError } = await supabase
+              .from('applications')
+              .update({
+                metadata: updatedMetadata,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', selectedApp);
+
+            if (updateError) throw updateError;
+
+            addLog('✅ URLs actualizadas en metadata de la aplicación', 'success');
+          } catch (error: any) {
+            addLog(`⚠️ No se pudieron actualizar las URLs en metadata: ${error.message}`, 'warning');
+          }
+
           // Limpiar datos pendientes
           setPendingDeployData(null);
 
-          // Recargar ambientes y logs
+          // Recargar aplicaciones y ambientes
+          await loadApplications();
           await loadEnvironments();
         } catch (error: any) {
           addLog(`❌ Error durante el deploy: ${error.message}`, 'error');
