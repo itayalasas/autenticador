@@ -495,11 +495,19 @@ export default function EnvironmentsManager() {
       setCurrentEnvironmentId(environmentId);
       setCurrentEnvironmentName(environmentName);
 
-      // STEP 1: Validar que GitHub esté configurado
+      // STEP 1: Verificar configuración y conexión de GitHub
       const githubConfigured = await connectorsService.isGitHubConfigured();
-      if (!githubConfigured) {
-        showNotification('warning', 'GitHub no Configurado',
-          'Para hacer deploy automático necesitas configurar GitHub en la sección "Conectores".');
+      const githubConnection = await githubService.getActiveConnection();
+
+      if (!githubConfigured || !githubConnection) {
+        let message = '';
+        if (!githubConfigured) {
+          message = 'Primero configura GitHub en la sección "Conectores" (Client ID y Client Secret).';
+        } else if (!githubConnection) {
+          message = 'Tienes GitHub configurado, pero necesitas conectar tu cuenta. Ve a "Conectores" y haz clic en "Conectar con GitHub".';
+        }
+
+        showNotification('warning', 'GitHub no Conectado', message);
         return;
       }
 
@@ -507,23 +515,15 @@ export default function EnvironmentsManager() {
       const netlifyConfigured = await connectorsService.isNetlifyConfigured();
       if (!netlifyConfigured) {
         showNotification('warning', 'Netlify no Configurado',
-          'Para hacer deploy automático necesitas configurar Netlify en la sección "Conectores".');
+          'Configura tu Access Token de Netlify en la sección "Conectores".');
         return;
       }
 
-      // STEP 3: Verificar que GitHub tenga una conexión activa
-      const githubConnection = await githubService.getActiveConnection();
-      if (!githubConnection) {
-        showNotification('warning', 'Conectar con GitHub',
-          'Necesitas conectar tu cuenta de GitHub primero. Ve a la sección "Conectores".');
-        return;
-      }
-
-      // STEP 4: Verificar/Obtener repositorios guardados
+      // STEP 3: Verificar/Obtener repositorios guardados
       const savedRepos = await githubService.getSavedRepositories();
       if (savedRepos.length === 0) {
         showNotification('warning', 'Repositorio Requerido',
-          'Necesitas crear o seleccionar un repositorio de GitHub primero. Ve a la sección "Conectores".');
+          'Crea o selecciona un repositorio de GitHub en la sección "Conectores" primero.');
         return;
       }
 
