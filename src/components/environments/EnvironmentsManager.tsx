@@ -6,6 +6,7 @@ import { netlifyService } from '../../services/netlifyService';
 import { githubService } from '../../services/githubService';
 import { connectorsService } from '../../services/connectorsService';
 import { environmentVariablesService } from '../../services/environmentVariablesService';
+import { getProjectFiles } from '../../utils/projectFilesHelper';
 import { supabase } from '../../lib/supabase';
 import ConfirmationModal from '../ui/ConfirmationModal';
 import NotificationModal from '../ui/NotificationModal';
@@ -570,17 +571,51 @@ export default function EnvironmentsManager() {
       const envFileContent = environmentVariablesService.buildEnvFileContent(envVars);
       addLog(`   ✓ ${envVars.length} variables de entorno cargadas`, 'success');
 
-      // Preparar archivos para commit (esto debería venir de tu aplicación)
-      const files: Record<string, string> = {
-        'README.md': `# ${selectedApp} - ${environmentName}\n\nDeploy automático desde AuthSystem\n\nFecha: ${new Date().toISOString()}`,
-        'index.html': '<!DOCTYPE html><html><head><title>AuthSystem</title></head><body><h1>AuthSystem Deploy</h1></body></html>',
-        '.gitignore': `# Environment variables\n.env\n.env.local\n\n# Dependencies\nnode_modules/\n\n# Build output\ndist/\nbuild/\n\n# Logs\n*.log\nnpm-debug.log*\n\n# OS files\n.DS_Store\nThumbs.db`,
-        '.env.example': envFileContent.split('\n').map(line => {
-          const [key] = line.split('=');
-          return `${key}=`;
-        }).join('\n'),
-        'netlify.toml': `[build]\n  command = "npm run build"\n  publish = "dist"\n\n[[redirects]]\n  from = "/*"\n  to = "/index.html"\n  status = 200`,
-      };
+      // STEP 5.3: Obtener archivos del proyecto completo
+      addLog('📁 Preparando archivos del proyecto...', 'info');
+      const projectFiles = await getProjectFiles();
+
+      // Agregar README y .env.example
+      projectFiles['README.md'] = `# ${selectedApp} - ${environmentName}
+
+Deploy automático desde AuthSystem
+
+Fecha: ${new Date().toISOString()}
+
+## Variables de Entorno
+
+Copia \`.env.example\` a \`.env\` y configura los valores:
+
+\`\`\`bash
+cp .env.example .env
+\`\`\`
+
+## Instalación
+
+\`\`\`bash
+npm install
+\`\`\`
+
+## Desarrollo
+
+\`\`\`bash
+npm run dev
+\`\`\`
+
+## Build
+
+\`\`\`bash
+npm run build
+\`\`\`
+`;
+
+      projectFiles['.env.example'] = envFileContent.split('\n').map(line => {
+        const [key] = line.split('=');
+        return `${key}=`;
+      }).join('\n');
+
+      const files = projectFiles;
+      addLog(`   ✓ ${Object.keys(files).length} archivos preparados`, 'success');
 
       // STEP 6: Hacer commit y push a GitHub
       addLog(`📤 Subiendo código a GitHub (${repo.repo_full_name})...`, 'info');

@@ -104,7 +104,7 @@ export default function GitHubConnector({ onRepositorySelected }: GitHubConnecto
 
     try {
       setCreatingRepo(true);
-      const repo = await githubService.createRepository(newRepoName, true, 'Created from AuthSystem');
+      const repo = await githubService.createRepository(newRepoName, false, 'Created from AuthSystem - Public repository for Netlify deployment');
       const savedRepo = await githubService.saveRepository(repo);
 
       setSavedRepos([savedRepo, ...savedRepos]);
