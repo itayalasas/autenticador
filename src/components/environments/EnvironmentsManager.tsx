@@ -663,29 +663,48 @@ npm run build
         console.error('Error setting Netlify env vars:', error);
       }
 
-      // STEP 9: Deploy manual con archivos (sin conexión a GitHub)
-      addLog('☁️ Iniciando deploy en Netlify...', 'info');
-
-      const deployResult = await netlifyService.deployWithFiles(
-        siteId,
-        files,
-        (progress, message) => {
-          addLog(`   📦 [${progress}%] ${message}`, 'info');
+      // STEP 9: Conectar repositorio a Netlify (si no está conectado)
+      addLog('🔗 Conectando repositorio a Netlify...', 'info');
+      try {
+        await netlifyService.connectRepositoryToSite(
+          siteId,
+          repo.repo_full_name,
+          'npm run build',
+          'dist'
+        );
+        addLog('   ✓ Repositorio conectado a Netlify', 'success');
+      } catch (error: any) {
+        // Puede fallar si ya está conectado, lo cual está bien
+        if (error.message?.includes('already')) {
+          addLog('   ✓ Repositorio ya estaba conectado', 'info');
+        } else {
+          addLog('   ⚠️  Advertencia al conectar repositorio', 'warning');
+          console.warn('Error connecting repo:', error);
         }
-      );
-
-      if (!deployResult.success) {
-        throw new Error(deployResult.error || 'Error al hacer deploy');
       }
 
-      addLog(`✅ Deploy completado exitosamente!`, 'success');
-      addLog(`   Deploy ID: ${deployResult.deploy.id}`, 'info');
-      addLog(`   URL: ${deployResult.url}`, 'success');
+      // STEP 10: Triggear build en Netlify
+      addLog('☁️ Triggeando build en Netlify...', 'info');
+      addLog('   Netlify compilará el proyecto automáticamente', 'info');
+
+      let triggerResult;
+      try {
+        triggerResult = await netlifyService.triggerDeploy({
+          siteId,
+          branch: 'main',
+          title: `Deploy ${environmentName} - ${new Date().toLocaleString()}`
+        });
+        addLog('   ✓ Build iniciado en Netlify', 'success');
+      } catch (error: any) {
+        console.error('Error triggering deploy:', error);
+        throw new Error(`Error al triggear deploy: ${error.message}`);
+      }
+
       addLog('', 'info');
 
-      // Wait a bit for the deploy to be created
+      // Wait for Netlify to create the deploy
       addLog('⏳ Esperando a que Netlify cree el deploy...', 'info');
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      await new Promise(resolve => setTimeout(resolve, 5000));
 
       // Get the latest deploy for this site
       addLog('📥 Obteniendo información del deploy...', 'info');
@@ -696,8 +715,9 @@ npm run build
         throw new Error('No se pudo obtener información del deploy');
       }
 
+      addLog(`   ✅ Deploy iniciado exitosamente!`, 'success');
       addLog(`   Deploy ID: ${latestDeploy.id}`, 'info');
-      addLog(`   Estado: ${latestDeploy.state}`, 'info');
+      addLog(`   Estado inicial: ${latestDeploy.state}`, 'info');
       addLog('', 'info');
 
       addLog('⏳ Esperando a que el deploy se complete...', 'info');

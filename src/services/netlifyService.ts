@@ -321,13 +321,43 @@ class NetlifyService {
       const normalizedPath = path.startsWith('/') ? path.substring(1) : path;
       const uploadUrl = `https://api.netlify.com/api/v1/deploys/${deploy.id}/files/${normalizedPath}`;
 
-      console.log(`Uploading file: ${normalizedPath} (${content.length} bytes)`);
+      // Determine correct MIME type based on file extension
+      const getContentType = (filePath: string): string => {
+        const ext = filePath.split('.').pop()?.toLowerCase();
+        const mimeTypes: Record<string, string> = {
+          'html': 'text/html',
+          'css': 'text/css',
+          'js': 'application/javascript',
+          'mjs': 'application/javascript',
+          'json': 'application/json',
+          'ts': 'text/plain',
+          'tsx': 'text/plain',
+          'jsx': 'text/plain',
+          'svg': 'image/svg+xml',
+          'png': 'image/png',
+          'jpg': 'image/jpeg',
+          'jpeg': 'image/jpeg',
+          'gif': 'image/gif',
+          'woff': 'font/woff',
+          'woff2': 'font/woff2',
+          'ttf': 'font/ttf',
+          'eot': 'application/vnd.ms-fontobject',
+          'ico': 'image/x-icon',
+          'md': 'text/markdown',
+          'txt': 'text/plain',
+        };
+        return mimeTypes[ext || ''] || 'application/octet-stream';
+      };
+
+      const contentType = getContentType(normalizedPath);
+
+      console.log(`Uploading file: ${normalizedPath} (${content.length} bytes) [${contentType}]`);
 
       try {
         const uploadResponse = await fetch(uploadUrl, {
           method: 'PUT',
           headers: {
-            'Content-Type': 'application/octet-stream',
+            'Content-Type': contentType,
             'Authorization': `Bearer ${this.accessToken}`,
           },
           body: content,
