@@ -288,6 +288,19 @@ class NetlifyService {
     }
 
     const deploy = await createDeployResponse.json();
+
+    // Validate deploy response
+    if (!deploy.id || !deploy.deploy_url) {
+      console.error('Invalid deploy response:', deploy);
+      throw new Error('Deploy response inválido de Netlify. Faltan campos requeridos.');
+    }
+
+    console.log('Deploy created:', {
+      id: deploy.id,
+      deploy_url: deploy.deploy_url,
+      required_files: deploy.required?.length || 0
+    });
+
     onProgress?.(10, 'Deploy creado, subiendo archivos...');
 
     // STEP 2: Upload files (10% - 80% progress)
@@ -296,29 +309,44 @@ class NetlifyService {
       requiredFiles.includes(hash)
     );
 
+    console.log(`Files to upload: ${filesToUpload.length} of ${Object.keys(files).length} total`);
+
     let uploadedCount = 0;
     const progressPerFile = 70 / Math.max(filesToUpload.length, 1);
 
     for (const [path, hash] of filesToUpload) {
       const content = fileContents[path];
-      const uploadUrl = `${deploy.deploy_url}/files/${path}`;
+
+      // Normalize path - remove leading slash if present
+      const normalizedPath = path.startsWith('/') ? path.substring(1) : path;
+      const uploadUrl = `https://api.netlify.com/api/v1/deploys/${deploy.id}/files/${normalizedPath}`;
+
+      console.log(`Uploading file: ${normalizedPath} (${content.length} bytes)`);
 
       try {
         const uploadResponse = await fetch(uploadUrl, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/octet-stream',
+            'Authorization': `Bearer ${this.accessToken}`,
           },
           body: content,
         });
 
         if (!uploadResponse.ok) {
-          console.error(`Failed to upload ${path}:`, uploadResponse.status);
-          throw new Error(`Error subiendo ${path}: ${uploadResponse.status}`);
+          const errorText = await uploadResponse.text();
+          console.error(`Failed to upload ${normalizedPath}:`, {
+            status: uploadResponse.status,
+            statusText: uploadResponse.statusText,
+            error: errorText
+          });
+          throw new Error(`Error subiendo ${normalizedPath}: ${uploadResponse.status} - ${errorText}`);
         }
+
+        console.log(`✓ Uploaded: ${normalizedPath}`);
       } catch (error: any) {
-        console.error(`Network error uploading ${path}:`, error);
-        throw new Error(`Error de red subiendo ${path}: ${error.message}`);
+        console.error(`Network error uploading ${normalizedPath}:`, error);
+        throw new Error(`Error de red subiendo ${normalizedPath}: ${error.message}`);
       }
 
       uploadedCount++;
