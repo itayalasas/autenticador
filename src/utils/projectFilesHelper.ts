@@ -146,13 +146,15 @@ function generateStandaloneFormHTML(
   <div class="relative w-full max-w-md">
     <!-- Logo / App Initial -->
     <div class="text-center mb-8">
-      ${logoUrl ? `
-        <img src="${logoUrl}" alt="${appName}" class="h-16 mx-auto mb-4" />
-      ` : `
-        <div class="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center text-white text-2xl font-bold" style="background-color: ${primaryColor};">
-          ${firstLetter}
-        </div>
-      `}
+      <div id="app-logo-container">
+        ${logoUrl ? `
+          <img src="${logoUrl}" alt="${appName}" class="h-16 mx-auto mb-4" />
+        ` : `
+          <div class="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center text-white text-2xl font-bold" style="background-color: ${primaryColor};">
+            ${firstLetter}
+          </div>
+        `}
+      </div>
       <h1 class="text-3xl font-bold text-gray-900 mb-2">${formTitle}</h1>
       <p class="text-gray-600">${formSubtitle}</p>
     </div>
@@ -300,6 +302,58 @@ function generateStandaloneFormHTML(
       formType: '${formType}',
       supabaseUrl: SUPABASE_URL
     });
+
+    // Cargar branding dinámicamente desde la base de datos
+    async function loadBranding() {
+      try {
+        console.log('🎨 Loading branding for app:', APPLICATION_ID);
+
+        const response = await fetch(\`\${SUPABASE_URL}/rest/v1/applications?application_id=eq.\${APPLICATION_ID}&select=branding,name\`, {
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`
+          }
+        });
+
+        const apps = await response.json();
+
+        if (apps && apps.length > 0) {
+          const app = apps[0];
+          const branding = app.branding || {};
+
+          console.log('✅ Branding loaded:', branding);
+
+          // Aplicar colores
+          if (branding.primary_color) {
+            document.documentElement.style.setProperty('--primary-color', branding.primary_color);
+            const blobs = document.querySelectorAll('.animate-pulse-bg');
+            if (blobs[0]) blobs[0].style.backgroundColor = branding.primary_color;
+          }
+
+          // Aplicar logo
+          const logoContainer = document.getElementById('app-logo-container');
+          if (logoContainer && branding.logo_url) {
+            logoContainer.innerHTML = \`<img src="\${branding.logo_url}" alt="\${app.name}" class="h-16 mx-auto mb-4" />\`;
+          } else if (logoContainer) {
+            // Actualizar la inicial con el nombre real de la app
+            const firstLetter = (app.name || 'A').charAt(0).toUpperCase();
+            logoContainer.querySelector('.font-bold').textContent = firstLetter;
+          }
+
+          // Actualizar el título con el nombre de la app
+          const titleEl = document.querySelector('h1');
+          if (titleEl && app.name) {
+            document.title = \`${formTitle} - \${app.name}\`;
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error loading branding:', error);
+        // No hacer nada, usar el branding por defecto
+      }
+    }
+
+    // Cargar branding al iniciar
+    loadBranding();
 
     // Initialize Lucide icons
     lucide.createIcons();
