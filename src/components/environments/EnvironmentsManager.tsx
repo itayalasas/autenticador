@@ -571,11 +571,12 @@ export default function EnvironmentsManager() {
 
       // STEP 5.3: Obtener o crear API Key para el ambiente
       addLog('🔑 Verificando API Key para el ambiente...', 'info');
+      addLog(`   📍 Ambiente: ${environmentName} (ID: ${environmentId})`, 'info');
 
-      // Buscar API key existente para este ambiente (seleccionando todas las columnas)
+      // Buscar API key existente para este ambiente
       let { data: apiKeys, error: selectError } = await supabase
         .from('api_keys')
-        .select('*')
+        .select('id, name, key_preview, environment')
         .eq('application_id', app.id)
         .eq('environment', environmentId)
         .eq('is_active', true)
@@ -620,19 +621,30 @@ export default function EnvironmentsManager() {
           throw new Error(`Has alcanzado el límite de ${maxApiKeysPerEnv} API Keys para el ambiente ${environmentName}. Desactiva una API Key existente o actualiza tu plan.`);
         }
 
-        // Generar nueva API Key
-        const keyPrefix = `ak_${environmentId}_`;
+        // Generar nueva API Key con el nombre correcto del ambiente
+        const keyPrefix = `ak_${environmentName}_`;
         const randomPart = Array.from(crypto.getRandomValues(new Uint8Array(16)))
           .map(b => b.toString(16).padStart(2, '0'))
           .join('');
         apiKey = keyPrefix + randomPart;
 
+        // Crear hash de la key para almacenamiento seguro
+        const encoder = new TextEncoder();
+        const data = encoder.encode(apiKey);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const keyHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+        // Crear preview (primeros 20 chars + ... + últimos 4)
+        const keyPreview = `${apiKey.substring(0, 20)}...${apiKey.substring(apiKey.length - 4)}`;
+
         const { error: insertError } = await supabase
           .from('api_keys')
           .insert({
             application_id: app.id,
-            key: apiKey,
             name: `${environmentName} API Key`,
+            key_hash: keyHash,
+            key_preview: keyPreview,
             environment: environmentId,
             is_active: true
           });
@@ -642,11 +654,20 @@ export default function EnvironmentsManager() {
           throw new Error(`Error al crear API Key: ${insertError.message}`);
         }
 
-        addLog(`   ✓ API Key creada para ${environmentName}`, 'success');
+        addLog(`   ✓ API Key creada: ${keyPreview}`, 'success');
       } else {
         // Ya existe una API Key para este ambiente
-        apiKey = apiKeys[0].key;
-        addLog(`   ✓ Usando API Key existente: ${apiKeys[0].name}`, 'success');
+        // Por seguridad, las keys completas solo se muestran al crearlas
+        addLog(`   ✓ API Key existente encontrada: ${apiKeys[0].key_preview}`, 'success');
+        addLog(`   ⚠️  Nota: Asegúrate de tener guardada tu API Key completa`, 'warning');
+
+        // Para el deploy, necesitamos generar un placeholder
+        // El usuario deberá configurar manualmente la API Key real en Netlify
+        apiKey = `PLACEHOLDER_${environmentName.toUpperCase()}_API_KEY`;
+
+        addLog(`   ℹ️  Deberás configurar la API Key manualmente en Netlify:`, 'info');
+        addLog(`      Variable: AUTHSYSTEM_API_KEY`, 'info');
+        addLog(`      Valor: Tu API Key guardada (${apiKeys[0].key_preview})`, 'info');
       }
 
       addLog('📁 Preparando formularios estáticos...', 'info');
