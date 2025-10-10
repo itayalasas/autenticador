@@ -73,7 +73,9 @@ export default function EnvironmentsManager() {
   const [showDirectDeployButton, setShowDirectDeployButton] = useState(false);
   const [currentEnvironmentId, setCurrentEnvironmentId] = useState<string>('');
   const [currentEnvironmentName, setCurrentEnvironmentName] = useState<string>('');
+  const [savedRepo, setSavedRepo] = useState<any>(null);
   const consoleRef = useRef<HTMLDivElement>(null);
+  const logIdCounter = useRef(0);
   const [notification, setNotification] = useState({
     isOpen: false,
     type: 'success' as 'success' | 'error' | 'warning' | 'info',
@@ -128,8 +130,9 @@ export default function EnvironmentsManager() {
   };
 
   const addLog = (message: string, level: 'info' | 'success' | 'warning' | 'error' = 'info') => {
+    logIdCounter.current += 1;
     const newLog: LogEntry = {
-      id: Date.now().toString(),
+      id: `${Date.now()}-${logIdCounter.current}`,
       timestamp: new Date().toLocaleTimeString(),
       level,
       message
@@ -530,6 +533,7 @@ export default function EnvironmentsManager() {
 
       // Usar el primer repo (o el que esté marcado como principal)
       const repo = savedRepos[0];
+      setSavedRepo(repo);
 
       setIsNetlifyDeploying(true);
       setShowConsole(true);
@@ -2507,7 +2511,7 @@ try {
                   <li>Ve a <a href="https://app.netlify.com/sites" target="_blank" rel="noopener noreferrer" className="underline font-medium">Netlify → Sites</a></li>
                   <li>Click en "Add new site" → "Import an existing project"</li>
                   <li>Selecciona "Deploy with GitHub" y autoriza el acceso</li>
-                  <li>Selecciona el repositorio: <code className="bg-blue-100 px-1 rounded">{repo?.repo_full_name}</code></li>
+                  <li>Selecciona el repositorio: <code className="bg-blue-100 px-1 rounded">{savedRepo?.repo_full_name || 'tu-usuario/tu-repositorio'}</code></li>
                   <li>Configuración:
                     <ul className="ml-6 mt-1 space-y-0.5">
                       <li>• Branch: main</li>
