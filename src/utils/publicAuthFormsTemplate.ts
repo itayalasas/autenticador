@@ -1,7 +1,7 @@
 // This file contains the PublicAuthForms component as a template string
 // It's used by projectFilesHelper to generate the component file
 
-export const PUBLIC_AUTH_FORMS_TEMPLATE = `import React, { useState, useEffect } from 'react';
+export const PUBLIC_AUTH_FORMS_TEMPLATE = `import React, { useState, useEffect, useMemo } from 'react';
 import { Eye, EyeOff, Mail, Lock, User, ArrowRight, CheckCircle, AlertCircle, Shield } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { rolesService } from '../../services/rolesService';
@@ -60,7 +60,7 @@ export default function PublicAuthForms({
   });
 
   // Merge default branding with loaded branding from database and prop branding
-  const defaultBranding = {
+  const defaultBranding = useMemo(() => ({
     primary_color: '#3B82F6',
     secondary_color: '#1E40AF',
     accent_color: '#F59E0B',
@@ -72,7 +72,7 @@ export default function PublicAuthForms({
     button_style: 'rounded',
     ...loadedBranding,
     ...branding
-  };
+  }), [loadedBranding, branding]);
 
 
   useEffect(() => {

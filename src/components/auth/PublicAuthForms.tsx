@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Eye, EyeOff, Mail, Lock, User, ArrowRight, CheckCircle, AlertCircle, Shield } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { rolesService } from '../../services/rolesService';
@@ -55,7 +55,7 @@ export default function PublicAuthForms({
   });
 
   // Default branding values
-  const defaultBranding = {
+  const defaultBranding = useMemo(() => ({
     primary_color: '#3B82F6',
     secondary_color: '#1E40AF',
     accent_color: '#F59E0B',
@@ -66,7 +66,7 @@ export default function PublicAuthForms({
     border_radius: 8,
     button_style: 'rounded',
     ...branding
-  };
+  }), [branding]);
 
 
   useEffect(() => {
