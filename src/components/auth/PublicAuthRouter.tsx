@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import PublicAuthForms from './PublicAuthForms';
 import { applicationService } from '../../services/applicationService';
 import { supabase } from '../../lib/supabase';
@@ -205,6 +205,15 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
     );
   }
 
+  const handleSuccess = useCallback((data: any) => {
+    console.log('Auth success:', data);
+    // Redirect to callback URL or show success message
+  }, []);
+
+  const handleError = useCallback((error: string) => {
+    console.error('Auth error:', error);
+  }, []);
+
   return (
     <PublicAuthForms
       applicationId={appId!}
@@ -213,13 +222,8 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
       apiKey={apiKey}
       branding={appData?.branding}
       appInfo={appData}
-      onSuccess={(data) => {
-        console.log('Auth success:', data);
-        // Redirect to callback URL or show success message
-      }}
-      onError={(error) => {
-        console.error('Auth error:', error);
-      }}
+      onSuccess={handleSuccess}
+      onError={handleError}
     />
   );
 }
