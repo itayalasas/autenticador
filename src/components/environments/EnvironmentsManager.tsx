@@ -9,6 +9,7 @@ import { environmentVariablesService } from '../../services/environmentVariables
 import { getStaticProjectFiles } from '../../utils/projectFilesHelper';
 import { getReactConfigFiles, getCommitMessage } from '../../utils/reactProjectHelper';
 import { getReactProjectFiles } from '../../utils/netlifyReactProjectHelper';
+import { deploymentService } from '../../services/deploymentService';
 import { supabase } from '../../lib/supabase';
 import ConfirmationModal from '../ui/ConfirmationModal';
 import NotificationModal from '../ui/NotificationModal';
@@ -992,8 +993,9 @@ export default function EnvironmentsManager() {
         addLog('   ℹ️  Sin branding personalizado, usando valores por defecto', 'info');
       }
 
-      // Generar archivos HTML estáticos (sin build requerido)
-      const files = await getStaticProjectFiles(
+      // Recolectar archivos fuente de React desde la Edge Function
+      addLog('📦 Recolectando archivos fuente de React...', 'info');
+      const files = await deploymentService.collectReactSourceFiles(
         app.application_id,
         apiKey,
         supabaseUrl,
@@ -1001,29 +1003,8 @@ export default function EnvironmentsManager() {
         brandingData || {}
       );
 
-      // Agregar README simple
-      files['README.md'] = `# ${selectedApp} - ${environmentName}
-
-Formularios de autenticación estáticos
-
-Generado automáticamente por AuthSystem
-Fecha: ${new Date().toISOString()}
-
-## URLs Disponibles
-
-- Login: https://tu-sitio.netlify.app/login
-- Registro: https://tu-sitio.netlify.app/register
-- Recuperar contraseña: https://tu-sitio.netlify.app/reset
-
-## Configuración
-
-Estos formularios están pre-configurados y listos para usar.
-No requieren instalación ni build.
-
-Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
-`;
-
-      addLog(`   ✓ ${Object.keys(files).length} archivos generados (HTML estáticos)`, 'success');
+      addLog(`   ✓ ${Object.keys(files).length} archivos recolectados`, 'success');
+      addLog('   ✓ Incluye componentes React, servicios y configuración', 'success');
 
       // STEP 6: Hacer commit y push a GitHub
       addLog(`📤 Subiendo código a GitHub (${repo.repo_full_name})...`, 'info');
@@ -1077,8 +1058,8 @@ Los formularios se conectan automáticamente a tu aplicación de AuthSystem.
             repo.repo_full_name,
             {
               name: siteName,
-              buildCommand: '', // Sin build (archivos estáticos)
-              publishDir: '.', // Publicar desde raíz
+              buildCommand: 'npm install && npm run build', // Build React app
+              publishDir: 'dist', // Publicar desde dist (Vite output)
               branch: 'main'
             }
           );
