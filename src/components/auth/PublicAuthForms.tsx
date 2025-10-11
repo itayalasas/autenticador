@@ -78,7 +78,8 @@ export default function PublicAuthForms({
     if (formType === 'register') {
       loadAvailableRoles();
     }
-  }, [applicationId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applicationId, formType]);
 
   const checkIPStatus = async () => {
     try {

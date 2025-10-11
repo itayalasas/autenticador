@@ -78,6 +78,7 @@ export default function PublicAuthForms({
   useEffect(() => {
     checkIPStatus();
     loadApplicationInfo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applicationId, formType]);
 
   const checkIPStatus = async () => {
