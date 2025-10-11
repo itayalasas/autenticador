@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Edge Function - Verificar Archivos</title>
+  <style>
+    body {
+      font-family: 'Courier New', monospace;
+      max-width: 1200px;
+      margin: 20px auto;
+      padding: 20px;
+      background: #1e1e1e;
+      color: #d4d4d4;
+    }
+    h1 {
+      color: #4ec9b0;
+    }
+    .test-section {
+      background: #252526;
+      padding: 20px;
+      margin: 20px 0;
+      border-radius: 8px;
+      border: 1px solid #3e3e42;
+    }
+    button {
+      background: #0e639c;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      font-size: 16px;
+      cursor: pointer;
+      border-radius: 4px;
+      margin: 10px 5px;
+    }
+    button:hover {
+      background: #1177bb;
+    }
+    .result {
+      background: #1e1e1e;
+      padding: 15px;
+      margin-top: 15px;
+      border-radius: 4px;
+      border-left: 4px solid #4ec9b0;
+      white-space: pre-wrap;
+      max-height: 500px;
+      overflow-y: auto;
+    }
+    .error {
+      border-left-color: #f48771;
+      color: #f48771;
+    }
+    .success {
+      border-left-color: #4ec9b0;
+      color: #4ec9b0;
+    }
+    .warning {
+      border-left-color: #dcdcaa;
+      color: #dcdcaa;
+    }
+    input {
+      width: 100%;
+      padding: 10px;
+      margin: 10px 0;
+      background: #3c3c3c;
+      border: 1px solid #3e3e42;
+      color: #d4d4d4;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    label {
+      display: block;
+      margin-top: 10px;
+      color: #9cdcfe;
+      font-weight: bold;
+    }
+    .code-check {
+      background: #2d2d2d;
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .line-number {
+      color: #858585;
+      margin-right: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔍 Test Edge Function - Verificar Archivos Sin useMemo</h1>
+
+  <div class="test-section">
+    <h2>Configuración</h2>
+    <p>Ingresa los datos de tu Supabase:</p>
+
+    <label>Supabase URL:</label>
+    <input type="text" id="supabaseUrl" placeholder="https://xxx.supabase.co">
+
+    <label>Supabase Anon Key:</label>
+    <input type="text" id="supabaseKey" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
+
+    <label>Application ID:</label>
+    <input type="text" id="appId" placeholder="081aa73c-d17e-48ac-9c58-65972ddc001d">
+
+    <label>API Key:</label>
+    <input type="text" id="apiKey" placeholder="ak_prod_...">
+
+    <button onclick="testEdgeFunction()">🧪 Probar Edge Function</button>
+    <button onclick="checkForUseMemo()">🔎 Buscar useMemo en Archivos</button>
+  </div>
+
+  <div class="test-section">
+    <h2>Resultado del Test</h2>
+    <div id="result" class="result">Presiona el botón para comenzar el test...</div>
+  </div>
+
+  <div class="test-section">
+    <h2>Verificación de Código</h2>
+    <div id="codeCheck" class="result">Los archivos relevantes aparecerán aquí...</div>
+  </div>
+
+  <script>
+    async function testEdgeFunction() {
+      const supabaseUrl = document.getElementById('supabaseUrl').value;
+      const supabaseKey = document.getElementById('supabaseKey').value;
+      const appId = document.getElementById('appId').value;
+      const apiKey = document.getElementById('apiKey').value;
+      const resultDiv = document.getElementById('result');
+
+      if (!supabaseUrl || !supabaseKey || !appId || !apiKey) {
+        resultDiv.className = 'result error';
+        resultDiv.textContent = '❌ ERROR: Completa todos los campos';
+        return;
+      }
+
+      resultDiv.className = 'result';
+      resultDiv.textContent = '⏳ Llamando a Edge Function collect-source-files...\n';
+
+      try {
+        const url = `${supabaseUrl}/functions/v1/collect-source-files`;
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${supabaseKey}`,
+            'apikey': supabaseKey
+          },
+          body: JSON.stringify({
+            applicationId: appId,
+            apiKey: apiKey,
+            supabaseUrl: supabaseUrl,
+            supabaseAnonKey: supabaseKey
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          resultDiv.className = 'result error';
+          resultDiv.textContent = `❌ ERROR HTTP ${response.status}:\n${JSON.stringify(data, null, 2)}`;
+          return;
+        }
+
+        resultDiv.className = 'result success';
+        resultDiv.textContent = `✅ Edge Function respondió exitosamente!\n\n`;
+        resultDiv.textContent += `📦 Total de archivos: ${data.summary?.totalFiles || 0}\n`;
+        resultDiv.textContent += `📄 Archivos de código: ${data.summary?.sourceFiles || 0}\n`;
+        resultDiv.textContent += `⚙️  Archivos de config: ${data.summary?.configFiles || 0}\n\n`;
+
+        if (data.files) {
+          resultDiv.textContent += `📁 Archivos incluidos:\n`;
+          Object.keys(data.files).forEach(file => {
+            resultDiv.textContent += `  - ${file}\n`;
+          });
+
+          // Store files for checking
+          window.collectedFiles = data.files;
+
+          // Auto-check for useMemo
+          checkForUseMemo();
+        }
+
+      } catch (error) {
+        resultDiv.className = 'result error';
+        resultDiv.textContent = `❌ ERROR DE RED:\n${error.message}\n\n`;
+        resultDiv.textContent += 'Verifica:\n';
+        resultDiv.textContent += '1. URL de Supabase correcta\n';
+        resultDiv.textContent += '2. Edge Function desplegada\n';
+        resultDiv.textContent += '3. CORS configurado correctamente\n';
+      }
+    }
+
+    function checkForUseMemo() {
+      const codeCheckDiv = document.getElementById('codeCheck');
+
+      if (!window.collectedFiles) {
+        codeCheckDiv.className = 'result warning';
+        codeCheckDiv.textContent = '⚠️  Primero ejecuta "Probar Edge Function" para obtener los archivos';
+        return;
+      }
+
+      const files = window.collectedFiles;
+      const filesToCheck = [
+        'src/components/auth/PublicAuthForms.tsx',
+        'src/components/auth/PublicAuthRouter.tsx'
+      ];
+
+      let hasUseMemo = false;
+      let output = '🔍 Verificando archivos críticos:\n\n';
+
+      filesToCheck.forEach(fileName => {
+        if (files[fileName]) {
+          const content = files[fileName];
+          const lines = content.split('\n');
+
+          output += `\n📄 ${fileName}\n`;
+          output += `${'='.repeat(80)}\n`;
+
+          // Check for useMemo
+          const useMemoLines = [];
+          lines.forEach((line, index) => {
+            if (line.includes('useMemo') || line.includes('useCallback')) {
+              useMemoLines.push({ num: index + 1, content: line });
+              hasUseMemo = true;
+            }
+          });
+
+          if (useMemoLines.length > 0) {
+            output += `❌ ENCONTRADO useMemo/useCallback en ${useMemoLines.length} línea(s):\n\n`;
+            useMemoLines.forEach(({ num, content }) => {
+              output += `  Línea ${num}: ${content.trim()}\n`;
+            });
+          } else {
+            output += `✅ NO se encontró useMemo/useCallback\n`;
+          }
+
+          // Show lines around line 60 for context
+          output += `\n📋 Contexto (líneas 55-70):\n`;
+          for (let i = 54; i < 70 && i < lines.length; i++) {
+            const lineNum = String(i + 1).padStart(3, ' ');
+            output += `  ${lineNum} | ${lines[i]}\n`;
+          }
+        } else {
+          output += `\n❌ ${fileName} - NO ENCONTRADO\n`;
+        }
+      });
+
+      output += '\n' + '='.repeat(80) + '\n';
+
+      if (hasUseMemo) {
+        output += '\n❌ PROBLEMA DETECTADO!\n';
+        output += 'La Edge Function está leyendo archivos CON useMemo.\n';
+        output += 'Esto significa que la función NO se ha desplegado correctamente.\n\n';
+        output += '🔧 SOLUCIÓN:\n';
+        output += '1. Despliega la función: supabase functions deploy collect-source-files --no-verify-jwt\n';
+        output += '2. Verifica con: supabase functions list\n';
+        output += '3. Vuelve a hacer este test\n';
+        codeCheckDiv.className = 'result error';
+      } else {
+        output += '\n✅ TODO CORRECTO!\n';
+        output += 'Los archivos NO contienen useMemo/useCallback.\n';
+        output += 'La Edge Function está leyendo el código correcto.\n\n';
+        output += '🎯 PRÓXIMO PASO:\n';
+        output += 'Haz un nuevo deploy desde tu dashboard y el código en GitHub se actualizará correctamente.\n';
+        codeCheckDiv.className = 'result success';
+      }
+
+      codeCheckDiv.textContent = output;
+    }
+  </script>
+</body>
+</html>
