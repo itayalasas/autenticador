@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, Mail, Lock, User, ArrowRight, CheckCircle, AlertCircle, Shield } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { rolesService } from '../../services/rolesService';
@@ -57,11 +57,8 @@ function PublicAuthForms({
   // Use refs to track if initial load is done
   const initialLoadDone = React.useRef(false);
 
-  // Memoize URL params to avoid recreating on every render
-  const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
-
-  // Default branding values - memoized to avoid re-render loops
-  const defaultBranding = useMemo(() => ({
+  // Default branding values
+  const defaultBranding = {
     primary_color: branding?.primary_color || '#3B82F6',
     secondary_color: branding?.secondary_color || '#1E40AF',
     accent_color: branding?.accent_color || '#F59E0B',
@@ -71,7 +68,7 @@ function PublicAuthForms({
     logo_url: branding?.logo_url || '',
     border_radius: branding?.border_radius || 8,
     button_style: branding?.button_style || 'rounded'
-  }), [branding]);
+  };
 
   useEffect(() => {
     // Only run once on mount
@@ -673,7 +670,7 @@ function PublicAuthForms({
             {formType === 'login' && (
               <>
                 <a
-                  href={`/reset-password?app_id=${applicationId}&api_key=${urlParams.get('api_key') || ''}&callback_url=${encodeURIComponent(urlParams.get('callback_url') || '')}`}
+                  href={`/reset-password?app_id=${applicationId}&api_key=${searchParams.get('api_key') || ''}&callback_url=${encodeURIComponent(searchParams.get('callback_url') || '')}`}
                   className="text-sm hover:underline"
                   style={{ color: defaultBranding.accent_color }}
                 >
@@ -682,7 +679,7 @@ function PublicAuthForms({
                 <p className="text-sm text-gray-600">
                   {getText('login_register_link_text', '¿No tienes cuenta? Regístrate aquí').split('Regístrate aquí')[0]}
                   <a
-                    href={`/register?app_id=${applicationId}&api_key=${urlParams.get('api_key') || ''}&callback_url=${encodeURIComponent(urlParams.get('callback_url') || '')}`}
+                    href={`/register?app_id=${applicationId}&api_key=${searchParams.get('api_key') || ''}&callback_url=${encodeURIComponent(searchParams.get('callback_url') || '')}`}
                     className="hover:underline"
                     style={{ color: defaultBranding.accent_color }}
                   >
@@ -695,7 +692,7 @@ function PublicAuthForms({
               <p className="text-sm text-gray-600">
                 {getText('register_login_link_text', '¿Ya tienes cuenta? Inicia sesión').split('Inicia sesión')[0]}
                 <a
-                  href={`/login?app_id=${applicationId}&api_key=${urlParams.get('api_key') || ''}&callback_url=${encodeURIComponent(urlParams.get('callback_url') || '')}`}
+                  href={`/login?app_id=${applicationId}&api_key=${searchParams.get('api_key') || ''}&callback_url=${encodeURIComponent(searchParams.get('callback_url') || '')}`}
                   className="hover:underline"
                   style={{ color: defaultBranding.accent_color }}
                 >
@@ -707,7 +704,7 @@ function PublicAuthForms({
               <p className="text-sm text-gray-600">
                 {getText('reset_login_link_text', '¿Recordaste tu contraseña? Inicia sesión').split('Inicia sesión')[0]}
                 <a
-                  href={`/login?app_id=${applicationId}&api_key=${urlParams.get('api_key') || ''}&callback_url=${encodeURIComponent(urlParams.get('callback_url') || '')}`}
+                  href={`/login?app_id=${applicationId}&api_key=${searchParams.get('api_key') || ''}&callback_url=${encodeURIComponent(searchParams.get('callback_url') || '')}`}
                   className="hover:underline"
                   style={{ color: defaultBranding.accent_color }}
                 >
