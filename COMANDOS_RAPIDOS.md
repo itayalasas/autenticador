@@ -1,6 +1,44 @@
-# 🚀 Comandos Rápidos - Copia y Pega
+# 🚀 SOLUCIÓN AL ERROR: useMemo en GitHub
 
-## 📦 Instalación de Supabase CLI
+## ⚠️ PROBLEMA IDENTIFICADO
+
+El código en GitHub todavía tiene `useMemo` en PublicAuthRouter.tsx línea 60 porque:
+- ✅ La Edge Function local está correcta
+- ❌ NO está desplegada en Supabase producción
+- ❌ Por eso GitHub recibe código viejo
+
+---
+
+## 🎯 SOLUCIÓN EN 3 PASOS
+
+### PASO 1️⃣: Desplegar Edge Function
+
+```bash
+supabase functions deploy collect-source-files --no-verify-jwt
+```
+
+### PASO 2️⃣: Hacer Deploy Nuevo
+
+1. Dashboard de AuthSystem
+2. Ir a "Ambientes" o "Deployments"
+3. Hacer clic en "Deploy" en tu aplicación
+4. Esperar que termine
+
+### PASO 3️⃣: Verificar en GitHub
+
+1. Abrir repositorio en GitHub
+2. Ir a `src/components/auth/PublicAuthRouter.tsx`
+3. Línea 60 debe decir:
+   ```typescript
+   const defaultBranding = (() => ({
+   ```
+4. NO debe tener `useMemo`
+
+---
+
+## 📦 Si No Tienes Supabase CLI
+
+### Instalación Rápida:
 
 ```bash
 # npm
@@ -10,46 +48,41 @@ npm install -g supabase
 brew install supabase/tap/supabase
 ```
 
-## 🔑 Autenticación
+### Autenticación y Conexión:
 
 ```bash
+# 1. Login
 supabase login
-```
 
-## 📋 Ver Proyectos
-
-```bash
+# 2. Ver proyectos
 supabase projects list
+
+# 3. Conectar (usa tu Project Ref)
+supabase link --project-ref TU_PROJECT_REF
 ```
 
-## 🔗 Conectar al Proyecto
+---
+
+## 🚀 Comando Completo (Copia Todo)
 
 ```bash
-# Reemplaza YOUR_PROJECT_REF con tu Project Ref
-supabase link --project-ref YOUR_PROJECT_REF
-```
+# Instalar (si no lo tienes)
+npm install -g supabase
 
-## 🚀 Desplegar Edge Functions (UNA POR UNA)
+# Login
+supabase login
 
-### Opción A: Todas las funciones críticas
+# Ver proyectos
+supabase projects list
 
-```bash
-# 1. Recolector de archivos (LA MÁS IMPORTANTE)
+# Conectar (reemplaza con tu Project Ref)
+supabase link --project-ref abcdefghijk
+
+# DESPLEGAR LA FUNCIÓN CRÍTICA
 supabase functions deploy collect-source-files --no-verify-jwt
 
-# 2. GitHub commit y push
-supabase functions deploy github-commit-push --no-verify-jwt
-
-# 3. Deploy a Netlify
-supabase functions deploy deploy-to-netlify --no-verify-jwt
-```
-
-### Opción B: Solo la función crítica
-
-Si solo quieres actualizar la función más importante:
-
-```bash
-supabase functions deploy collect-source-files --no-verify-jwt
+# Verificar
+supabase functions list
 ```
 
 ## ✅ Verificar Despliegue
