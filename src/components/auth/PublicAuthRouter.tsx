@@ -20,7 +20,7 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
     ? formType as 'login' | 'register' | 'reset-password'
     : 'login';
 
-  // Define all callbacks and memos BEFORE any early returns
+  // Define all callbacks BEFORE any early returns
   const handleSuccess = useCallback((data: any) => {
     console.log('Auth success:', data);
     // Redirect to callback URL or show success message
@@ -29,10 +29,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
   const handleError = useCallback((error: string) => {
     console.error('Auth error:', error);
   }, []);
-
-  // Memoize props to prevent unnecessary re-renders
-  const brandingMemo = useMemo(() => appData?.branding, [appData?.id]);
-  const appInfoMemo = useMemo(() => appData, [appData?.id]);
 
   useEffect(() => {
     const loadApplicationData = async () => {
@@ -225,8 +221,8 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
       internalApplicationId={appData?.id}
       formType={validFormType}
       apiKey={apiKey}
-      branding={brandingMemo}
-      appInfo={appInfoMemo}
+      branding={appData?.branding}
+      appInfo={appData}
       onSuccess={handleSuccess}
       onError={handleError}
     />
