@@ -21,10 +21,7 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
     : 'login';
 
   useEffect(() => {
-    loadApplicationData();
-  }, [appId]);
-
-  const loadApplicationData = async () => {
+    const loadApplicationData = async () => {
     try {
       setLoading(true);
       console.log('Loading application data for:', appId);
@@ -184,7 +181,10 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
     } finally {
       setLoading(false);
     }
-  };
+    };
+
+    loadApplicationData();
+  }, [appId]);
 
   if (loading) {
     return (

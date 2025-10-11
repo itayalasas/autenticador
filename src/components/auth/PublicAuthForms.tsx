@@ -26,7 +26,7 @@ interface PublicAuthFormsProps {
   onError?: (error: string) => void;
 }
 
-export default function PublicAuthForms({
+function PublicAuthForms({
   applicationId,
   internalApplicationId,
   formType,
@@ -54,19 +54,18 @@ export default function PublicAuthForms({
     confirmPassword: ''
   });
 
-  // Default branding values
-  const defaultBranding = useMemo(() => ({
-    primary_color: '#3B82F6',
-    secondary_color: '#1E40AF',
-    accent_color: '#F59E0B',
-    background_color: '#FFFFFF',
-    text_color: '#1F2937',
-    font_family: 'Inter',
-    logo_url: '',
-    border_radius: 8,
-    button_style: 'rounded',
-    ...branding
-  }), [branding]);
+  // Default branding values - use direct values to avoid re-render loops
+  const defaultBranding = {
+    primary_color: branding?.primary_color || '#3B82F6',
+    secondary_color: branding?.secondary_color || '#1E40AF',
+    accent_color: branding?.accent_color || '#F59E0B',
+    background_color: branding?.background_color || '#FFFFFF',
+    text_color: branding?.text_color || '#1F2937',
+    font_family: branding?.font_family || 'Inter',
+    logo_url: branding?.logo_url || '',
+    border_radius: branding?.border_radius || 8,
+    button_style: branding?.button_style || 'rounded'
+  };
 
 
   useEffect(() => {
@@ -730,3 +729,5 @@ export default function PublicAuthForms({
     </div>
   );
 }
+
+export default React.memo(PublicAuthForms);
