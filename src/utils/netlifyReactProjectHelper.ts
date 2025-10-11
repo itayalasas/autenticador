@@ -336,7 +336,7 @@ export const applicationService = {
 
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      const apiUrl = \\\`\\\${supabaseUrl}/functions/v1/check-ip-status\\\`;
+      const apiUrl = \`\${supabaseUrl}/functions/v1/check-ip-status\`;
 
       console.log('🔍 Checking IP status for:', ipToCheck);
 
@@ -344,7 +344,7 @@ export const applicationService = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': \\\`Bearer \\\${supabaseAnonKey}\\\`,
+          'Authorization': \`Bearer \${supabaseAnonKey}\`,
           'apikey': supabaseAnonKey
         },
         body: JSON.stringify({ client_ip: ipToCheck })
