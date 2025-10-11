@@ -215,12 +215,8 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
   }, []);
 
   // Memoize props to prevent unnecessary re-renders
-  // Use JSON.stringify for deep comparison
-  const brandingKey = JSON.stringify(appData?.branding);
-  const brandingMemo = useMemo(() => appData?.branding, [brandingKey]);
-
-  const appInfoKey = `${appData?.id}-${appData?.name}`;
-  const appInfoMemo = useMemo(() => appData, [appInfoKey]);
+  const brandingMemo = useMemo(() => appData?.branding, [appData?.id]);
+  const appInfoMemo = useMemo(() => appData, [appData?.id]);
 
   return (
     <PublicAuthForms
