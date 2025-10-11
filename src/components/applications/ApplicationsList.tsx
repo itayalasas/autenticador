@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, MoreVertical, Users, Globe, Palette, Settings, Trash2, Eye, Calendar, Shield, CreditCard as Edit, Copy, ExternalLink } from 'lucide-react';
+import { Plus, Search, MoreVertical, Users, Globe, Palette, Settings, Trash2, Eye, Calendar, Shield, CreditCard as Edit, Copy, ExternalLink, Rocket } from 'lucide-react';
 import { Application } from '../../types';
 import { applicationService } from '../../services/applicationService';
 import { userService } from '../../services/userService';
@@ -152,8 +152,16 @@ export default function ApplicationsList() {
 
   const handleSettingsClick = (appId: string) => {
     // Cambiar a la sección de autenticación y seleccionar la app
-    const event = new CustomEvent('changeSectionWithApp', { 
-      detail: { section: 'authentication', appId } 
+    const event = new CustomEvent('changeSectionWithApp', {
+      detail: { section: 'authentication', appId }
+    });
+    window.dispatchEvent(event);
+  };
+
+  const handleDeploymentsClick = (appId: string) => {
+    // Cambiar a la sección de deployments y seleccionar la app
+    const event = new CustomEvent('changeSectionWithApp', {
+      detail: { section: 'deployments', appId }
     });
     window.dispatchEvent(event);
   };
@@ -422,6 +430,16 @@ export default function ApplicationsList() {
                           >
                             <Settings className="w-4 h-4" />
                             <span>Configuración</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              handleDeploymentsClick(app.id);
+                              setShowDropdown(null);
+                            }}
+                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                          >
+                            <Rocket className="w-4 h-4" />
+                            <span>Deployments</span>
                           </button>
                           <div className="border-t border-gray-100 my-1"></div>
                           <button

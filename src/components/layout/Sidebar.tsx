@@ -14,7 +14,8 @@ import {
   HelpCircle,
   LogOut,
   X,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Rocket
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -33,6 +34,7 @@ const sidebarItems = [
   { id: 'branding', label: 'Branding', icon: Palette },
   { id: 'environments', label: 'Ambientes', icon: Database },
   { id: 'connectors', label: 'Conectores', icon: LinkIcon },
+  { id: 'deployments', label: 'Deployments', icon: Rocket },
   { id: 'api-keys', label: 'API Keys', icon: Key },
   { id: 'logs', label: 'Logs de Actividad', icon: Activity },
   { id: 'documentation', label: 'Documentación', icon: FileText },

@@ -20,6 +20,7 @@ import SubscriptionManager from './components/subscription/SubscriptionManager';
 import LogsViewer from './components/activity/LogsViewer';
 import ConnectorsPage from './components/connectors/ConnectorsPage';
 import GitHubCallback from './components/github/GitHubCallback';
+import DeploymentManager from './components/deployments/DeploymentManager';
 
 // Component for handling public auth routes
 function PublicAuthRoute() {
@@ -122,6 +123,7 @@ function MainApp() {
       case 'branding': return 'Gestión de Branding';
       case 'environments': return 'Ambientes';
       case 'connectors': return 'Conectores';
+      case 'deployments': return 'Deployments';
       case 'api-keys': return 'API Keys';
       case 'logs': return 'Logs de Actividad';
       case 'documentation': return 'Documentación';
@@ -140,6 +142,7 @@ function MainApp() {
       case 'branding': return 'Personaliza la apariencia de tus formularios';
       case 'environments': return 'Gestiona ambientes de desarrollo, testing y producción';
       case 'connectors': return 'Configura integraciones con GitHub, Netlify y más';
+      case 'deployments': return 'Gestiona deployments y rollbacks de tus aplicaciones';
       case 'api-keys': return 'Administra claves de API para integración';
       case 'logs': return 'Monitorea actividad y eventos del sistema';
       case 'documentation': return 'Guías y referencias de API';
@@ -166,6 +169,17 @@ function MainApp() {
         return <EnvironmentsManager />;
       case 'connectors':
         return <ConnectorsPage />;
+      case 'deployments':
+        // Get selected application from session storage
+        const selectedAppId = sessionStorage.getItem('selectedAppId');
+        if (!selectedAppId) {
+          return (
+            <div className="text-center py-12">
+              <p className="text-gray-600">Selecciona una aplicación para ver sus deployments</p>
+            </div>
+          );
+        }
+        return <DeploymentManager applicationId={selectedAppId} />;
       case 'api-keys':
         return <ApiKeysManager />;
       case 'logs':
