@@ -320,11 +320,24 @@ export const applicationService = {
   files['src/services/ipService.ts'] = `import { supabase } from '../lib/supabase';
 
 export const ipService = {
-  async checkIfBlocked(applicationId: string) {
+  async getClientIP() {
     try {
-      // Get user's IP (this is a simplified version)
       const ipResponse = await fetch('https://api.ipify.org?format=json');
       const { ip } = await ipResponse.json();
+      return ip;
+    } catch (error) {
+      console.error('Error getting client IP:', error);
+      return null;
+    }
+  },
+
+  async checkIfBlocked(applicationId: string) {
+    try {
+      // Get user's IP
+      const ip = await this.getClientIP();
+      if (!ip) {
+        return { blocked: false, data: null, ip: null };
+      }
 
       const { data, error } = await supabase
         .from('blocked_ips')
