@@ -170,16 +170,9 @@ function MainApp() {
       case 'connectors':
         return <ConnectorsPage />;
       case 'deployments':
-        // Get selected application from session storage
+        // Get selected application from session storage or URL
         const selectedAppId = sessionStorage.getItem('selectedAppId');
-        if (!selectedAppId) {
-          return (
-            <div className="text-center py-12">
-              <p className="text-gray-600">Selecciona una aplicación para ver sus deployments</p>
-            </div>
-          );
-        }
-        return <DeploymentManager applicationId={selectedAppId} />;
+        return <DeploymentManager applicationId={selectedAppId || undefined} />;
       case 'api-keys':
         return <ApiKeysManager />;
       case 'logs':

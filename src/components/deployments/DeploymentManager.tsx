@@ -11,14 +11,17 @@ import {
   RefreshCw,
   Trash2,
   ExternalLink,
+  Zap,
 } from 'lucide-react';
 import { deploymentSnapshotService, DeploymentSnapshot } from '../../services/deploymentSnapshotService';
 import { deploymentLogService } from '../../services/deploymentLogService';
+import { applicationService } from '../../services/applicationService';
 import { useNotification } from '../../hooks/useNotification';
 import ConfirmationModal from '../ui/ConfirmationModal';
+import { Application } from '../../types';
 
 interface DeploymentManagerProps {
-  applicationId: string;
+  applicationId?: string;
 }
 
 export default function DeploymentManager({ applicationId }: DeploymentManagerProps) {
@@ -30,17 +33,45 @@ export default function DeploymentManager({ applicationId }: DeploymentManagerPr
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [selectedSnapshot, setSelectedSnapshot] = useState<DeploymentSnapshot | null>(null);
   const [activeTab, setActiveTab] = useState<'snapshots' | 'logs'>('snapshots');
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [selectedApp, setSelectedApp] = useState<string | undefined>(applicationId);
 
   useEffect(() => {
-    loadData();
-  }, [applicationId]);
+    loadApplications();
+  }, []);
+
+  useEffect(() => {
+    if (selectedApp) {
+      loadData();
+    }
+  }, [selectedApp]);
+
+  const loadApplications = async () => {
+    try {
+      const apps = await applicationService.getApplications();
+      setApplications(apps);
+
+      // If we have an applicationId prop, use it
+      if (applicationId) {
+        setSelectedApp(applicationId);
+      } else if (apps.length === 1) {
+        // If there's only one app, auto-select it
+        setSelectedApp(apps[0].id);
+        sessionStorage.setItem('selectedAppId', apps[0].id);
+      }
+    } catch (error: any) {
+      showError(error.message || 'Error loading applications');
+    }
+  };
 
   const loadData = async () => {
+    if (!selectedApp) return;
+
     try {
       setLoading(true);
       const [snapshotsData, logsData] = await Promise.all([
-        deploymentSnapshotService.getSnapshots(applicationId),
-        deploymentLogService.getDeploymentLogs(applicationId),
+        deploymentSnapshotService.getSnapshots(selectedApp),
+        deploymentLogService.getDeploymentLogs(selectedApp),
       ]);
       setSnapshots(snapshotsData);
       setDeploymentLogs(logsData);
@@ -52,13 +83,13 @@ export default function DeploymentManager({ applicationId }: DeploymentManagerPr
   };
 
   const handleRollback = async () => {
-    if (!selectedSnapshot) return;
+    if (!selectedSnapshot || !selectedApp) return;
 
     try {
       setRollbackingId(selectedSnapshot.id);
       const result = await deploymentSnapshotService.rollbackToSnapshot(
         selectedSnapshot.id,
-        applicationId
+        selectedApp
       );
 
       showSuccess(result.message);
@@ -140,6 +171,35 @@ export default function DeploymentManager({ applicationId }: DeploymentManagerPr
     }
   };
 
+  // Show application selector if no app is selected
+  if (!selectedApp && applications.length > 0) {
+    return (
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-4">Selecciona una aplicación</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {applications.map((app) => (
+            <button
+              key={app.id}
+              onClick={() => {
+                setSelectedApp(app.id);
+                sessionStorage.setItem('selectedAppId', app.id);
+              }}
+              className="flex items-start space-x-3 p-4 border border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-all text-left"
+            >
+              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                <Zap className="w-5 h-5 text-blue-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h4 className="font-medium text-gray-900 truncate">{app.name}</h4>
+                <p className="text-sm text-gray-500 truncate">{app.domain || 'No domain'}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -150,6 +210,29 @@ export default function DeploymentManager({ applicationId }: DeploymentManagerPr
 
   return (
     <div className="bg-white rounded-lg shadow">
+      {/* Application selector header */}
+      {applications.length > 1 && selectedApp && (
+        <div className="px-6 py-4 border-b border-gray-200">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Aplicación actual:
+          </label>
+          <select
+            value={selectedApp}
+            onChange={(e) => {
+              setSelectedApp(e.target.value);
+              sessionStorage.setItem('selectedAppId', e.target.value);
+            }}
+            className="block w-full max-w-xs px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            {applications.map((app) => (
+              <option key={app.id} value={app.id}>
+                {app.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="border-b border-gray-200">
         <nav className="flex space-x-4 px-6" aria-label="Tabs">
