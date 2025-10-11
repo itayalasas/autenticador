@@ -54,8 +54,14 @@ function PublicAuthForms({
     confirmPassword: ''
   });
 
-  // Default branding values - use direct values to avoid re-render loops
-  const defaultBranding = {
+  // Use refs to track if initial load is done
+  const initialLoadDone = React.useRef(false);
+
+  // Memoize URL params to avoid recreating on every render
+  const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
+
+  // Default branding values - memoized to avoid re-render loops
+  const defaultBranding = useMemo(() => ({
     primary_color: branding?.primary_color || '#3B82F6',
     secondary_color: branding?.secondary_color || '#1E40AF',
     accent_color: branding?.accent_color || '#F59E0B',
@@ -65,11 +71,7 @@ function PublicAuthForms({
     logo_url: branding?.logo_url || '',
     border_radius: branding?.border_radius || 8,
     button_style: branding?.button_style || 'rounded'
-  };
-
-
-  // Use refs to track if initial load is done
-  const initialLoadDone = React.useRef(false);
+  }), [branding]);
 
   useEffect(() => {
     // Only run once on mount
@@ -357,8 +359,6 @@ function PublicAuthForms({
       default: return '';
     }
   };
-
-  const urlParams = new URLSearchParams(window.location.search);
 
   // Show loading while checking IP
   if (checkingIP) {
