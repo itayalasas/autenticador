@@ -76,78 +76,85 @@ export default function PublicAuthForms({
 
 
   useEffect(() => {
-    checkIPStatus();
-    loadApplicationInfo();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let isMounted = true;
+
+    const init = async () => {
+      // Check IP status
+      try {
+        setCheckingIP(true);
+        const result = await ipService.checkIPStatus();
+
+        if (!isMounted) return;
+
+        if (result.is_blocked) {
+          console.log('🚫 IP is blocked:', result);
+          setIpBlocked(true);
+          setBlockedInfo(result.blocked_info);
+        } else {
+          console.log('✅ IP is not blocked:', result.ip_address);
+        }
+      } catch (error) {
+        console.error('❌ Error checking IP status:', error);
+        if (isMounted) setIpBlocked(false);
+      } finally {
+        if (isMounted) setCheckingIP(false);
+      }
+
+      // Load application info
+      try {
+        console.log('📋 Loading application info for:', applicationId);
+        if (isMounted) setLoadingApp(true);
+
+        if (!applicationId) {
+          console.log('❌ No applicationId provided');
+          if (isMounted) setLoadingApp(false);
+          return;
+        }
+
+        const app = await applicationService.getApplicationByApplicationId(applicationId);
+        console.log('📱 Application loaded:', app);
+
+        if (app && isMounted) {
+          setAppInfo(app);
+
+          const brandingData = await applicationService.getBrandingByApplicationId(app.id);
+          console.log('🎨 Branding loaded:', brandingData);
+          if (brandingData && isMounted) {
+            setLoadedBranding(brandingData);
+            if (brandingData.custom_texts) {
+              setCustomTexts(brandingData.custom_texts);
+            }
+          }
+
+          console.log('🔍 Form type:', formType);
+          if (formType === 'register' && isMounted) {
+            console.log('👥 Loading roles for app.id:', app.id);
+            const roles = await rolesService.getRolesByApplication(app.id);
+            console.log('✅ Roles received:', roles);
+            if (isMounted) {
+              setAvailableRoles(roles);
+
+              const defaultRole = roles.find(role => role.is_default);
+              if (defaultRole) {
+                console.log('⭐ Default role found:', defaultRole.name);
+                setSelectedRole(defaultRole.name);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error loading application info:', error);
+      } finally {
+        if (isMounted) setLoadingApp(false);
+      }
+    };
+
+    init();
+
+    return () => {
+      isMounted = false;
+    };
   }, [applicationId, formType]);
-
-  const checkIPStatus = async () => {
-    try {
-      setCheckingIP(true);
-
-      const result = await ipService.checkIPStatus();
-
-      if (result.is_blocked) {
-        console.log('🚫 IP is blocked:', result);
-        setIpBlocked(true);
-        setBlockedInfo(result.blocked_info);
-      } else {
-        console.log('✅ IP is not blocked:', result.ip_address);
-      }
-    } catch (error) {
-      console.error('❌ Error checking IP status:', error);
-      setIpBlocked(false);
-    } finally {
-      setCheckingIP(false);
-    }
-  };
-
-  const loadApplicationInfo = async () => {
-    try {
-      console.log('📋 Loading application info for:', applicationId);
-      setLoadingApp(true);
-
-      if (!applicationId) {
-        console.log('❌ No applicationId provided');
-        setLoadingApp(false);
-        return;
-      }
-
-      const app = await applicationService.getApplicationByApplicationId(applicationId);
-      console.log('📱 Application loaded:', app);
-
-      if (app) {
-        setAppInfo(app);
-
-        const brandingData = await applicationService.getBrandingByApplicationId(app.id);
-        console.log('🎨 Branding loaded:', brandingData);
-        if (brandingData) {
-          setLoadedBranding(brandingData);
-          if (brandingData.custom_texts) {
-            setCustomTexts(brandingData.custom_texts);
-          }
-        }
-
-        console.log('🔍 Form type:', formType);
-        if (formType === 'register') {
-          console.log('👥 Loading roles for app.id:', app.id);
-          const roles = await rolesService.getRolesByApplication(app.id);
-          console.log('✅ Roles received:', roles);
-          setAvailableRoles(roles);
-
-          const defaultRole = roles.find(role => role.is_default);
-          if (defaultRole) {
-            console.log('⭐ Default role found:', defaultRole.name);
-            setSelectedRole(defaultRole.name);
-          }
-        }
-      }
-    } catch (error) {
-      console.error('❌ Error loading application info:', error);
-    } finally {
-      setLoadingApp(false);
-    }
-  };
 
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {

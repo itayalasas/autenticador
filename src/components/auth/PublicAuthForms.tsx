@@ -70,16 +70,74 @@ export default function PublicAuthForms({
 
 
   useEffect(() => {
-    // Check IP status first
-    checkIPStatus();
-    // Load application info
-    loadApplicationInfo();
-    loadCustomTexts();
-    if (formType === 'register') {
-      loadAvailableRoles();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applicationId, formType]);
+    let isMounted = true;
+
+    const init = async () => {
+      // Check IP status
+      try {
+        setCheckingIP(true);
+        const result = await ipService.checkIPStatus();
+
+        if (!isMounted) return;
+
+        if (result.is_blocked) {
+          console.log('🚫 IP is blocked:', result);
+          setIpBlocked(true);
+          setBlockedInfo(result.blocked_info);
+        } else {
+          console.log('✅ IP is not blocked:', result.ip_address);
+        }
+      } catch (error) {
+        console.error('❌ Error checking IP status:', error);
+        if (isMounted) setIpBlocked(false);
+      } finally {
+        if (isMounted) setCheckingIP(false);
+      }
+
+      // Load application info
+      if (isMounted) {
+        setAppInfo({
+          name: 'Mi Aplicación',
+          domain: 'miapp.com',
+          description: 'Sistema de autenticación'
+        });
+      }
+
+      // Load custom texts
+      try {
+        if (internalApplicationId && isMounted) {
+          const brandingConfig = await applicationService.getBranding(internalApplicationId);
+          if (brandingConfig && brandingConfig.custom_texts && isMounted) {
+            setCustomTexts(brandingConfig.custom_texts);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading custom texts:', error);
+      }
+
+      // Load roles for register form
+      if (formType === 'register' && internalApplicationId && isMounted) {
+        try {
+          const roles = await rolesService.getAvailableRolesForRegistration(internalApplicationId);
+          if (isMounted) {
+            setAvailableRoles(roles);
+            const defaultRole = roles.find(role => role.is_default);
+            if (defaultRole) {
+              setSelectedRole(defaultRole.name);
+            }
+          }
+        } catch (error) {
+          console.error('Error loading available roles:', error);
+        }
+      }
+    };
+
+    init();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [applicationId, formType, internalApplicationId]);
 
   const checkIPStatus = async () => {
     try {
