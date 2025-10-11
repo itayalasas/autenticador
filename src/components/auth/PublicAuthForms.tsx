@@ -31,6 +31,7 @@ function PublicAuthForms({
   internalApplicationId,
   formType,
   apiKey,
+  appInfo,
   branding = {},
   onSuccess,
   onError
@@ -41,7 +42,6 @@ function PublicAuthForms({
   const [ipBlocked, setIpBlocked] = useState(false);
   const [blockedInfo, setBlockedInfo] = useState<any>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
-  const [appInfo, setAppInfo] = useState<any>(null);
   const [availableRoles, setAvailableRoles] = useState<any[]>([]);
   const [selectedRole, setSelectedRole] = useState('');
   const [customTexts, setCustomTexts] = useState<any>({});
@@ -100,14 +100,7 @@ function PublicAuthForms({
         if (isMounted) setCheckingIP(false);
       }
 
-      // Load application info
-      if (isMounted) {
-        setAppInfo({
-          name: 'Mi Aplicación',
-          domain: 'miapp.com',
-          description: 'Sistema de autenticación'
-        });
-      }
+      // Application info comes from props, no need to set it here
 
       // Load custom texts
       try {
