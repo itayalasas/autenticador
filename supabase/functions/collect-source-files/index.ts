@@ -226,7 +226,7 @@ NODE_ENV=production
 
     // Define the project root path
     // In Supabase Edge Functions, we need to use absolute paths
-    const projectRoot = '/tmp/cc-agent/58162069/project';
+    const projectRoot = '/tmp/cc-agent/58424341/project';
 
     console.log('📂 Reading source files from:', projectRoot);
 
