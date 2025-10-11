@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import PublicAuthForms from './PublicAuthForms';
 import { applicationService } from '../../services/applicationService';
 import { supabase } from '../../lib/supabase';
@@ -214,14 +214,22 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
     console.error('Auth error:', error);
   }, []);
 
+  // Memoize props to prevent unnecessary re-renders
+  // Use JSON.stringify for deep comparison
+  const brandingKey = JSON.stringify(appData?.branding);
+  const brandingMemo = useMemo(() => appData?.branding, [brandingKey]);
+
+  const appInfoKey = `${appData?.id}-${appData?.name}`;
+  const appInfoMemo = useMemo(() => appData, [appInfoKey]);
+
   return (
     <PublicAuthForms
       applicationId={appId!}
       internalApplicationId={appData?.id}
       formType={validFormType}
       apiKey={apiKey}
-      branding={appData?.branding}
-      appInfo={appData}
+      branding={brandingMemo}
+      appInfo={appInfoMemo}
       onSuccess={handleSuccess}
       onError={handleError}
     />
