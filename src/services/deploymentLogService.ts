@@ -99,12 +99,26 @@ export const deploymentLogService = {
     if (error) throw error;
   },
 
-  // Get deployment logs for an environment
-  async getDeploymentLogs(environmentId: string, limit: number = 10): Promise<DeploymentLog[]> {
+  // Get deployment logs for an environment or application
+  async getDeploymentLogs(identifier: string, limit: number = 50): Promise<DeploymentLog[]> {
+    // Try to get logs by application_id first
+    const { data: appLogs, error: appError } = await supabase
+      .from('deployment_logs')
+      .select('*')
+      .eq('application_id', identifier)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    // If we got results, return them
+    if (!appError && appLogs && appLogs.length > 0) {
+      return appLogs;
+    }
+
+    // Otherwise try by environment_id
     const { data, error } = await supabase
       .from('deployment_logs')
       .select('*')
-      .eq('environment_id', environmentId)
+      .eq('environment_id', identifier)
       .order('created_at', { ascending: false })
       .limit(limit);
 
