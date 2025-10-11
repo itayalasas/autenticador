@@ -16,9 +16,23 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
   const [error, setError] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
 
-  const validFormType = ['login', 'register', 'reset-password'].includes(formType) 
+  const validFormType = ['login', 'register', 'reset-password'].includes(formType)
     ? formType as 'login' | 'register' | 'reset-password'
     : 'login';
+
+  // Define all callbacks and memos BEFORE any early returns
+  const handleSuccess = useCallback((data: any) => {
+    console.log('Auth success:', data);
+    // Redirect to callback URL or show success message
+  }, []);
+
+  const handleError = useCallback((error: string) => {
+    console.error('Auth error:', error);
+  }, []);
+
+  // Memoize props to prevent unnecessary re-renders
+  const brandingMemo = useMemo(() => appData?.branding, [appData?.id]);
+  const appInfoMemo = useMemo(() => appData, [appData?.id]);
 
   useEffect(() => {
     const loadApplicationData = async () => {
@@ -204,19 +218,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
       </div>
     );
   }
-
-  const handleSuccess = useCallback((data: any) => {
-    console.log('Auth success:', data);
-    // Redirect to callback URL or show success message
-  }, []);
-
-  const handleError = useCallback((error: string) => {
-    console.error('Auth error:', error);
-  }, []);
-
-  // Memoize props to prevent unnecessary re-renders
-  const brandingMemo = useMemo(() => appData?.branding, [appData?.id]);
-  const appInfoMemo = useMemo(() => appData, [appData?.id]);
 
   return (
     <PublicAuthForms
