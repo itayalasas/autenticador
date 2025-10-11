@@ -185,6 +185,7 @@ export default function PublicAuthForms({
             email: formData.email,
             password: formData.password,
             application_id: applicationId,
+            api_key: apiKey,
             callback_url: callbackUrl,
             client_ip: clientIp
           };
@@ -199,6 +200,7 @@ export default function PublicAuthForms({
             password: formData.password,
             name: formData.name,
             application_id: applicationId,
+            api_key: apiKey,
             callback_url: callbackUrl,
             role: selectedRole || undefined,
             client_ip: clientIp
@@ -209,6 +211,7 @@ export default function PublicAuthForms({
           payload = {
             email: formData.email,
             application_id: applicationId,
+            api_key: apiKey,
             client_ip: clientIp
           };
           break;
@@ -411,13 +414,12 @@ export default function PublicAuthForms({
     );
   }
 
-  // Debug: Log render state
-  console.log('🖼️ Rendering form with:', {
-    formType,
-    availableRolesCount: availableRoles.length,
-    availableRoles,
-    selectedRole
-  });
+  // Only log on first render or when roles change
+  useEffect(() => {
+    if (availableRoles.length > 0) {
+      console.log('📋 Available roles loaded:', availableRoles.length);
+    }
+  }, [availableRoles.length]);
 
   return (
     <div
