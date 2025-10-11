@@ -174,7 +174,7 @@ function PublicAuthForms({
 
       switch (formType) {
         case 'login':
-          endpoint = \`${supabaseUrl}/functions/v1/auth-login\`;
+          endpoint = \`\${supabaseUrl}/functions/v1/auth-login\`;
           payload = {
             email: formData.email,
             password: formData.password,
@@ -187,7 +187,7 @@ function PublicAuthForms({
           if (formData.password !== formData.confirmPassword) {
             throw new Error('Las contraseñas no coinciden');
           }
-          endpoint = \`${supabaseUrl}/functions/v1/auth-register\`;
+          endpoint = \`\${supabaseUrl}/functions/v1/auth-register\`;
           payload = {
             email: formData.email,
             password: formData.password,
@@ -199,7 +199,7 @@ function PublicAuthForms({
           };
           break;
         case 'reset-password':
-          endpoint = \`${supabaseUrl}/functions/v1/auth-reset-password\`;
+          endpoint = \`\${supabaseUrl}/functions/v1/auth-reset-password\`;
           payload = {
             email: formData.email,
             application_id: applicationId,
@@ -219,7 +219,7 @@ function PublicAuthForms({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': \`Bearer ${supabaseAnonKey}\`,
+          'Authorization': \`Bearer \${supabaseAnonKey}\`,
           'apikey': supabaseAnonKey,
           'X-Client-Info': 'authsystem-public-form/1.0'
         },
@@ -471,12 +471,12 @@ function PublicAuthForms({
         <div 
           className="bg-white/80 backdrop-blur-lg shadow-xl border border-white/20 p-8"
           style={{ 
-            borderRadius: \`${defaultBranding.border_radius}px\`
+            borderRadius: \`\${defaultBranding.border_radius}px\`
           }}
         >
           {/* Message */}
           {message && (
-            <div className={\`mb-4 p-3 rounded-lg flex items-center space-x-2 ${
+            <div className={\`mb-4 p-3 rounded-lg flex items-center space-x-2 \${
               message.type === 'success' 
                 ? 'bg-green-50 border border-green-200' 
                 : 'bg-red-50 border border-red-200'
@@ -486,7 +486,7 @@ function PublicAuthForms({
               ) : (
                 <AlertCircle className="w-5 h-5 text-red-500" />
               )}
-              <span className={\`text-sm ${
+              <span className={\`text-sm \${
                 message.type === 'success' ? 'text-green-800' : 'text-red-800'
               }\`}>
                 {message.text}
@@ -514,7 +514,7 @@ function PublicAuthForms({
                     required={formType === 'register'}
                     className="w-full pl-10 pr-4 py-3 border border-gray-300 focus:ring-2 focus:border-transparent transition-all"
                     style={{ 
-                      borderRadius: \`${defaultBranding.border_radius}px\`,
+                      borderRadius: \`\${defaultBranding.border_radius}px\`,
                       '--tw-ring-color': defaultBranding.primary_color
                     } as React.CSSProperties}
                     placeholder={getText('register_name_placeholder', 'Tu nombre completo')}
@@ -542,7 +542,7 @@ function PublicAuthForms({
                   required
                   className="w-full pl-10 pr-4 py-3 border border-gray-300 focus:ring-2 focus:border-transparent transition-all"
                   style={{ 
-                    borderRadius: \`${defaultBranding.border_radius}px\`,
+                    borderRadius: \`\${defaultBranding.border_radius}px\`,
                     '--tw-ring-color': defaultBranding.primary_color
                   } as React.CSSProperties}
                   placeholder={formType === 'login' ? getText('login_email_placeholder', 'tu@email.com') : 
@@ -571,7 +571,7 @@ function PublicAuthForms({
                     required
                     className="w-full pl-10 pr-12 py-3 border border-gray-300 focus:ring-2 focus:border-transparent transition-all"
                     style={{ 
-                      borderRadius: \`${defaultBranding.border_radius}px\`,
+                      borderRadius: \`\${defaultBranding.border_radius}px\`,
                       '--tw-ring-color': defaultBranding.primary_color
                     } as React.CSSProperties}
                     placeholder={formType === 'login' ? getText('login_password_placeholder', '••••••••') : 
@@ -606,7 +606,7 @@ function PublicAuthForms({
                     required={formType === 'register'}
                     className="w-full pl-10 pr-4 py-3 border border-gray-300 focus:ring-2 focus:border-transparent transition-all"
                     style={{ 
-                      borderRadius: \`${defaultBranding.border_radius}px\`,
+                      borderRadius: \`\${defaultBranding.border_radius}px\`,
                       '--tw-ring-color': defaultBranding.primary_color
                     } as React.CSSProperties}
                     placeholder={getText('register_confirm_password_placeholder', '••••••••')}
@@ -628,7 +628,7 @@ function PublicAuthForms({
                   onChange={(e) => setSelectedRole(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 focus:ring-2 focus:border-transparent transition-all"
                   style={{ 
-                    borderRadius: \`${defaultBranding.border_radius}px\`,
+                    borderRadius: \`\${defaultBranding.border_radius}px\`,
                     '--tw-ring-color': defaultBranding.primary_color
                   } as React.CSSProperties}
                 >
@@ -636,7 +636,7 @@ function PublicAuthForms({
                   {availableRoles.map((role) => (
                     <option key={role.id} value={role.name}>
                       {role.display_name}
-                      {role.description && \` - ${role.description}\`}
+                      {role.description && \` - \${role.description}\`}
                     </option>
                   ))}
                 </select>
@@ -653,7 +653,7 @@ function PublicAuthForms({
               style={{ 
                 backgroundColor: defaultBranding.primary_color,
                 borderRadius: defaultBranding.button_style === 'rounded' 
-                  ? \`${defaultBranding.border_radius}px\` 
+                  ? \`\${defaultBranding.border_radius}px\` 
                   : '4px',
                 '--tw-ring-color': defaultBranding.primary_color
               } as React.CSSProperties}
@@ -674,7 +674,7 @@ function PublicAuthForms({
             {formType === 'login' && (
               <>
                 <a
-                  href={\`/reset-password?app_id=${applicationId}&api_key=${searchParams.get('api_key') || ''}&callback_url=${encodeURIComponent(searchParams.get('callback_url') || '')}\`}
+                  href={\`/reset-password?app_id=\${applicationId}&api_key=\${searchParams.get('api_key') || ''}&callback_url=\${encodeURIComponent(searchParams.get('callback_url') || '')}\`}
                   className="text-sm hover:underline"
                   style={{ color: defaultBranding.accent_color }}
                 >
@@ -683,7 +683,7 @@ function PublicAuthForms({
                 <p className="text-sm text-gray-600">
                   {getText('login_register_link_text', '¿No tienes cuenta? Regístrate aquí').split('Regístrate aquí')[0]}
                   <a
-                    href={\`/register?app_id=${applicationId}&api_key=${searchParams.get('api_key') || ''}&callback_url=${encodeURIComponent(searchParams.get('callback_url') || '')}\`}
+                    href={\`/register?app_id=\${applicationId}&api_key=\${searchParams.get('api_key') || ''}&callback_url=\${encodeURIComponent(searchParams.get('callback_url') || '')}\`}
                     className="hover:underline"
                     style={{ color: defaultBranding.accent_color }}
                   >
@@ -696,7 +696,7 @@ function PublicAuthForms({
               <p className="text-sm text-gray-600">
                 {getText('register_login_link_text', '¿Ya tienes cuenta? Inicia sesión').split('Inicia sesión')[0]}
                 <a
-                  href={\`/login?app_id=${applicationId}&api_key=${searchParams.get('api_key') || ''}&callback_url=${encodeURIComponent(searchParams.get('callback_url') || '')}\`}
+                  href={\`/login?app_id=\${applicationId}&api_key=\${searchParams.get('api_key') || ''}&callback_url=\${encodeURIComponent(searchParams.get('callback_url') || '')}\`}
                   className="hover:underline"
                   style={{ color: defaultBranding.accent_color }}
                 >
@@ -708,7 +708,7 @@ function PublicAuthForms({
               <p className="text-sm text-gray-600">
                 {getText('reset_login_link_text', '¿Recordaste tu contraseña? Inicia sesión').split('Inicia sesión')[0]}
                 <a
-                  href={\`/login?app_id=${applicationId}&api_key=${searchParams.get('api_key') || ''}&callback_url=${encodeURIComponent(searchParams.get('callback_url') || '')}\`}
+                  href={\`/login?app_id=\${applicationId}&api_key=\${searchParams.get('api_key') || ''}&callback_url=\${encodeURIComponent(searchParams.get('callback_url') || '')}\`}
                   className="hover:underline"
                   style={{ color: defaultBranding.accent_color }}
                 >
