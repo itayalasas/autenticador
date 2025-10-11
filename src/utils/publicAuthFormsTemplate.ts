@@ -1,7 +1,8 @@
 // This file contains the PublicAuthForms component as a template string
 // It's used by projectFilesHelper to generate the component file
 
-export const PUBLIC_AUTH_FORMS_TEMPLATE = `import React, { useState, useEffect, useMemo } from 'react';
+export const PUBLIC_AUTH_FORMS_TEMPLATE = `
+import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, Mail, Lock, User, ArrowRight, CheckCircle, AlertCircle, Shield } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { rolesService } from '../../services/rolesService';
@@ -29,11 +30,12 @@ interface PublicAuthFormsProps {
   onError?: (error: string) => void;
 }
 
-export default function PublicAuthForms({
+function PublicAuthForms({
   applicationId,
   internalApplicationId,
   formType,
   apiKey,
+  appInfo,
   branding = {},
   onSuccess,
   onError
@@ -41,15 +43,12 @@ export default function PublicAuthForms({
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [checkingIP, setCheckingIP] = useState(true);
-  const [loadingApp, setLoadingApp] = useState(true);
   const [ipBlocked, setIpBlocked] = useState(false);
   const [blockedInfo, setBlockedInfo] = useState<any>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
-  const [appInfo, setAppInfo] = useState<any>(null);
   const [availableRoles, setAvailableRoles] = useState<any[]>([]);
   const [selectedRole, setSelectedRole] = useState('');
   const [customTexts, setCustomTexts] = useState<any>({});
-  const [loadedBranding, setLoadedBranding] = useState<any>(null);
   const [searchParams] = useSearchParams();
   
   const [formData, setFormData] = useState({
@@ -59,23 +58,27 @@ export default function PublicAuthForms({
     confirmPassword: ''
   });
 
-  // Merge default branding with loaded branding from database and prop branding
-  const defaultBranding = useMemo(() => ({
-    primary_color: '#3B82F6',
-    secondary_color: '#1E40AF',
-    accent_color: '#F59E0B',
-    background_color: '#FFFFFF',
-    text_color: '#1F2937',
-    font_family: 'Inter',
-    logo_url: '',
-    border_radius: 8,
-    button_style: 'rounded',
-    ...loadedBranding,
-    ...branding
-  }), [loadedBranding, branding]);
+  // Use refs to track if initial load is done
+  const initialLoadDone = React.useRef(false);
 
+  // Default branding values
+  const defaultBranding = {
+    primary_color: branding?.primary_color || '#3B82F6',
+    secondary_color: branding?.secondary_color || '#1E40AF',
+    accent_color: branding?.accent_color || '#F59E0B',
+    background_color: branding?.background_color || '#FFFFFF',
+    text_color: branding?.text_color || '#1F2937',
+    font_family: branding?.font_family || 'Inter',
+    logo_url: branding?.logo_url || '',
+    border_radius: branding?.border_radius || 8,
+    button_style: branding?.button_style || 'rounded'
+  };
 
   useEffect(() => {
+    // Only run once on mount
+    if (initialLoadDone.current) return;
+    initialLoadDone.current = true;
+
     let isMounted = true;
 
     const init = async () => {
@@ -100,52 +103,34 @@ export default function PublicAuthForms({
         if (isMounted) setCheckingIP(false);
       }
 
-      // Load application info
+      // Application info comes from props, no need to set it here
+
+      // Load custom texts
       try {
-        console.log('📋 Loading application info for:', applicationId);
-        if (isMounted) setLoadingApp(true);
-
-        if (!applicationId) {
-          console.log('❌ No applicationId provided');
-          if (isMounted) setLoadingApp(false);
-          return;
-        }
-
-        const app = await applicationService.getApplicationByApplicationId(applicationId);
-        console.log('📱 Application loaded:', app);
-
-        if (app && isMounted) {
-          setAppInfo(app);
-
-          const brandingData = await applicationService.getBrandingByApplicationId(app.id);
-          console.log('🎨 Branding loaded:', brandingData);
-          if (brandingData && isMounted) {
-            setLoadedBranding(brandingData);
-            if (brandingData.custom_texts) {
-              setCustomTexts(brandingData.custom_texts);
-            }
-          }
-
-          console.log('🔍 Form type:', formType);
-          if (formType === 'register' && isMounted) {
-            console.log('👥 Loading roles for app.id:', app.id);
-            const roles = await rolesService.getRolesByApplication(app.id);
-            console.log('✅ Roles received:', roles);
-            if (isMounted) {
-              setAvailableRoles(roles);
-
-              const defaultRole = roles.find(role => role.is_default);
-              if (defaultRole) {
-                console.log('⭐ Default role found:', defaultRole.name);
-                setSelectedRole(defaultRole.name);
-              }
-            }
+        if (internalApplicationId && isMounted) {
+          const brandingConfig = await applicationService.getBranding(internalApplicationId);
+          if (brandingConfig && brandingConfig.custom_texts && isMounted) {
+            setCustomTexts(brandingConfig.custom_texts);
           }
         }
       } catch (error) {
-        console.error('❌ Error loading application info:', error);
-      } finally {
-        if (isMounted) setLoadingApp(false);
+        console.error('Error loading custom texts:', error);
+      }
+
+      // Load roles for register form
+      if (formType === 'register' && internalApplicationId && isMounted) {
+        try {
+          const roles = await rolesService.getAvailableRolesForRegistration(internalApplicationId);
+          if (isMounted) {
+            setAvailableRoles(roles);
+            const defaultRole = roles.find(role => role.is_default);
+            if (defaultRole) {
+              setSelectedRole(defaultRole.name);
+            }
+          }
+        } catch (error) {
+          console.error('Error loading available roles:', error);
+        }
       }
     };
 
@@ -154,8 +139,7 @@ export default function PublicAuthForms({
     return () => {
       isMounted = false;
     };
-  }, [applicationId, formType]);
-
+  }, []); // Empty deps array - only run once
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData(prev => ({
@@ -170,6 +154,7 @@ export default function PublicAuthForms({
     setMessage(null);
 
     try {
+      // Obtener parámetros de la URL
       const urlParams = new URLSearchParams(window.location.search);
       const callbackUrl = urlParams.get('callback_url') || urlParams.get('redirect_uri');
 
@@ -177,6 +162,7 @@ export default function PublicAuthForms({
         throw new Error('API key no disponible para esta aplicación');
       }
 
+      // Get client IP first
       const clientIp = await ipService.getClientIP();
       console.log('📍 Client IP:', clientIp);
 
@@ -188,12 +174,11 @@ export default function PublicAuthForms({
 
       switch (formType) {
         case 'login':
-          endpoint = \`\${supabaseUrl}/functions/v1/auth-login\`;
+          endpoint = \`${supabaseUrl}/functions/v1/auth-login\`;
           payload = {
             email: formData.email,
             password: formData.password,
             application_id: applicationId,
-            api_key: apiKey,
             callback_url: callbackUrl,
             client_ip: clientIp
           };
@@ -202,24 +187,22 @@ export default function PublicAuthForms({
           if (formData.password !== formData.confirmPassword) {
             throw new Error('Las contraseñas no coinciden');
           }
-          endpoint = \`\${supabaseUrl}/functions/v1/auth-register\`;
+          endpoint = \`${supabaseUrl}/functions/v1/auth-register\`;
           payload = {
             email: formData.email,
             password: formData.password,
             name: formData.name,
             application_id: applicationId,
-            api_key: apiKey,
             callback_url: callbackUrl,
             role: selectedRole || undefined,
             client_ip: clientIp
           };
           break;
         case 'reset-password':
-          endpoint = \`\${supabaseUrl}/functions/v1/auth-reset-password\`;
+          endpoint = \`${supabaseUrl}/functions/v1/auth-reset-password\`;
           payload = {
             email: formData.email,
             application_id: applicationId,
-            api_key: apiKey,
             client_ip: clientIp
           };
           break;
@@ -231,11 +214,12 @@ export default function PublicAuthForms({
         payload: { ...payload, password: '***' }
       });
 
+      // Llamar a la API de autenticación (Supabase Edge Functions)
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': \`Bearer \${supabaseAnonKey}\`,
+          'Authorization': \`Bearer ${supabaseAnonKey}\`,
           'apikey': supabaseAnonKey,
           'X-Client-Info': 'authsystem-public-form/1.0'
         },
@@ -245,18 +229,35 @@ export default function PublicAuthForms({
       const result = await response.json();
       console.log('📥 API Response:', {
         success: result.success,
-        status: response.status
+        status: response.status,
+        error: result.error?.code,
+        message: result.error?.message
       });
+
+      // Log the response status for debugging
+      console.log('📊 Response status:', response.status, response.ok);
       
       if (!result.success) {
         console.log('❌ Authentication failed:', result.error);
         
+        // Show more detailed error for debugging
+        if (result.error?.code === 'DATABASE_ERROR' || result.error?.message?.includes('Database error')) {
+          console.error('🔍 Database error details:', result.error);
+          setMessage({ 
+            type: 'error', 
+            text: 'Error de base de datos. Por favor contacta al administrador del sistema.' 
+          });
+          return;
+        }
+        
+        // Manejar caso especial de email no verificado
         if (result.error?.code === 'EMAIL_NOT_VERIFIED') {
           setMessage({ 
             type: 'error', 
             text: result.error.message 
           });
           
+          // Si hay callback URL para verificación, redirigir después de un delay
           if (result.error.callback_url) {
             setTimeout(() => {
               window.location.href = result.error.callback_url;
@@ -270,23 +271,27 @@ export default function PublicAuthForms({
       
       console.log('✅ Authentication successful:', result.data);
       
+      // Manejar diferentes tipos de respuesta
       if (formType === 'register' && result.data?.email_verification_required) {
         setMessage({ 
           type: 'success', 
           text: 'Cuenta creada exitosamente. Revisa tu email para verificar tu cuenta.' 
         });
         
+        // Redirigir a página de verificación si hay callback URL
         if (result.data?.callback_url) {
           setTimeout(() => {
             window.location.href = result.data.callback_url;
           }, 3000);
         }
       } else {
+        // Determinar mensaje según el tipo de formulario y respuesta
         let successMessage = '¡Bienvenido!';
 
         if (formType === 'register') {
           successMessage = 'Cuenta creada exitosamente';
         } else if (formType === 'reset-password') {
+          // Usar el mensaje que viene del servidor o uno genérico
           successMessage = result.data?.message || 'Si el email existe en nuestro sistema, recibirás un enlace de recuperación.';
         }
 
@@ -295,20 +300,26 @@ export default function PublicAuthForms({
           text: successMessage
         });
 
+        // Si hay callback URL, redirigir después de un breve delay
         if (result.data?.callback_url) {
           console.log('🔄 Redirecting to callback URL:', result.data.callback_url);
           setTimeout(() => {
             window.location.href = result.data.callback_url;
           }, 2000);
         } else {
+          // Si no hay callback, mostrar los datos del usuario para desarrollo
           console.log('Autenticación exitosa:', result.data);
           
+          // Guardar tokens en localStorage para desarrollo
           if (result.data.access_token) {
             localStorage.setItem('auth_token', result.data.access_token);
             localStorage.setItem('refresh_token', result.data.refresh_token);
             localStorage.setItem('user_data', JSON.stringify(result.data.user));
             
-            console.log('💾 Tokens guardados en localStorage');
+            console.log('💾 Tokens guardados en localStorage:', {
+              access_token: result.data.access_token.substring(0, 20) + '...',
+              user: result.data.user
+            });
           }
         }
       }
@@ -327,6 +338,7 @@ export default function PublicAuthForms({
     }
   };
 
+  // Helper function to get custom text or fallback to default
   const getText = (key: string, defaultText: string) => {
     return customTexts[key] || defaultText;
   };
@@ -349,37 +361,19 @@ export default function PublicAuthForms({
     }
   };
 
-  const urlParams = new URLSearchParams(window.location.search);
-
-  if (checkingIP || loadingApp) {
+  // Show loading while checking IP
+  if (checkingIP) {
     return (
-      <div
-        className="min-h-screen flex items-center justify-center p-4"
-        style={{ backgroundColor: defaultBranding.background_color || '#F9FAFB' }}
-      >
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gray-50">
         <div className="text-center">
-          <div
-            className="w-16 h-16 border-4 border-t-transparent rounded-full animate-spin mx-auto mb-4"
-            style={{
-              borderColor: \`\${defaultBranding.primary_color || '#3B82F6'}33\`,
-              borderTopColor: 'transparent'
-            }}
-          ></div>
-          <div
-            className="w-16 h-16 border-4 border-transparent border-t-current rounded-full animate-spin mx-auto -mt-20 mb-4"
-            style={{ color: defaultBranding.primary_color || '#3B82F6' }}
-          ></div>
-          <p
-            className="text-base font-medium mt-2"
-            style={{ color: defaultBranding.text_color || '#4B5563' }}
-          >
-            Verificando acceso...
-          </p>
+          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Verificando acceso...</p>
         </div>
       </div>
     );
   }
 
+  // Show blocked screen if IP is blocked
   if (ipBlocked) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-red-50">
@@ -422,13 +416,6 @@ export default function PublicAuthForms({
     );
   }
 
-  // Only log on first render or when roles change
-  useEffect(() => {
-    if (availableRoles.length > 0) {
-      console.log('📋 Available roles loaded:', availableRoles.length);
-    }
-  }, [availableRoles.length]);
-
   return (
     <div
       className="min-h-screen flex items-center justify-center p-4"
@@ -437,6 +424,7 @@ export default function PublicAuthForms({
         fontFamily: defaultBranding.font_family
       }}
     >
+      {/* Background Pattern */}
       <div className="absolute inset-0 overflow-hidden">
         <div 
           className="absolute -top-40 -right-40 w-80 h-80 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-pulse"
@@ -449,6 +437,7 @@ export default function PublicAuthForms({
       </div>
 
       <div className="relative w-full max-w-md">
+        {/* Logo and Header */}
         <div className="text-center mb-8">
           {defaultBranding.logo_url ? (
             <img 
@@ -478,14 +467,16 @@ export default function PublicAuthForms({
           </p>
         </div>
 
+        {/* Auth Card */}
         <div 
           className="bg-white/80 backdrop-blur-lg shadow-xl border border-white/20 p-8"
           style={{ 
-            borderRadius: \`\${defaultBranding.border_radius}px\`
+            borderRadius: \`${defaultBranding.border_radius}px\`
           }}
         >
+          {/* Message */}
           {message && (
-            <div className={\`mb-4 p-3 rounded-lg flex items-center space-x-2 \${
+            <div className={\`mb-4 p-3 rounded-lg flex items-center space-x-2 ${
               message.type === 'success' 
                 ? 'bg-green-50 border border-green-200' 
                 : 'bg-red-50 border border-red-200'
@@ -495,7 +486,7 @@ export default function PublicAuthForms({
               ) : (
                 <AlertCircle className="w-5 h-5 text-red-500" />
               )}
-              <span className={\`text-sm \${
+              <span className={\`text-sm ${
                 message.type === 'success' ? 'text-green-800' : 'text-red-800'
               }\`}>
                 {message.text}
@@ -503,6 +494,7 @@ export default function PublicAuthForms({
             </div>
           )}
 
+          {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             {formType === 'register' && (
               <div>
@@ -522,7 +514,7 @@ export default function PublicAuthForms({
                     required={formType === 'register'}
                     className="w-full pl-10 pr-4 py-3 border border-gray-300 focus:ring-2 focus:border-transparent transition-all"
                     style={{ 
-                      borderRadius: \`\${defaultBranding.border_radius}px\`,
+                      borderRadius: \`${defaultBranding.border_radius}px\`,
                       '--tw-ring-color': defaultBranding.primary_color
                     } as React.CSSProperties}
                     placeholder={getText('register_name_placeholder', 'Tu nombre completo')}
@@ -550,7 +542,7 @@ export default function PublicAuthForms({
                   required
                   className="w-full pl-10 pr-4 py-3 border border-gray-300 focus:ring-2 focus:border-transparent transition-all"
                   style={{ 
-                    borderRadius: \`\${defaultBranding.border_radius}px\`,
+                    borderRadius: \`${defaultBranding.border_radius}px\`,
                     '--tw-ring-color': defaultBranding.primary_color
                   } as React.CSSProperties}
                   placeholder={formType === 'login' ? getText('login_email_placeholder', 'tu@email.com') : 
@@ -579,7 +571,7 @@ export default function PublicAuthForms({
                     required
                     className="w-full pl-10 pr-12 py-3 border border-gray-300 focus:ring-2 focus:border-transparent transition-all"
                     style={{ 
-                      borderRadius: \`\${defaultBranding.border_radius}px\`,
+                      borderRadius: \`${defaultBranding.border_radius}px\`,
                       '--tw-ring-color': defaultBranding.primary_color
                     } as React.CSSProperties}
                     placeholder={formType === 'login' ? getText('login_password_placeholder', '••••••••') : 
@@ -614,7 +606,7 @@ export default function PublicAuthForms({
                     required={formType === 'register'}
                     className="w-full pl-10 pr-4 py-3 border border-gray-300 focus:ring-2 focus:border-transparent transition-all"
                     style={{ 
-                      borderRadius: \`\${defaultBranding.border_radius}px\`,
+                      borderRadius: \`${defaultBranding.border_radius}px\`,
                       '--tw-ring-color': defaultBranding.primary_color
                     } as React.CSSProperties}
                     placeholder={getText('register_confirm_password_placeholder', '••••••••')}
@@ -625,7 +617,7 @@ export default function PublicAuthForms({
 
             {formType === 'register' && availableRoles.length > 0 && (
               <div>
-                <label
+                <label 
                   className="block text-sm font-medium mb-2"
                   style={{ color: defaultBranding.text_color }}
                 >
@@ -635,17 +627,16 @@ export default function PublicAuthForms({
                   value={selectedRole}
                   onChange={(e) => setSelectedRole(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 focus:ring-2 focus:border-transparent transition-all"
-                  style={{
-                    borderRadius: \`\${defaultBranding.border_radius}px\`,
+                  style={{ 
+                    borderRadius: \`${defaultBranding.border_radius}px\`,
                     '--tw-ring-color': defaultBranding.primary_color
                   } as React.CSSProperties}
-                  required
                 >
                   <option value="">{getText('role_selection_placeholder', 'Selecciona un rol')}</option>
                   {availableRoles.map((role) => (
                     <option key={role.id} value={role.name}>
                       {role.display_name}
-                      {role.description && \` - \${role.description}\`}
+                      {role.description && \` - ${role.description}\`}
                     </option>
                   ))}
                 </select>
@@ -662,7 +653,7 @@ export default function PublicAuthForms({
               style={{ 
                 backgroundColor: defaultBranding.primary_color,
                 borderRadius: defaultBranding.button_style === 'rounded' 
-                  ? \`\${defaultBranding.border_radius}px\` 
+                  ? \`${defaultBranding.border_radius}px\` 
                   : '4px',
                 '--tw-ring-color': defaultBranding.primary_color
               } as React.CSSProperties}
@@ -678,11 +669,12 @@ export default function PublicAuthForms({
             </button>
           </form>
 
+          {/* Footer Links */}
           <div className="mt-6 text-center space-y-2">
             {formType === 'login' && (
               <>
                 <a
-                  href={\`/reset-password?app_id=\${applicationId}&api_key=\${urlParams.get('api_key') || ''}&callback_url=\${encodeURIComponent(urlParams.get('callback_url') || '')}\`}
+                  href={\`/reset-password?app_id=${applicationId}&api_key=${searchParams.get('api_key') || ''}&callback_url=${encodeURIComponent(searchParams.get('callback_url') || '')}\`}
                   className="text-sm hover:underline"
                   style={{ color: defaultBranding.accent_color }}
                 >
@@ -691,7 +683,7 @@ export default function PublicAuthForms({
                 <p className="text-sm text-gray-600">
                   {getText('login_register_link_text', '¿No tienes cuenta? Regístrate aquí').split('Regístrate aquí')[0]}
                   <a
-                    href={\`/register?app_id=\${applicationId}&api_key=\${urlParams.get('api_key') || ''}&callback_url=\${encodeURIComponent(urlParams.get('callback_url') || '')}\`}
+                    href={\`/register?app_id=${applicationId}&api_key=${searchParams.get('api_key') || ''}&callback_url=${encodeURIComponent(searchParams.get('callback_url') || '')}\`}
                     className="hover:underline"
                     style={{ color: defaultBranding.accent_color }}
                   >
@@ -704,7 +696,7 @@ export default function PublicAuthForms({
               <p className="text-sm text-gray-600">
                 {getText('register_login_link_text', '¿Ya tienes cuenta? Inicia sesión').split('Inicia sesión')[0]}
                 <a
-                  href={\`/login?app_id=\${applicationId}&api_key=\${urlParams.get('api_key') || ''}&callback_url=\${encodeURIComponent(urlParams.get('callback_url') || '')}\`}
+                  href={\`/login?app_id=${applicationId}&api_key=${searchParams.get('api_key') || ''}&callback_url=${encodeURIComponent(searchParams.get('callback_url') || '')}\`}
                   className="hover:underline"
                   style={{ color: defaultBranding.accent_color }}
                 >
@@ -716,7 +708,7 @@ export default function PublicAuthForms({
               <p className="text-sm text-gray-600">
                 {getText('reset_login_link_text', '¿Recordaste tu contraseña? Inicia sesión').split('Inicia sesión')[0]}
                 <a
-                  href={\`/login?app_id=\${applicationId}&api_key=\${urlParams.get('api_key') || ''}&callback_url=\${encodeURIComponent(urlParams.get('callback_url') || '')}\`}
+                  href={\`/login?app_id=${applicationId}&api_key=${searchParams.get('api_key') || ''}&callback_url=${encodeURIComponent(searchParams.get('callback_url') || '')}\`}
                   className="hover:underline"
                   style={{ color: defaultBranding.accent_color }}
                 >
@@ -727,6 +719,7 @@ export default function PublicAuthForms({
           </div>
         </div>
 
+        {/* Security Badge */}
         <div className="mt-6 text-center">
           <div className="inline-flex items-center space-x-2 text-sm text-gray-500">
             <Shield className="w-4 h-4" />
@@ -737,4 +730,5 @@ export default function PublicAuthForms({
     </div>
   );
 }
-`;
+
+export default PublicAuthForms;`;
