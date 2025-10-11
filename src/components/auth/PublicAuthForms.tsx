@@ -737,4 +737,4 @@ function PublicAuthForms({
   );
 }
 
-export default React.memo(PublicAuthForms);
+export default PublicAuthForms;
