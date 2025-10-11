@@ -68,7 +68,14 @@ function PublicAuthForms({
   };
 
 
+  // Use refs to track if initial load is done
+  const initialLoadDone = React.useRef(false);
+
   useEffect(() => {
+    // Only run once on mount
+    if (initialLoadDone.current) return;
+    initialLoadDone.current = true;
+
     let isMounted = true;
 
     const init = async () => {
@@ -136,7 +143,7 @@ function PublicAuthForms({
     return () => {
       isMounted = false;
     };
-  }, [applicationId, formType, internalApplicationId]);
+  }, []); // Empty deps array - only run once
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData(prev => ({
