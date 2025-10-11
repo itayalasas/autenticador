@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,6 +13,8 @@ interface CommitRequest {
   files: Record<string, string>;
   commitMessage: string;
   branch?: string;
+  applicationId?: string;
+  deploymentUrl?: string;
 }
 
 Deno.serve(async (req: Request) => {
@@ -23,7 +26,15 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const { accessToken, repoFullName, files, commitMessage, branch = "main" }: CommitRequest = await req.json();
+    const { 
+      accessToken, 
+      repoFullName, 
+      files, 
+      commitMessage, 
+      branch = "main",
+      applicationId,
+      deploymentUrl
+    }: CommitRequest = await req.json();
 
     if (!accessToken || !repoFullName || !files || !commitMessage) {
       throw new Error("Missing required parameters");
@@ -138,10 +149,48 @@ Deno.serve(async (req: Request) => {
       throw new Error(`Failed to update reference: ${await updateRefResponse.text()}`);
     }
 
+    // Create deployment snapshot if applicationId is provided
+    let snapshotId = null;
+    if (applicationId) {
+      try {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+        const { data: snapshot, error: snapshotError } = await supabase
+          .from('deployment_snapshots')
+          .insert({
+            application_id: applicationId,
+            commit_hash: newCommitData.sha,
+            commit_message: commitMessage,
+            branch: branch,
+            deployment_url: deploymentUrl,
+            status: 'stable',
+            deployed_at: new Date().toISOString(),
+            metadata: {
+              repository: repoFullName,
+              files_count: Object.keys(files).length
+            }
+          })
+          .select()
+          .single();
+
+        if (snapshotError) {
+          console.error('Failed to create deployment snapshot:', snapshotError);
+        } else {
+          snapshotId = snapshot?.id;
+          console.log('Deployment snapshot created:', snapshotId);
+        }
+      } catch (error) {
+        console.error('Error creating snapshot:', error);
+      }
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
         commit: newCommitData,
+        snapshotId,
         message: "Files committed and pushed successfully",
       }),
       {
