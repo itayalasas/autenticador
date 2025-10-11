@@ -677,6 +677,57 @@ El Site ID se guardará automáticamente en la base de datos, sin necesidad de r
       return {};
     }
   }
+
+  async getLatestDeploy(siteId: string): Promise<NetlifyDeployResponse | null> {
+    try {
+      const deploys = await this.listDeploys(siteId);
+      return deploys.length > 0 ? deploys[0] : null;
+    } catch (error) {
+      console.error('Error getting latest deploy:', error);
+      return null;
+    }
+  }
+
+  async getDeployWithLogs(siteId: string, deployId: string): Promise<{
+    deploy: NetlifyDeployResponse;
+    logs: string;
+  } | null> {
+    try {
+      const [deploy, logs] = await Promise.all([
+        this.getDeploy(siteId, deployId),
+        this.getDeployLogs(siteId, deployId)
+      ]);
+
+      return { deploy, logs };
+    } catch (error) {
+      console.error('Error getting deploy with logs:', error);
+      return null;
+    }
+  }
+
+  isDeployCompleted(state: string): boolean {
+    return state === 'ready' || state === 'error';
+  }
+
+  isDeploySuccessful(state: string): boolean {
+    return state === 'ready';
+  }
+
+  isDeployFailed(state: string): boolean {
+    return state === 'error';
+  }
+
+  getDeployStateLabel(state: string): string {
+    const stateLabels: Record<string, string> = {
+      'new': 'Nuevo',
+      'building': 'Construyendo',
+      'processing': 'Procesando',
+      'ready': 'Completado',
+      'error': 'Error',
+      'enqueued': 'En cola'
+    };
+    return stateLabels[state] || state;
+  }
 }
 
 export const netlifyService = new NetlifyService();
