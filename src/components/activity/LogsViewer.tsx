@@ -397,6 +397,7 @@ export default function LogsViewer() {
 
   const loadBlockedIPs = async () => {
     try {
+      console.log('🔄 Loading blocked IPs...');
       const { data, error } = await supabase
         .from('blocked_ips')
         .select(`
@@ -406,14 +407,47 @@ export default function LogsViewer() {
         .eq('is_active', true)
         .order('blocked_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Error loading blocked IPs:', error);
+        throw error;
+      }
+
+      console.log('✅ Blocked IPs loaded:', data?.length || 0, data);
       setBlockedIPs(data || []);
     } catch (error: any) {
       console.error('Error loading blocked IPs:', error);
+      // En caso de error, intentar sin el join de applications
+      try {
+        console.log('🔄 Retrying without application join...');
+        const { data, error: retryError } = await supabase
+          .from('blocked_ips')
+          .select('*')
+          .eq('is_active', true)
+          .order('blocked_at', { ascending: false });
+
+        if (retryError) throw retryError;
+        console.log('✅ Blocked IPs loaded (retry):', data?.length || 0);
+        setBlockedIPs(data || []);
+      } catch (retryError: any) {
+        console.error('❌ Retry failed:', retryError);
+      }
     }
   };
 
   const openBlockIPModal = (ipAddress: string, logId?: string) => {
+    // Verificar si la IP ya está bloqueada
+    const alreadyBlocked = blockedIPs.find(
+      blocked => blocked.ip_address === ipAddress && blocked.is_active
+    );
+
+    if (alreadyBlocked) {
+      showError(
+        'IP ya bloqueada',
+        `La IP ${ipAddress} ya está bloqueada. Razón: ${alreadyBlocked.reason}. Puedes desbloquearla desde la sección de IPs Bloqueadas.`
+      );
+      return;
+    }
+
     setIpToBlock({ ip: ipAddress, logId });
     setBlockIPReason('');
     setShowBlockIPModal(true);
