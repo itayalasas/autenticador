@@ -7,8 +7,6 @@ import NotificationModal from '../ui/NotificationModal';
 import ConfirmationModal from '../ui/ConfirmationModal';
 import { supabase } from '../../lib/supabase';
 import { notificationService } from '../../services/notificationService';
-import SecuritySettings from './SecuritySettings';
-import NotificationsSettings from './NotificationsSettings';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('profile');
@@ -866,33 +864,167 @@ export default function SettingsPage() {
   );
 
   const renderSecurityTab = () => (
-    <SecuritySettings
-      currentUser={currentUser}
-      userEmail={profileData.email}
-      onSuccess={showSuccess}
-      onError={showError}
-    />
+    <div className="space-y-6">
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Configuración de Seguridad</h3>
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <div className="flex items-center space-x-3">
+            <Shield className="w-5 h-5 text-yellow-600" />
+            <div>
+              <h4 className="font-medium text-yellow-900">Configuración de Seguridad</h4>
+              <p className="text-sm text-yellow-800">
+                Las opciones de seguridad avanzadas estarán disponibles próximamente
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 
-  const handleUpdateNotificationPreferences = (newPreferences: any) => {
-    setProfileData(prev => ({
-      ...prev,
-      notifications: newPreferences
-    }));
-  };
-
-  const handleConfirmAction = (title: string, message: string, onConfirm: () => void) => {
-    showConfirmation(title, message, onConfirm, { type: 'warning', confirmText: 'Confirmar' });
-  };
-
   const renderNotificationsTab = () => (
-    <NotificationsSettings
-      preferences={profileData.notifications}
-      onUpdatePreferences={handleUpdateNotificationPreferences}
-      onSuccess={showSuccess}
-      onError={showError}
-      onConfirm={handleConfirmAction}
-    />
+    <div className="space-y-6">
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Preferencias de Notificaciones</h3>
+
+        <div className="space-y-4">
+          <label className="flex items-center justify-between">
+            <div>
+              <span className="text-sm font-medium text-gray-900">Actualizaciones por Email</span>
+              <p className="text-xs text-gray-500">Recibe noticias sobre nuevas funcionalidades</p>
+            </div>
+            <input
+              type="checkbox"
+              checked={profileData.notifications.email_updates}
+              onChange={(e) => setProfileData(prev => ({
+                ...prev,
+                notifications: {
+                  ...prev.notifications,
+                  email_updates: e.target.checked
+                }
+              }))}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+          </label>
+
+          <label className="flex items-center justify-between">
+            <div>
+              <span className="text-sm font-medium text-gray-900">Alertas de Seguridad</span>
+              <p className="text-xs text-gray-500">Notificaciones sobre actividad sospechosa</p>
+            </div>
+            <input
+              type="checkbox"
+              checked={profileData.notifications.security_alerts}
+              onChange={(e) => setProfileData(prev => ({
+                ...prev,
+                notifications: {
+                  ...prev.notifications,
+                  security_alerts: e.target.checked
+                }
+              }))}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+          </label>
+
+          <label className="flex items-center justify-between">
+            <div>
+              <span className="text-sm font-medium text-gray-900">Notificaciones de Facturación</span>
+              <p className="text-xs text-gray-500">Recordatorios de pago y facturas</p>
+            </div>
+            <input
+              type="checkbox"
+              checked={profileData.notifications.billing_notifications}
+              onChange={(e) => setProfileData(prev => ({
+                ...prev,
+                notifications: {
+                  ...prev.notifications,
+                  billing_notifications: e.target.checked
+                }
+              }))}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+          </label>
+
+          <div className="border-t border-gray-200 pt-4 mt-4">
+            <h4 className="text-sm font-medium text-gray-900 mb-3">Frecuencia de Emails</h4>
+            <div className="space-y-2">
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="email_frequency"
+                  checked={profileData.notifications.email_frequency === 'immediate'}
+                  onChange={() => setProfileData(prev => ({
+                    ...prev,
+                    notifications: {
+                      ...prev.notifications,
+                      email_frequency: 'immediate'
+                    }
+                  }))}
+                  className="mr-3 text-blue-600 focus:ring-blue-500"
+                />
+                <div>
+                  <span className="text-sm font-medium text-gray-900">Inmediato</span>
+                  <p className="text-xs text-gray-500">Recibe emails al instante</p>
+                </div>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="email_frequency"
+                  checked={profileData.notifications.email_frequency === 'daily'}
+                  onChange={() => setProfileData(prev => ({
+                    ...prev,
+                    notifications: {
+                      ...prev.notifications,
+                      email_frequency: 'daily'
+                    }
+                  }))}
+                  className="mr-3 text-blue-600 focus:ring-blue-500"
+                />
+                <div>
+                  <span className="text-sm font-medium text-gray-900">Diario</span>
+                  <p className="text-xs text-gray-500">Resumen diario de notificaciones</p>
+                </div>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="email_frequency"
+                  checked={profileData.notifications.email_frequency === 'weekly'}
+                  onChange={() => setProfileData(prev => ({
+                    ...prev,
+                    notifications: {
+                      ...prev.notifications,
+                      email_frequency: 'weekly'
+                    }
+                  }))}
+                  className="mr-3 text-blue-600 focus:ring-blue-500"
+                />
+                <div>
+                  <span className="text-sm font-medium text-gray-900">Semanal</span>
+                  <p className="text-xs text-gray-500">Resumen semanal de notificaciones</p>
+                </div>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end mt-6">
+          <button
+            onClick={handleSaveNotificationPreferences}
+            disabled={saveLoading}
+            className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-lg flex items-center space-x-2 transition-colors disabled:opacity-50"
+          >
+            {saveLoading ? (
+              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Save className="w-5 h-5" />
+            )}
+            <span>{saveLoading ? 'Guardando...' : 'Guardar Preferencias'}</span>
+          </button>
+        </div>
+      </div>
+    </div>
   );
 
   return (
