@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Plus, CreditCard as Edit, Trash2, Users, Settings, Save, X, UserPlus } from 'lucide-react';
+import { Shield, Plus, CreditCard as Edit, Trash2, Users, Settings, Save, X, UserPlus, Menu, Lock } from 'lucide-react';
 import { applicationService } from '../../services/applicationService';
 import { rolesService } from '../../services/rolesService';
 import { useNotification } from '../../hooks/useNotification';
 import NotificationModal from '../ui/NotificationModal';
 import ConfirmationModal from '../ui/ConfirmationModal';
+import MenusManager from './MenusManager';
+import PermissionsMatrix from './PermissionsMatrix';
 
 interface ApplicationRole {
   id: string;
@@ -25,6 +27,12 @@ export default function RolesManager() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingRole, setEditingRole] = useState<ApplicationRole | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
+  const [showMenusManager, setShowMenusManager] = useState(false);
+  const [showPermissionsMatrix, setShowPermissionsMatrix] = useState<{
+    show: boolean;
+    roleId: string | null;
+    roleName: string;
+  }>({ show: false, roleId: null, roleName: '' });
 
   const [newRole, setNewRole] = useState({
     name: '',
@@ -254,18 +262,29 @@ export default function RolesManager() {
       {/* Application Selector */}
       <div className="bg-white rounded-lg border border-gray-200 p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Seleccionar Aplicación</h3>
-        <select 
-          value={selectedApp}
-          onChange={(e) => setSelectedApp(e.target.value)}
-          className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-        >
-          <option value="">Selecciona una aplicación</option>
-          {applications.map((app) => (
-            <option key={app.id} value={app.id}>
-              {app.name} ({app.domain})
-            </option>
-          ))}
-        </select>
+        <div className="flex items-center space-x-4">
+          <select
+            value={selectedApp}
+            onChange={(e) => setSelectedApp(e.target.value)}
+            className="flex-1 max-w-md px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          >
+            <option value="">Selecciona una aplicación</option>
+            {applications.map((app) => (
+              <option key={app.id} value={app.id}>
+                {app.name} ({app.domain})
+              </option>
+            ))}
+          </select>
+          {selectedApp && (
+            <button
+              onClick={() => setShowMenusManager(true)}
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center space-x-2 transition-colors"
+            >
+              <Menu className="w-4 h-4" />
+              <span>Gestionar Menús</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {selectedApp && (
@@ -344,6 +363,18 @@ export default function RolesManager() {
 
                       {/* Actions */}
                       <div className="flex items-center space-x-2 ml-4">
+                        <button
+                          onClick={() => setShowPermissionsMatrix({
+                            show: true,
+                            roleId: role.id,
+                            roleName: role.display_name
+                          })}
+                          className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors flex items-center space-x-1 text-sm"
+                          title="Gestionar permisos granulares"
+                        >
+                          <Lock className="w-4 h-4" />
+                          <span>Permisos</span>
+                        </button>
                         {!role.is_default && (
                           <button
                             onClick={() => handleSetDefaultRole(role.id)}
@@ -672,6 +703,25 @@ export default function RolesManager() {
         type={confirmation.type}
         loading={confirmation.loading}
       />
+
+      {/* Menus Manager Modal */}
+      {showMenusManager && selectedApp && (
+        <MenusManager
+          applicationId={selectedApp}
+          onClose={() => setShowMenusManager(false)}
+        />
+      )}
+
+      {/* Permissions Matrix Modal */}
+      {showPermissionsMatrix.show && showPermissionsMatrix.roleId && selectedApp && (
+        <PermissionsMatrix
+          roleId={showPermissionsMatrix.roleId}
+          roleName={showPermissionsMatrix.roleName}
+          applicationId={selectedApp}
+          onClose={() => setShowPermissionsMatrix({ show: false, roleId: null, roleName: '' })}
+          onSaved={loadRoles}
+        />
+      )}
     </div>
   );
 }
