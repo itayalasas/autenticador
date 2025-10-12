@@ -21,7 +21,8 @@ interface CollectFilesResponse {
 
 /**
  * Collect all React source files for deployment
- * This calls the Edge Function that has access to the file system
+ * This uses the netlifyReactProjectHelper which generates all files
+ * with current code and proper branding/configuration
  */
 export async function collectReactSourceFiles(
   applicationId: string,
@@ -31,46 +32,27 @@ export async function collectReactSourceFiles(
   branding?: any
 ): Promise<Record<string, string>> {
   try {
-    console.log('📦 Calling collect-source-files Edge Function...');
+    console.log('📦 Generating React project files...');
 
-    const response = await fetch(
-      `${supabaseUrl}/functions/v1/collect-source-files`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${supabaseAnonKey}`,
-          'apikey': supabaseAnonKey,
-        },
-        body: JSON.stringify({
-          applicationId,
-          apiKey,
-          supabaseUrl,
-          supabaseAnonKey,
-          branding,
-        }),
-      }
+    // Import the React project helper
+    const { getReactProjectFiles } = await import('../utils/netlifyReactProjectHelper');
+
+    // Generate all files with current code
+    const files = await getReactProjectFiles(
+      applicationId,
+      apiKey,
+      supabaseUrl,
+      supabaseAnonKey,
+      branding
     );
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Edge Function failed: ${response.status} - ${errorText}`);
-    }
+    console.log('✅ React project files generated successfully!');
+    console.log(`📁 Total files: ${Object.keys(files).length}`);
 
-    const result: CollectFilesResponse = await response.json();
-
-    if (!result.success || !result.files) {
-      throw new Error(result.error || 'Failed to collect source files');
-    }
-
-    console.log('✅ Source files collected successfully!');
-    console.log('📊 Summary:', result.summary);
-    console.log(`📁 Total files: ${Object.keys(result.files).length}`);
-
-    return result.files;
+    return files;
 
   } catch (error) {
-    console.error('❌ Error collecting source files:', error);
+    console.error('❌ Error generating React project files:', error);
     throw error;
   }
 }

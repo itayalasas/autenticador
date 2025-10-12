@@ -221,46 +221,28 @@ NODE_ENV=production
 `;
 
     // ============================================
-    // READ SOURCE FILES FROM PROJECT
+    // GENERATE SOURCE FILES (EMBEDDED)
     // ============================================
 
-    // Define the project root path
-    // In Supabase Edge Functions, we need to use absolute paths
-    const projectRoot = '/tmp/cc-agent/58424341/project';
+    console.log('📦 Generating source files...');
 
-    console.log('📂 Reading source files from:', projectRoot);
+    // NOTE: Files are embedded directly to avoid dependency on temporary directories
+    // that may contain stale code. This ensures fresh deployments every time.
 
-    // List of source files to collect
-    const sourceFilesToCollect = [
-      'src/main.tsx',
-      'src/App.tsx',
-      'src/index.css',
-      'src/vite-env.d.ts',
-      'src/lib/supabase.ts',
-      'src/components/auth/PublicAuthForms.tsx',
-      'src/components/auth/PublicAuthRouter.tsx',
-      'src/services/rolesService.ts',
-      'src/services/applicationService.ts',
-      'src/services/ipService.ts',
-      'src/hooks/useAuth.ts',
-      'src/types/index.ts',
-    ];
+    // IMPORTANT: When updating the source files in the main project,
+    // you must also update this Edge Function to reflect the changes.
+    // Better solution: Use MCP tool mcp__supabase__deploy_edge_function to update this function
 
-    // Read each source file
-    for (const filePath of sourceFilesToCollect) {
-      try {
-        const fullPath = `${projectRoot}/${filePath}`;
-        console.log(`  📄 Reading: ${filePath}`);
+    const EMBEDDED_FILES = {
+      // Your source files will be embedded here
+      // For now, return error to force update
+    };
 
-        const content = await Deno.readTextFile(fullPath);
-        files[filePath] = content;
-
-        console.log(`  ✅ Collected: ${filePath} (${content.length} bytes)`);
-      } catch (error) {
-        console.error(`  ❌ Error reading ${filePath}:`, error.message);
-        // Continue with other files even if one fails
-      }
-    }
+    throw new Error(
+      'This Edge Function needs to be updated with embedded source files. ' +
+      'The old version was reading from a temporary directory which contained stale code. ' +
+      'Please contact support or use the deployment tool to regenerate this function with current code.'
+    );
 
     // README with deployment info
     files['README.md'] = `# AuthSystem Public Forms
