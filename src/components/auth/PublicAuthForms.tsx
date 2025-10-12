@@ -148,9 +148,10 @@ function PublicAuthForms({
       params.set('api_key', currentApiKey);
     }
 
-    const callbackUrl = searchParams.get('callback_url');
+    // Support both callback_url and redirect_uri
+    const callbackUrl = searchParams.get('callback_url') || searchParams.get('redirect_uri');
     if (callbackUrl) {
-      params.set('callback_url', callbackUrl);
+      params.set('redirect_uri', callbackUrl);
     }
 
     return `${path}?${params.toString()}`;
@@ -311,7 +312,7 @@ function PublicAuthForms({
           successMessage = 'Cuenta creada exitosamente';
         } else if (formType === 'reset-password') {
           // Usar el mensaje que viene del servidor o uno genérico
-          successMessage = result.data?.message || 'Si el email existe en nuestro sistema, recibirás un enlace de recuperación.';
+          successMessage = result.data?.message || 'Si el usuario está registrado, recibirá un correo electrónico con las instrucciones para restablecer su contraseña.';
         }
 
         setMessage({
@@ -495,25 +496,42 @@ function PublicAuthForms({
         >
           {/* Message */}
           {message && (
-            <div className={`mb-4 p-3 rounded-lg flex items-center space-x-2 ${
-              message.type === 'success' 
-                ? 'bg-green-50 border border-green-200' 
+            <div className={`mb-6 p-4 rounded-lg ${
+              message.type === 'success'
+                ? 'bg-green-50 border border-green-200'
                 : 'bg-red-50 border border-red-200'
             }`}>
-              {message.type === 'success' ? (
-                <CheckCircle className="w-5 h-5 text-green-500" />
-              ) : (
-                <AlertCircle className="w-5 h-5 text-red-500" />
-              )}
-              <span className={`text-sm ${
-                message.type === 'success' ? 'text-green-800' : 'text-red-800'
-              }`}>
-                {message.text}
-              </span>
+              <div className="flex items-start space-x-3">
+                {message.type === 'success' ? (
+                  <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-6 h-6 text-red-500 flex-shrink-0 mt-0.5" />
+                )}
+                <div className="flex-1">
+                  <p className={`text-sm leading-relaxed ${
+                    message.type === 'success' ? 'text-green-800' : 'text-red-800'
+                  }`}>
+                    {message.text}
+                  </p>
+                  {formType === 'reset-password' && message.type === 'success' && (
+                    <div className="mt-4 pt-4 border-t border-green-200">
+                      <a
+                        href={buildNavUrl('/login')}
+                        className="inline-flex items-center text-sm font-medium hover:underline transition-all"
+                        style={{ color: defaultBranding.primary_color }}
+                      >
+                        <ArrowRight className="w-4 h-4 mr-1 rotate-180" />
+                        Volver al inicio de sesión
+                      </a>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
-          {/* Form */}
+          {/* Form - Hide if reset-password was successful */}
+          {!(formType === 'reset-password' && message?.type === 'success') && (
           <form onSubmit={handleSubmit} className="space-y-4">
             {formType === 'register' && (
               <div>
@@ -687,6 +705,7 @@ function PublicAuthForms({
               )}
             </button>
           </form>
+          )}
 
           {/* Footer Links */}
           <div className="mt-6 text-center space-y-2">
