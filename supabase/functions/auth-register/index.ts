@@ -16,6 +16,7 @@ interface RegisterRequest {
   name: string
   application_id: string
   api_key: string
+  role?: string
   callback_url?: string
   client_ip?: string
   metadata?: Record<string, any>
@@ -413,7 +414,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { email, password, name, application_id, api_key, callback_url, client_ip, metadata }: RegisterRequest = requestBody;
+    const { email, password, name, application_id, api_key, role, callback_url, client_ip, metadata }: RegisterRequest = requestBody;
 
     if (!email || !password || !name || !application_id || !api_key) {
       const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0';
@@ -712,18 +713,54 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log('✅ User created successfully, assigning default role...');
-    
-    // Get default role for this application or assign basic user role
-    const { data: defaultRole } = await supabase
-      .from('application_roles')
-      .select('name, permissions')
-      .eq('application_id', application.id)
-      .eq('is_default', true)
-      .maybeSingle();
-    
-    const roleToAssign = defaultRole || { name: 'user', permissions: ['read'] };
-    
+    console.log('✅ User created successfully, assigning role...');
+    console.log('🎭 Role from request:', role || 'not specified');
+
+    let roleToAssign: { name: string; permissions: any[] } | null = null;
+
+    // If role is specified in the request, try to find it
+    if (role) {
+      const { data: requestedRole } = await supabase
+        .from('application_roles')
+        .select('name, permissions')
+        .eq('application_id', application.id)
+        .eq('display_name', role)
+        .maybeSingle();
+
+      if (requestedRole) {
+        roleToAssign = requestedRole;
+        console.log('✅ Using requested role:', role);
+      } else {
+        // Try finding by name (lowercase)
+        const { data: roleByName } = await supabase
+          .from('application_roles')
+          .select('name, permissions')
+          .eq('application_id', application.id)
+          .ilike('name', role)
+          .maybeSingle();
+
+        if (roleByName) {
+          roleToAssign = roleByName;
+          console.log('✅ Using role by name:', role);
+        } else {
+          console.warn('⚠️ Requested role not found:', role);
+        }
+      }
+    }
+
+    // If no role was specified or found, get the default role
+    if (!roleToAssign) {
+      const { data: defaultRole } = await supabase
+        .from('application_roles')
+        .select('name, permissions')
+        .eq('application_id', application.id)
+        .eq('is_default', true)
+        .maybeSingle();
+
+      roleToAssign = defaultRole || { name: 'user', permissions: ['read'] };
+      console.log('✅ Using default role:', roleToAssign.name);
+    }
+
     // Assign role to user
     const { error: roleError } = await supabase
       .from('user_roles')
@@ -732,7 +769,7 @@ Deno.serve(async (req) => {
         role_name: roleToAssign.name,
         permissions: roleToAssign.permissions || ['read']
       });
-    
+
     if (roleError) {
       console.error('⚠️ Error assigning role:', roleError);
       // Continue without role assignment if it fails

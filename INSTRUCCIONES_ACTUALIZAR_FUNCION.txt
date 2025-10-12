@@ -1,113 +1,80 @@
-═══════════════════════════════════════════════════════════════
-  🚨 SOLUCIÓN: Actualizar Edge Function collect-source-files
-═══════════════════════════════════════════════════════════════
+=====================================================
+🚀 ACTUALIZAR EDGE FUNCTION: auth-register
+=====================================================
 
-PROBLEMA ACTUAL:
-- GitHub tiene código con useMemo
-- El archivo local NO tiene useMemo (está correcto)
-- La Edge Function en Supabase está desactualizada
+La función auth-register ha sido actualizada para usar el ROL
+que viene del formulario de registro.
 
-═══════════════════════════════════════════════════════════════
+=====================================================
+OPCIÓN 1: Actualizar via Supabase CLI (MÁS FÁCIL)
+=====================================================
 
-⚡ SOLUCIÓN RÁPIDA (Supabase CLI):
-═══════════════════════════════════════════════════════════════
+1. Instala Supabase CLI si no lo tienes:
+   npm install -g supabase
 
-# 1. Instalar CLI
-npm install -g supabase
+2. Inicia sesión:
+   supabase login
 
-# 2. Login
-supabase login
+3. Navega al directorio del proyecto:
+   cd /tmp/cc-agent/58424341/project
 
-# 3. Link proyecto (copia tu Project Ref de dashboard)
-supabase projects list
-supabase link --project-ref TU_PROJECT_REF
+4. Despliega la función actualizada:
+   supabase functions deploy auth-register --project-ref sfqtmnncgiqkveaoqckt
 
-# 4. DESPLEGAR LA FUNCIÓN
-supabase functions deploy collect-source-files --no-verify-jwt
+5. ¡Listo! La función está actualizada.
 
-# 5. Verificar
-supabase functions list
+=====================================================
+OPCIÓN 2: Actualizar via Dashboard (MANUAL)
+=====================================================
 
-═══════════════════════════════════════════════════════════════
+1. Ve a: https://supabase.com/dashboard/project/sfqtmnncgiqkveaoqckt/functions
 
-🌐 ALTERNATIVA (Dashboard Web - Sin CLI):
-═══════════════════════════════════════════════════════════════
+2. Busca la función "auth-register"
 
-1. Abre: https://supabase.com/dashboard
+3. Haz clic en "Edit"
 
-2. Selecciona tu proyecto
+4. COPIA el código de:
+   /tmp/cc-agent/58424341/project/supabase/functions/auth-register/index.ts
 
-3. Ve a "Edge Functions" (menú lateral izquierdo)
+5. PEGA el código en el editor del dashboard
 
-4. Busca y haz clic en "collect-source-files"
+6. Haz clic en "Deploy"
 
-5. Haz clic en "Edit" o botón de edición
+7. ¡Listo!
 
-6. BORRA TODO el código actual (Ctrl+A → Delete)
+=====================================================
+¿QUÉ SE CORRIGIÓ?
+=====================================================
 
-7. Abre el archivo local:
-   /tmp/cc-agent/58424341/project/supabase/functions/collect-source-files/index.ts
+ANTES:
+- La función SIEMPRE asignaba el rol por defecto (is_default = true)
+- Ignoraba el campo "role" que venía del formulario
+- Resultado: Todos los usuarios tenían rol "user"
 
-8. Copia TODO el contenido (359 líneas)
+AHORA:
+- La función BUSCA el rol por display_name (ej: "Cliente")
+- Si no lo encuentra, busca por name (ej: "cliente")
+- Si aún no lo encuentra, usa el rol por defecto
+- Resultado: Los usuarios tienen el rol que seleccionaron
 
-9. Pégalo en el editor de Supabase
+=====================================================
+LÓGICA ACTUALIZADA:
+=====================================================
 
-10. Haz clic en "Deploy" o "Save and Deploy"
+1. Usuario selecciona "Cliente" en el formulario
+2. Frontend envía { role: "Cliente" } en el payload
+3. Backend busca en application_roles WHERE display_name = "Cliente"
+4. Asigna ese rol al usuario en user_roles
+5. ✅ Usuario creado con rol "cliente"
 
-11. Espera el mensaje "Deployed successfully" ✓
+=====================================================
+PROBAR DESPUÉS DE ACTUALIZAR:
+=====================================================
 
-═══════════════════════════════════════════════════════════════
+1. Ve al formulario de registro
+2. Selecciona "Cliente" en "Tipo de Usuario"
+3. Completa el registro
+4. Ve al dashboard → Usuarios
+5. ✅ Deberías ver el usuario con rol "cliente"
 
-📋 DESPUÉS DE ACTUALIZAR LA FUNCIÓN:
-═══════════════════════════════════════════════════════════════
-
-1. Ve a tu dashboard de AuthSystem
-
-2. Navega a "Environments" o "Deployments"
-
-3. Encuentra tu aplicación
-
-4. Haz clic en "Deploy" o "Redeploy"
-
-5. Espera a que el proceso complete (5-10 min)
-
-6. Ve a GitHub y verifica el archivo:
-   src/components/auth/PublicAuthForms.tsx
-
-7. La línea 1 debe decir:
-   ✅ import React, { useState, useEffect } from 'react';
-
-8. NO debe decir:
-   ❌ import React, { useState, useEffect, useMemo } from 'react';
-
-═══════════════════════════════════════════════════════════════
-
-✅ CHECKLIST:
-═══════════════════════════════════════════════════════════════
-
-[ ] Edge Function actualizada en Supabase
-[ ] Estado de la función: Active
-[ ] Deploy nuevo desde AuthSystem completado
-[ ] GitHub muestra código SIN useMemo
-[ ] Sitio web funciona SIN error React #310
-
-═══════════════════════════════════════════════════════════════
-
-📚 ARCHIVOS DE AYUDA EN ESTE PROYECTO:
-═══════════════════════════════════════════════════════════════
-
-- DEPLOYMENT_GUIDE.md ......... Guía completa paso a paso
-- COMANDOS_RAPIDOS.md .......... Comandos de CLI
-- SOLUCION_FINAL.md ............ Explicación detallada
-- test-edge-function.html ...... Test interactivo
-
-═══════════════════════════════════════════════════════════════
-
-⏱️ TIEMPO ESTIMADO:
-═══════════════════════════════════════════════════════════════
-
-Con CLI:       2-3 minutos
-Con Dashboard: 5-7 minutos
-Deploy total:  5-10 minutos
-
-═══════════════════════════════════════════════════════════════
+=====================================================

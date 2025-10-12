@@ -1,240 +1,239 @@
-# 🎯 SOLUCIÓN FINAL - Problema useMemo en GitHub
+# 🎯 SOLUCIÓN: Asignación Incorrecta de Roles en Registro
 
-## 📊 DIAGNÓSTICO COMPLETO
+## ❌ PROBLEMA IDENTIFICADO
 
-### ✅ Archivos Locales (Proyecto)
-```bash
-# Verificado: NO tienen useMemo
-src/components/auth/PublicAuthForms.tsx ✅
-src/components/auth/PublicAuthRouter.tsx ✅
+Cuando un usuario selecciona **"Cliente"** en el formulario de registro, el sistema lo crea con el rol **"user"** en lugar de **"cliente"**.
+
+### Flujo del Problema:
+
 ```
-
-### ✅ Edge Function Local
-```typescript
-// supabase/functions/collect-source-files/index.ts
-// Líneas 234-247: Lee archivos CORRECTAMENTE del proyecto
-const sourceFilesToCollect = [
-  'src/components/auth/PublicAuthForms.tsx',  // ← Lee el archivo REAL
-  'src/components/auth/PublicAuthRouter.tsx',  // ← Lee el archivo REAL
-  ...
-];
+Formulario de Registro
+  ↓
+Usuario selecciona: "Cliente"
+  ↓
+Frontend envía: { role: "Cliente" }
+  ↓
+Edge Function auth-register
+  ↓
+❌ IGNORA el campo "role"
+  ↓
+Busca: WHERE is_default = true
+  ↓
+Asigna: rol "user"
+  ↓
+❌ Resultado: Usuario con rol incorrecto
 ```
-
-### ❌ Edge Function en Producción
-**PROBLEMA**: La función desplegada en Supabase está desactualizada.
-- Sigue usando código viejo O
-- Nunca se desplegó correctamente
 
 ---
 
-## 🚀 SOLUCIÓN (3 comandos)
+## ✅ SOLUCIÓN IMPLEMENTADA
 
-### 1️⃣ Desplegar Edge Function
+### 1. **Código Corregido en Edge Function**
 
+**Antes (INCORRECTO):**
+```typescript
+// Línea 717-725 (VIEJO)
+const { data: defaultRole } = await supabase
+  .from('application_roles')
+  .select('name, permissions')
+  .eq('application_id', application.id)
+  .eq('is_default', true)  // ← SIEMPRE busca el default
+  .maybeSingle();
+
+const roleToAssign = defaultRole || { name: 'user', permissions: ['read'] };
+```
+
+**Ahora (CORRECTO):**
+```typescript
+// Líneas 716-778 (NUEVO)
+let roleToAssign: { name: string; permissions: any[] } | null = null;
+
+// 1. Si el usuario seleccionó un rol, buscarlo
+if (role) {
+  // Buscar por display_name (ej: "Cliente")
+  const { data: requestedRole } = await supabase
+    .from('application_roles')
+    .select('name, permissions')
+    .eq('application_id', application.id)
+    .eq('display_name', role)
+    .maybeSingle();
+
+  if (requestedRole) {
+    roleToAssign = requestedRole;
+  } else {
+    // Buscar por name (ej: "cliente")
+    const { data: roleByName } = await supabase
+      .from('application_roles')
+      .select('name, permissions')
+      .eq('application_id', application.id)
+      .ilike('name', role)
+      .maybeSingle();
+
+    if (roleByName) {
+      roleToAssign = roleByName;
+    }
+  }
+}
+
+// 2. Si no se encontró, usar el rol por defecto
+if (!roleToAssign) {
+  const { data: defaultRole } = await supabase
+    .from('application_roles')
+    .select('name, permissions')
+    .eq('application_id', application.id)
+    .eq('is_default', true)
+    .maybeSingle();
+
+  roleToAssign = defaultRole || { name: 'user', permissions: ['read'] };
+}
+
+// 3. Asignar el rol al usuario
+await supabase
+  .from('user_roles')
+  .insert({
+    app_user_id: newUser.id,
+    role_name: roleToAssign.name,
+    permissions: roleToAssign.permissions || ['read']
+  });
+```
+
+### 2. **Interface Actualizada**
+
+```typescript
+interface RegisterRequest {
+  email: string
+  password: string
+  name: string
+  application_id: string
+  api_key: string
+  role?: string           // ← AGREGADO
+  callback_url?: string
+  client_ip?: string
+  metadata?: Record<string, any>
+}
+```
+
+### 3. **Flujo Corregido**
+
+```
+Formulario de Registro
+  ↓
+Usuario selecciona: "Cliente"
+  ↓
+Frontend envía: { role: "Cliente", ... }
+  ↓
+Edge Function auth-register
+  ↓
+✅ LEE el campo "role" del payload
+  ↓
+Busca: WHERE display_name = "Cliente"
+  ↓
+Encuentra: { name: "cliente", permissions: [...] }
+  ↓
+Asigna: rol "cliente"
+  ↓
+✅ Resultado: Usuario con rol "cliente"
+```
+
+---
+
+## 🚀 PASOS PARA APLICAR LA SOLUCIÓN
+
+### **Paso 1: Actualizar Edge Function** (2 MINUTOS)
+
+**Opción A - Supabase CLI:**
 ```bash
 cd /tmp/cc-agent/58424341/project
-supabase functions deploy collect-source-files --no-verify-jwt
+supabase functions deploy auth-register --project-ref sfqtmnncgiqkveaoqckt
 ```
 
-**Output esperado:**
-```
-✓ Deploying Function collect-source-files
-✓ Deployed Function collect-source-files
-```
-
-### 2️⃣ Verificar Despliegue
-
-```bash
-supabase functions list
-```
-
-**Output esperado:**
-```
-NAME                      STATUS    UPDATED
-collect-source-files      active    2025-10-11...
-```
-
-### 3️⃣ Hacer Deploy Nuevo
-
-Ve a tu dashboard → Deployments → Redeploy
+**Opción B - Dashboard Manual:**
+1. Ve a: https://supabase.com/dashboard/project/sfqtmnncgiqkveaoqckt/functions
+2. Selecciona **"auth-register"**
+3. Clic en **"Edit"**
+4. Copia el código de: `supabase/functions/auth-register/index.ts`
+5. Pega en el editor
+6. Clic en **"Deploy"**
 
 ---
 
-## 🧪 TESTING
+### **Paso 2: Probar el Registro** (1 MINUTO)
 
-### Test A: Verificar Edge Function en Producción
-
-```bash
-# Guardar en test-edge-function.sh
-curl -X POST \
-  "https://TU_PROJECT_REF.supabase.co/functions/v1/collect-source-files" \
-  -H "Authorization: Bearer TU_ANON_KEY" \
-  -H "Content-Type: application/json" \
-  -H "apikey: TU_ANON_KEY" \
-  -d '{
-    "applicationId": "test",
-    "apiKey": "test",
-    "supabaseUrl": "https://test.supabase.co",
-    "supabaseAnonKey": "test"
-  }' \
-  | jq '.files."src/components/auth/PublicAuthForms.tsx"' \
-  | grep -c "useMemo"
-```
-
-**Resultado esperado:** `0` (cero ocurrencias de useMemo)
-
-### Test B: Archivo HTML Interactivo
-
-Abre el archivo: `/tmp/cc-agent/58424341/project/test-edge-function.html`
-
-1. Ingresa tus credenciales de Supabase
-2. Presiona "Probar Edge Function"
-3. Presiona "Buscar useMemo"
-4. Verifica que NO aparezca useMemo
+1. Ve al formulario de registro
+2. Completa los datos
+3. **Selecciona "Cliente"** en "Tipo de Usuario"
+4. Haz clic en "Crear Cuenta"
+5. Ve al dashboard → **Usuarios**
+6. ✅ Verifica que el usuario tenga rol **"cliente"**
 
 ---
 
-## 🔍 VERIFICACIÓN PASO A PASO
+## 📊 COMPARACIÓN: ANTES vs DESPUÉS
 
-### Paso 1: ¿Tienes Supabase CLI?
+| Campo | Antes | Después |
+|-------|-------|---------|
+| **Nombre** | Alejandra Londoño | Alejandra Londoño |
+| **Email** | ale@gmail.com | ale@gmail.com |
+| **Rol Seleccionado** | "Cliente" | "Cliente" |
+| **Rol Asignado** | ❌ "user" | ✅ "cliente" |
+| **Razón** | Ignoraba el campo `role` | Usa el campo `role` |
 
-```bash
-which supabase
-supabase --version
+---
+
+## 🔍 LOGS DE DEBUG
+
+La función ahora incluye logs detallados:
+
 ```
-
-Si NO: Instalar
-```bash
-# macOS/Linux
-brew install supabase/tap/supabase
-
-# npm (cualquier OS)
-npm install -g supabase
-```
-
-### Paso 2: Login
-
-```bash
-supabase login
-```
-
-### Paso 3: Link Proyecto
-
-```bash
-# Ver tus proyectos
-supabase projects list
-
-# Copiar el Project Ref de la columna
-# Linkear proyecto
-supabase link --project-ref TU_PROJECT_REF
-```
-
-### Paso 4: Deploy
-
-```bash
-supabase functions deploy collect-source-files --no-verify-jwt
-```
-
-### Paso 5: Verificar Logs
-
-```bash
-# Ver si hay errores
-supabase functions logs collect-source-files --limit 10
+✅ User created successfully, assigning role...
+🎭 Role from request: Cliente
+✅ Using requested role: Cliente
+✅ Role assigned successfully: cliente
+✅ Registration successful for user: ale@gmail.com
 ```
 
 ---
 
-## 🎯 CHECKLIST FINAL
+## 📝 ARCHIVOS MODIFICADOS
 
-Después de desplegar, verifica:
-
-- [ ] `supabase functions list` muestra la función actualizada
-- [ ] Logs no muestran errores: `supabase functions logs collect-source-files`
-- [ ] Test con curl retorna archivos sin useMemo
-- [ ] Deploy nuevo desde dashboard completado
-- [ ] GitHub muestra código sin useMemo
-- [ ] Sitio web funciona sin error React #310
-
----
-
-## 🆘 TROUBLESHOOTING
-
-### Error: "Function not found"
-
-```bash
-# Verificar que estás linkeado al proyecto correcto
-supabase projects list
-supabase link --project-ref CORRECT_REF
 ```
-
-### Error: "Permission denied"
-
-```bash
-# Re-login
-supabase logout
-supabase login
-```
-
-### Error: "Invalid project"
-
-```bash
-# Obtener Project Ref desde el dashboard
-# Dashboard > Settings > General > Reference ID
-supabase link --project-ref <REF_FROM_DASHBOARD>
-```
-
-### La función se desplegó pero sigue fallando
-
-```bash
-# Ver logs en tiempo real
-supabase functions logs collect-source-files --follow
-
-# Hacer un test
-supabase functions invoke collect-source-files \
-  --method POST \
-  --body '{"applicationId":"test","apiKey":"test","supabaseUrl":"test","supabaseAnonKey":"test"}'
+/tmp/cc-agent/58424341/project/
+└── supabase/
+    └── functions/
+        └── auth-register/
+            └── index.ts  ← ACTUALIZADO (líneas 13-23, 417, 716-778)
 ```
 
 ---
 
-## 📝 RESUMEN EJECUTIVO
+## ✅ CHECKLIST DE VERIFICACIÓN
 
-**Problema**: Edge Function en producción está desactualizada
-**Causa**: Nunca se desplegó o se desplegó versión vieja
-**Solución**: Desplegar con `supabase functions deploy collect-source-files --no-verify-jwt`
-**Verificación**: Test + Redeploy + Verificar GitHub
-
----
-
-## 🎓 EXPLICACIÓN TÉCNICA
-
-### ¿Por qué pasó esto?
-
-1. Edge Functions son **código serverless** en Supabase
-2. El código local NO se sincroniza automáticamente
-3. Cada cambio requiere un deploy manual con CLI
-4. Sin deploy, Supabase usa la versión vieja
-
-### ¿Cómo funciona el flujo?
-
-```
-Dashboard Deploy
-    ↓
-Llama a: collect-source-files (Edge Function en Supabase)
-    ↓
-Lee archivos del proyecto (Deno.readTextFile)
-    ↓
-Retorna archivos
-    ↓
-github-commit-push los sube a GitHub
-    ↓
-Netlify hace build y deploy
-```
-
-Si `collect-source-files` está desactualizado, lee archivos viejos → GitHub recibe código viejo → Netlify despliega con errores.
+- [x] Interface actualizada con campo `role?`
+- [x] Payload extrae el campo `role` del request
+- [x] Lógica busca rol por `display_name`
+- [x] Fallback busca rol por `name` (case-insensitive)
+- [x] Fallback final usa rol por defecto
+- [x] Logs de debug agregados
+- [ ] **Edge Function desplegada** ← PENDIENTE
+- [ ] **Prueba de registro realizada** ← PENDIENTE
 
 ---
 
-**Fecha**: 2025-10-11
-**Estado**: Pendiente deploy de Edge Function
-**Próximo paso**: Deploy con Supabase CLI
+## 🎉 RESULTADO ESPERADO
+
+Después de actualizar la función:
+
+```
+┌─────────────────────────────────────────┐
+│  Usuario: Nuevo Usuario                 │
+├─────────────────────────────────────────┤
+│  Email: nuevo@example.com               │
+│  Rol Seleccionado: "Cliente"            │
+│  Rol Asignado: "cliente" ✅             │
+│  Estado: Activo                         │
+└─────────────────────────────────────────┘
+```
+
+---
+
+**¡Solo falta desplegar la función actualizada!** 🚀
