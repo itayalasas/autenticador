@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>User Search - Autocomplete Example</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      padding: 40px;
+      max-width: 600px;
+      width: 100%;
+    }
+
+    h1 {
+      font-size: 28px;
+      color: #1a202c;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      color: #718096;
+      margin-bottom: 32px;
+    }
+
+    .search-container {
+      position: relative;
+      margin-bottom: 24px;
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 14px 48px 14px 16px;
+      border: 2px solid #e2e8f0;
+      border-radius: 12px;
+      font-size: 16px;
+      transition: all 0.3s ease;
+    }
+
+    .search-input:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    .search-icon {
+      position: absolute;
+      right: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #a0aec0;
+    }
+
+    .loading {
+      position: absolute;
+      right: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+
+    .spinner {
+      border: 2px solid #e2e8f0;
+      border-top: 2px solid #667eea;
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .results {
+      max-height: 400px;
+      overflow-y: auto;
+      border: 2px solid #e2e8f0;
+      border-radius: 12px;
+      background: white;
+    }
+
+    .user-item {
+      padding: 16px;
+      border-bottom: 1px solid #e2e8f0;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+
+    .user-item:last-child {
+      border-bottom: none;
+    }
+
+    .user-item:hover {
+      background: #f7fafc;
+    }
+
+    .user-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+
+    .user-name {
+      font-weight: 600;
+      color: #1a202c;
+      font-size: 16px;
+    }
+
+    .user-role {
+      background: #667eea;
+      color: white;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .user-email {
+      color: #718096;
+      font-size: 14px;
+    }
+
+    .user-meta {
+      display: flex;
+      gap: 12px;
+      margin-top: 8px;
+      font-size: 12px;
+      color: #a0aec0;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+
+    .status-active {
+      background: #48bb78;
+    }
+
+    .status-inactive {
+      background: #f56565;
+    }
+
+    .no-results {
+      padding: 32px;
+      text-align: center;
+      color: #a0aec0;
+    }
+
+    .no-results-icon {
+      font-size: 48px;
+      margin-bottom: 12px;
+    }
+
+    .stats {
+      margin-top: 16px;
+      padding: 16px;
+      background: #f7fafc;
+      border-radius: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+      color: #4a5568;
+    }
+
+    .pagination {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .pagination button {
+      flex: 1;
+      padding: 12px;
+      border: 2px solid #e2e8f0;
+      background: white;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      font-weight: 500;
+    }
+
+    .pagination button:hover:not(:disabled) {
+      background: #667eea;
+      color: white;
+      border-color: #667eea;
+    }
+
+    .pagination button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .error {
+      background: #fed7d7;
+      color: #c53030;
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔍 Búsqueda de Usuarios</h1>
+    <p class="subtitle">Escribe para buscar usuarios en tiempo real</p>
+
+    <div id="error-container"></div>
+
+    <div class="search-container">
+      <input
+        type="text"
+        id="searchInput"
+        class="search-input"
+        placeholder="Buscar por nombre o email..."
+        autocomplete="off"
+      />
+      <svg id="searchIcon" class="search-icon" width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+        <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" />
+      </svg>
+      <div id="loadingSpinner" class="loading" style="display: none;">
+        <div class="spinner"></div>
+      </div>
+    </div>
+
+    <div id="resultsContainer" style="display: none;">
+      <div class="results" id="resultsList"></div>
+
+      <div class="stats" id="stats">
+        <span id="statsText">0 usuarios encontrados</span>
+        <span id="searchTime"></span>
+      </div>
+
+      <div class="pagination" id="pagination" style="display: none;">
+        <button id="prevBtn" onclick="loadPreviousPage()">← Anterior</button>
+        <button id="nextBtn" onclick="loadNextPage()">Siguiente →</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ⚠️ CONFIGURACIÓN - Reemplaza con tus valores
+    const CONFIG = {
+      SUPABASE_URL: 'https://your-project.supabase.co',
+      APPLICATION_ID: 'your-application-id',
+      API_KEY: 'your-api-key'
+    };
+
+    let searchTimeout;
+    let currentQuery = '';
+    let currentOffset = 0;
+    const LIMIT = 10;
+    let totalResults = 0;
+
+    const searchInput = document.getElementById('searchInput');
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    const searchIcon = document.getElementById('searchIcon');
+    const resultsContainer = document.getElementById('resultsContainer');
+    const resultsList = document.getElementById('resultsList');
+    const errorContainer = document.getElementById('errorContainer');
+    const statsText = document.getElementById('statsText');
+    const searchTime = document.getElementById('searchTime');
+    const pagination = document.getElementById('pagination');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+
+    searchInput.addEventListener('input', (e) => {
+      clearTimeout(searchTimeout);
+      currentQuery = e.target.value.trim();
+      currentOffset = 0; // Reset offset on new search
+
+      if (currentQuery.length < 2) {
+        resultsContainer.style.display = 'none';
+        return;
+      }
+
+      searchTimeout = setTimeout(() => {
+        searchUsers(currentQuery, currentOffset);
+      }, 300);
+    });
+
+    async function searchUsers(query, offset = 0) {
+      const startTime = Date.now();
+
+      try {
+        showLoading();
+        hideError();
+
+        const response = await fetch(`${CONFIG.SUPABASE_URL}/functions/v1/user-search`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            application_id: CONFIG.APPLICATION_ID,
+            api_key: CONFIG.API_KEY,
+            query: query,
+            limit: LIMIT,
+            offset: offset
+          })
+        });
+
+        const data = await response.json();
+        const elapsedTime = Date.now() - startTime;
+
+        hideLoading();
+
+        if (data.success) {
+          const { users, pagination } = data.data;
+          totalResults = pagination.total;
+          displayResults(users, elapsedTime);
+          updatePagination(pagination);
+        } else {
+          showError(data.error || 'Error al buscar usuarios');
+        }
+      } catch (error) {
+        hideLoading();
+        showError('Error de conexión. Por favor, verifica tu configuración.');
+        console.error('Error:', error);
+      }
+    }
+
+    function displayResults(users, elapsedTime) {
+      if (users.length === 0) {
+        resultsList.innerHTML = `
+          <div class="no-results">
+            <div class="no-results-icon">🔍</div>
+            <div>No se encontraron usuarios</div>
+          </div>
+        `;
+      } else {
+        resultsList.innerHTML = users.map(user => `
+          <div class="user-item" onclick="selectUser('${user.id}')">
+            <div class="user-header">
+              <div class="user-name">${escapeHtml(user.full_name)}</div>
+              <div class="user-role">${escapeHtml(user.role?.display_name || 'Sin rol')}</div>
+            </div>
+            <div class="user-email">${escapeHtml(user.email)}</div>
+            <div class="user-meta">
+              <span class="status-badge">
+                <span class="status-dot ${user.is_active ? 'status-active' : 'status-inactive'}"></span>
+                ${user.is_active ? 'Activo' : 'Inactivo'}
+              </span>
+              <span>Creado: ${new Date(user.created_at).toLocaleDateString()}</span>
+            </div>
+          </div>
+        `).join('');
+      }
+
+      statsText.textContent = `${totalResults} usuario${totalResults !== 1 ? 's' : ''} encontrado${totalResults !== 1 ? 's' : ''}`;
+      searchTime.textContent = `${elapsedTime}ms`;
+      resultsContainer.style.display = 'block';
+    }
+
+    function updatePagination(paginationData) {
+      if (paginationData.total > LIMIT) {
+        pagination.style.display = 'flex';
+        prevBtn.disabled = currentOffset === 0;
+        nextBtn.disabled = !paginationData.has_more;
+      } else {
+        pagination.style.display = 'none';
+      }
+    }
+
+    function loadPreviousPage() {
+      if (currentOffset >= LIMIT) {
+        currentOffset -= LIMIT;
+        searchUsers(currentQuery, currentOffset);
+      }
+    }
+
+    function loadNextPage() {
+      currentOffset += LIMIT;
+      searchUsers(currentQuery, currentOffset);
+    }
+
+    function selectUser(userId) {
+      console.log('Usuario seleccionado:', userId);
+      alert(`Usuario seleccionado: ${userId}\n\nAquí puedes implementar tu lógica personalizada.`);
+    }
+
+    function showLoading() {
+      loadingSpinner.style.display = 'block';
+      searchIcon.style.display = 'none';
+    }
+
+    function hideLoading() {
+      loadingSpinner.style.display = 'none';
+      searchIcon.style.display = 'block';
+    }
+
+    function showError(message) {
+      errorContainer.innerHTML = `<div class="error">${escapeHtml(message)}</div>`;
+    }
+
+    function hideError() {
+      errorContainer.innerHTML = '';
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Check configuration on load
+    window.addEventListener('load', () => {
+      if (CONFIG.SUPABASE_URL.includes('your-project') ||
+          CONFIG.APPLICATION_ID.includes('your-') ||
+          CONFIG.API_KEY.includes('your-')) {
+        showError('⚠️ Por favor, configura SUPABASE_URL, APPLICATION_ID y API_KEY en el código');
+      }
+    });
+  </script>
+</body>
+</html>
