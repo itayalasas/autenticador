@@ -436,33 +436,63 @@ export default function LogsViewer() {
 
     try {
       console.log('🚫 Blocking IP:', ipToBlock.ip, 'Reason:', blockIPReason);
-      
-      const insertData: any = {
-        ip_address: ipToBlock.ip,
-        reason: blockIPReason.trim(),
-        blocked_by: user.id,
-        is_active: true
-      };
 
-      // NOTA: No incluimos application_id ni log_id por ahora
-      // hasta que se corrija el schema de la base de datos
-      // Ver archivo: VERIFICAR_Y_ARREGLAR_BLOCKED_IPS.sql
-
-      console.log('Bloqueando IP con datos:', insertData);
-
-      const { data, error } = await supabase
+      // Primero verificar si la IP ya está bloqueada y activa
+      const { data: existingBlock, error: checkError } = await supabase
         .from('blocked_ips')
-        .insert(insertData)
-        .select();
+        .select('id, is_active')
+        .eq('ip_address', ipToBlock.ip)
+        .eq('is_active', true)
+        .maybeSingle();
 
-      if (error) {
-        console.error('Error de Supabase:', error);
-        throw error;
+      if (checkError) {
+        console.error('Error verificando IP:', checkError);
+        throw checkError;
       }
 
-      console.log('IP bloqueada exitosamente:', data);
+      if (existingBlock) {
+        // La IP ya está bloqueada, actualizar la razón
+        console.log('IP ya bloqueada, actualizando razón...');
+        const { error: updateError } = await supabase
+          .from('blocked_ips')
+          .update({
+            reason: blockIPReason.trim(),
+            blocked_by: user.id,
+            blocked_at: new Date().toISOString()
+          })
+          .eq('id', existingBlock.id);
 
-      showSuccess('Éxito', `IP ${ipToBlock.ip} bloqueada exitosamente`);
+        if (updateError) {
+          console.error('Error actualizando bloqueo:', updateError);
+          throw updateError;
+        }
+
+        showSuccess('Éxito', `IP ${ipToBlock.ip} ya estaba bloqueada. Razón actualizada.`);
+      } else {
+        // La IP no está bloqueada, crear nuevo bloqueo
+        const insertData: any = {
+          ip_address: ipToBlock.ip,
+          reason: blockIPReason.trim(),
+          blocked_by: user.id,
+          is_active: true
+        };
+
+        console.log('Bloqueando IP con datos:', insertData);
+
+        const { data, error } = await supabase
+          .from('blocked_ips')
+          .insert(insertData)
+          .select();
+
+        if (error) {
+          console.error('Error de Supabase:', error);
+          throw error;
+        }
+
+        console.log('IP bloqueada exitosamente:', data);
+        showSuccess('Éxito', `IP ${ipToBlock.ip} bloqueada exitosamente`);
+      }
+
       await loadBlockedIPs();
       setShowBlockIPModal(false);
       setIpToBlock(null);
@@ -470,7 +500,13 @@ export default function LogsViewer() {
       setSelectedLog(null);
     } catch (error: any) {
       console.error('Error blocking IP:', error);
-      showError('Error', 'Error al bloquear IP: ' + error.message);
+
+      // Manejar error de IP duplicada de manera amigable
+      if (error.code === '23505') {
+        showError('Error', 'Esta IP ya está bloqueada. Por favor refresca la página.');
+      } else {
+        showError('Error', 'Error al bloquear IP: ' + error.message);
+      }
     } finally {
       setIsBlocking(false);
     }
