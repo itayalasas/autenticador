@@ -444,15 +444,9 @@ export default function LogsViewer() {
         is_active: true
       };
 
-      // Solo agregar log_id si existe
-      if (ipToBlock.logId) {
-        insertData.log_id = ipToBlock.logId;
-      }
-
-      // Solo agregar application_id si existe
-      if (selectedLog?.application_id) {
-        insertData.application_id = selectedLog.application_id;
-      }
+      // NOTA: No incluimos application_id ni log_id por ahora
+      // hasta que se corrija el schema de la base de datos
+      // Ver archivo: VERIFICAR_Y_ARREGLAR_BLOCKED_IPS.sql
 
       console.log('Bloqueando IP con datos:', insertData);
 
