@@ -329,6 +329,45 @@ exports.handler = async (event, context) => {
       }
     }
 
+    // User search endpoint - Proxy to Edge Function
+    if (path.endsWith('/user/search') && method === 'POST') {
+      console.log('🔍 User search endpoint called - proxying to Edge Function');
+
+      let requestBody;
+      try {
+        requestBody = event.body ? JSON.parse(event.body) : {};
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            success: false,
+            error: 'Invalid JSON in request body'
+          })
+        };
+      }
+
+      try {
+        const result = await callEdgeFunction('user-search', requestBody);
+
+        return {
+          statusCode: result.statusCode,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify(result.body)
+        };
+      } catch (error) {
+        console.error('❌ Error proxying user search request:', error);
+        return {
+          statusCode: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            success: false,
+            error: 'Error connecting to search service: ' + error.message
+          })
+        };
+      }
+    }
+
     // 404 for unknown routes
     console.log('❌ Route not found:', method, path);
     return {
