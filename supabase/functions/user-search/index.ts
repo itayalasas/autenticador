@@ -64,10 +64,10 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Step 1: Verify that the application exists
+    // Step 1: Verify that the application exists and get its name
     const { data: applicationData, error: appError } = await supabase
       .from('applications')
-      .select('id')
+      .select('id, name')
       .eq('id', application_id)
       .maybeSingle();
 
@@ -85,13 +85,12 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Step 2: Validate API key for this application
-    // Try to find by 'key' column first (plaintext), fallback to key_preview if needed
+    // Step 2: Validate API key for this application using key_hash
     const { data: apiKeyData, error: apiKeyError } = await supabase
       .from('api_keys')
-      .select('id, application_id, is_active, environment')
-      .eq('application_id', application_id)
-      .eq('key', api_key)
+      .select('id, application_id, is_active, environment, name')
+      .eq('application_id', applicationData.id)
+      .eq('key_hash', api_key)
       .maybeSingle();
 
     if (apiKeyError || !apiKeyData) {
