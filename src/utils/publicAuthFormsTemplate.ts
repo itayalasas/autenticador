@@ -1,8 +1,8 @@
 // This file contains the PublicAuthForms component as a template string
 // It's used by projectFilesHelper to generate the component file
+// IMPORTANT: This must be kept in sync with src/components/auth/PublicAuthForms.tsx
 
-export const PUBLIC_AUTH_FORMS_TEMPLATE = `
-import React, { useState, useEffect } from 'react';
+export const PUBLIC_AUTH_FORMS_TEMPLATE = `import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, Mail, Lock, User, ArrowRight, CheckCircle, AlertCircle, Shield } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { rolesService } from '../../services/rolesService';
@@ -50,7 +50,7 @@ function PublicAuthForms({
   const [selectedRole, setSelectedRole] = useState('');
   const [customTexts, setCustomTexts] = useState<any>({});
   const [searchParams] = useSearchParams();
-  
+
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -140,6 +140,25 @@ function PublicAuthForms({
       isMounted = false;
     };
   }, []); // Empty deps array - only run once
+
+  // Helper function to build navigation URLs with preserved params
+  const buildNavUrl = (path: string) => {
+    const params = new URLSearchParams();
+    params.set('app_id', applicationId);
+
+    // Use apiKey from props or searchParams
+    const currentApiKey = apiKey || searchParams.get('api_key');
+    if (currentApiKey) {
+      params.set('api_key', currentApiKey);
+    }
+
+    const callbackUrl = searchParams.get('callback_url');
+    if (callbackUrl) {
+      params.set('callback_url', callbackUrl);
+    }
+
+    return \`\${path}?\${params.toString()}\`;
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData(prev => ({
@@ -239,27 +258,27 @@ function PublicAuthForms({
 
       // Log the response status for debugging
       console.log('📊 Response status:', response.status, response.ok);
-      
+
       if (!result.success) {
         console.log('❌ Authentication failed:', result.error);
-        
+
         // Show more detailed error for debugging
         if (result.error?.code === 'DATABASE_ERROR' || result.error?.message?.includes('Database error')) {
           console.error('🔍 Database error details:', result.error);
-          setMessage({ 
-            type: 'error', 
-            text: 'Error de base de datos. Por favor contacta al administrador del sistema.' 
+          setMessage({
+            type: 'error',
+            text: 'Error de base de datos. Por favor contacta al administrador del sistema.'
           });
           return;
         }
-        
+
         // Manejar caso especial de email no verificado
         if (result.error?.code === 'EMAIL_NOT_VERIFIED') {
-          setMessage({ 
-            type: 'error', 
-            text: result.error.message 
+          setMessage({
+            type: 'error',
+            text: result.error.message
           });
-          
+
           // Si hay callback URL para verificación, redirigir después de un delay
           if (result.error.callback_url) {
             setTimeout(() => {
@@ -268,19 +287,19 @@ function PublicAuthForms({
           }
           return;
         }
-        
+
         throw new Error(result.error?.message || 'Error en la autenticación');
       }
-      
+
       console.log('✅ Authentication successful:', result.data);
-      
+
       // Manejar diferentes tipos de respuesta
       if (formType === 'register' && result.data?.email_verification_required) {
-        setMessage({ 
-          type: 'success', 
-          text: 'Cuenta creada exitosamente. Revisa tu email para verificar tu cuenta.' 
+        setMessage({
+          type: 'success',
+          text: 'Cuenta creada exitosamente. Revisa tu email para verificar tu cuenta.'
         });
-        
+
         // Redirigir a página de verificación si hay callback URL
         if (result.data?.callback_url) {
           setTimeout(() => {
@@ -312,13 +331,13 @@ function PublicAuthForms({
         } else {
           // Si no hay callback, mostrar los datos del usuario para desarrollo
           console.log('Autenticación exitosa:', result.data);
-          
+
           // Guardar tokens en localStorage para desarrollo
           if (result.data.access_token) {
             localStorage.setItem('auth_token', result.data.access_token);
             localStorage.setItem('refresh_token', result.data.refresh_token);
             localStorage.setItem('user_data', JSON.stringify(result.data.user));
-            
+
             console.log('💾 Tokens guardados en localStorage:', {
               access_token: result.data.access_token.substring(0, 20) + '...',
               user: result.data.user
@@ -326,7 +345,7 @@ function PublicAuthForms({
           }
         }
       }
-      
+
       if (onSuccess) {
         onSuccess(result.data);
       }
@@ -429,11 +448,11 @@ function PublicAuthForms({
     >
       {/* Background Pattern */}
       <div className="absolute inset-0 overflow-hidden">
-        <div 
+        <div
           className="absolute -top-40 -right-40 w-80 h-80 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-pulse"
           style={{ backgroundColor: defaultBranding.primary_color }}
         ></div>
-        <div 
+        <div
           className="absolute -bottom-40 -left-40 w-80 h-80 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-pulse"
           style={{ backgroundColor: defaultBranding.secondary_color }}
         ></div>
@@ -443,13 +462,13 @@ function PublicAuthForms({
         {/* Logo and Header */}
         <div className="text-center mb-8">
           {defaultBranding.logo_url ? (
-            <img 
-              src={defaultBranding.logo_url} 
-              alt="Logo" 
+            <img
+              src={defaultBranding.logo_url}
+              alt="Logo"
               className="h-16 mx-auto mb-4"
             />
           ) : (
-            <div 
+            <div
               className="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center text-white text-2xl font-bold"
               style={{ backgroundColor: defaultBranding.primary_color }}
             >
@@ -471,17 +490,17 @@ function PublicAuthForms({
         </div>
 
         {/* Auth Card */}
-        <div 
+        <div
           className="bg-white/80 backdrop-blur-lg shadow-xl border border-white/20 p-8"
-          style={{ 
+          style={{
             borderRadius: \`\${defaultBranding.border_radius}px\`
           }}
         >
           {/* Message */}
           {message && (
             <div className={\`mb-4 p-3 rounded-lg flex items-center space-x-2 \${
-              message.type === 'success' 
-                ? 'bg-green-50 border border-green-200' 
+              message.type === 'success'
+                ? 'bg-green-50 border border-green-200'
                 : 'bg-red-50 border border-red-200'
             }\`}>
               {message.type === 'success' ? (
@@ -527,11 +546,11 @@ function PublicAuthForms({
             )}
 
             <div>
-              <label 
+              <label
                 className="block text-sm font-medium mb-2"
                 style={{ color: defaultBranding.text_color }}
               >
-                {formType === 'login' ? getText('login_email_label', 'Email') : 
+                {formType === 'login' ? getText('login_email_label', 'Email') :
                  formType === 'register' ? getText('register_email_label', 'Email') :
                  getText('reset_email_label', 'Email')}
               </label>
@@ -544,11 +563,11 @@ function PublicAuthForms({
                   onChange={handleInputChange}
                   required
                   className="w-full pl-10 pr-4 py-3 border border-gray-300 focus:ring-2 focus:border-transparent transition-all"
-                  style={{ 
+                  style={{
                     borderRadius: \`\${defaultBranding.border_radius}px\`,
                     '--tw-ring-color': defaultBranding.primary_color
                   } as React.CSSProperties}
-                  placeholder={formType === 'login' ? getText('login_email_placeholder', 'tu@email.com') : 
+                  placeholder={formType === 'login' ? getText('login_email_placeholder', 'tu@email.com') :
                               formType === 'register' ? getText('register_email_placeholder', 'tu@email.com') :
                               getText('reset_email_placeholder', 'tu@email.com')}
                 />
@@ -557,11 +576,11 @@ function PublicAuthForms({
 
             {formType !== 'reset-password' && (
               <div>
-                <label 
+                <label
                   className="block text-sm font-medium mb-2"
                   style={{ color: defaultBranding.text_color }}
                 >
-                  {formType === 'login' ? getText('login_password_label', 'Contraseña') : 
+                  {formType === 'login' ? getText('login_password_label', 'Contraseña') :
                    getText('register_password_label', 'Contraseña')}
                 </label>
                 <div className="relative">
@@ -573,11 +592,11 @@ function PublicAuthForms({
                     onChange={handleInputChange}
                     required
                     className="w-full pl-10 pr-12 py-3 border border-gray-300 focus:ring-2 focus:border-transparent transition-all"
-                    style={{ 
+                    style={{
                       borderRadius: \`\${defaultBranding.border_radius}px\`,
                       '--tw-ring-color': defaultBranding.primary_color
                     } as React.CSSProperties}
-                    placeholder={formType === 'login' ? getText('login_password_placeholder', '••••••••') : 
+                    placeholder={formType === 'login' ? getText('login_password_placeholder', '••••••••') :
                                 getText('register_password_placeholder', '••••••••')}
                   />
                   <button
@@ -593,7 +612,7 @@ function PublicAuthForms({
 
             {formType === 'register' && (
               <div>
-                <label 
+                <label
                   className="block text-sm font-medium mb-2"
                   style={{ color: defaultBranding.text_color }}
                 >
@@ -608,7 +627,7 @@ function PublicAuthForms({
                     onChange={handleInputChange}
                     required={formType === 'register'}
                     className="w-full pl-10 pr-4 py-3 border border-gray-300 focus:ring-2 focus:border-transparent transition-all"
-                    style={{ 
+                    style={{
                       borderRadius: \`\${defaultBranding.border_radius}px\`,
                       '--tw-ring-color': defaultBranding.primary_color
                     } as React.CSSProperties}
@@ -620,7 +639,7 @@ function PublicAuthForms({
 
             {formType === 'register' && availableRoles.length > 0 && (
               <div>
-                <label 
+                <label
                   className="block text-sm font-medium mb-2"
                   style={{ color: defaultBranding.text_color }}
                 >
@@ -630,7 +649,7 @@ function PublicAuthForms({
                   value={selectedRole}
                   onChange={(e) => setSelectedRole(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 focus:ring-2 focus:border-transparent transition-all"
-                  style={{ 
+                  style={{
                     borderRadius: \`\${defaultBranding.border_radius}px\`,
                     '--tw-ring-color': defaultBranding.primary_color
                   } as React.CSSProperties}
@@ -653,10 +672,10 @@ function PublicAuthForms({
               type="submit"
               disabled={loading}
               className="w-full text-white py-3 px-4 font-medium hover:opacity-90 focus:ring-2 focus:ring-offset-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
-              style={{ 
+              style={{
                 backgroundColor: defaultBranding.primary_color,
-                borderRadius: defaultBranding.button_style === 'rounded' 
-                  ? \`\${defaultBranding.border_radius}px\` 
+                borderRadius: defaultBranding.button_style === 'rounded'
+                  ? \`\${defaultBranding.border_radius}px\`
                   : '4px',
                 '--tw-ring-color': defaultBranding.primary_color
               } as React.CSSProperties}
@@ -677,7 +696,7 @@ function PublicAuthForms({
             {formType === 'login' && (
               <>
                 <a
-                  href={\`/reset-password?app_id=\${applicationId}&api_key=\${searchParams.get('api_key') || ''}&callback_url=\${encodeURIComponent(searchParams.get('callback_url') || '')}\`}
+                  href={buildNavUrl('/reset-password')}
                   className="text-sm hover:underline"
                   style={{ color: defaultBranding.accent_color }}
                 >
@@ -686,7 +705,7 @@ function PublicAuthForms({
                 <p className="text-sm text-gray-600">
                   {getText('login_register_link_text', '¿No tienes cuenta? Regístrate aquí').split('Regístrate aquí')[0]}
                   <a
-                    href={\`/register?app_id=\${applicationId}&api_key=\${searchParams.get('api_key') || ''}&callback_url=\${encodeURIComponent(searchParams.get('callback_url') || '')}\`}
+                    href={buildNavUrl('/register')}
                     className="hover:underline"
                     style={{ color: defaultBranding.accent_color }}
                   >
@@ -699,7 +718,7 @@ function PublicAuthForms({
               <p className="text-sm text-gray-600">
                 {getText('register_login_link_text', '¿Ya tienes cuenta? Inicia sesión').split('Inicia sesión')[0]}
                 <a
-                  href={\`/login?app_id=\${applicationId}&api_key=\${searchParams.get('api_key') || ''}&callback_url=\${encodeURIComponent(searchParams.get('callback_url') || '')}\`}
+                  href={buildNavUrl('/login')}
                   className="hover:underline"
                   style={{ color: defaultBranding.accent_color }}
                 >
@@ -711,7 +730,7 @@ function PublicAuthForms({
               <p className="text-sm text-gray-600">
                 {getText('reset_login_link_text', '¿Recordaste tu contraseña? Inicia sesión').split('Inicia sesión')[0]}
                 <a
-                  href={\`/login?app_id=\${applicationId}&api_key=\${searchParams.get('api_key') || ''}&callback_url=\${encodeURIComponent(searchParams.get('callback_url') || '')}\`}
+                  href={buildNavUrl('/login')}
                   className="hover:underline"
                   style={{ color: defaultBranding.accent_color }}
                 >
@@ -734,4 +753,5 @@ function PublicAuthForms({
   );
 }
 
-export default PublicAuthForms;`;
+export default PublicAuthForms;
+`;
