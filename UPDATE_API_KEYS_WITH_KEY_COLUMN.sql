@@ -1,8 +1,11 @@
 -- =============================================
--- ACTUALIZAR API KEYS CON COLUMNA 'key'
+-- SOLUCIÓN DEFINITIVA: Agregar columna 'key' para almacenar API keys en texto plano
+-- =============================================
+-- La API key NO debe estar hasheada porque necesitamos compararla directamente
+-- El hashing es para passwords, no para API keys
 -- =============================================
 
--- PASO 1: Agregar la columna 'key' si no existe
+-- 1. Agregar columna 'key' si no existe
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -10,26 +13,33 @@ BEGIN
     WHERE table_name = 'api_keys' AND column_name = 'key'
   ) THEN
     ALTER TABLE api_keys ADD COLUMN key text;
-    RAISE NOTICE 'Columna "key" agregada a api_keys';
+    RAISE NOTICE '✅ Columna "key" agregada';
   ELSE
-    RAISE NOTICE 'Columna "key" ya existe en api_keys';
+    RAISE NOTICE '⚠️  Columna "key" ya existe';
   END IF;
 END $$;
 
--- PASO 2: Actualizar API keys existentes
--- IMPORTANTE: Debes reemplazar los valores con tus API keys reales
--- Ejemplo de cómo actualizar una API key específica:
--- UPDATE api_keys
--- SET key = 'ak_production_042a5f866c7e35630a9340bd224cbdda'
--- WHERE application_id = 'app_a6f840c5-bd1'
---   AND environment = 'production';
+-- 2. Crear índice único para la columna 'key'
+CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_key_unique ON api_keys(key) WHERE key IS NOT NULL;
 
--- PASO 3: Ver todas las API keys que necesitan actualizarse
-SELECT
-  id,
+-- 3. Ver todas tus aplicaciones
+SELECT 
+  '🔍 PASO 1: TUS APLICACIONES' as info,
+  id as application_id,
+  name,
+  description,
+  created_at
+FROM applications
+ORDER BY created_at DESC;
+
+-- 4. Ver todas tus API keys
+SELECT 
+  '🔑 PASO 2: TUS API KEYS' as info,
+  id as api_key_id,
   application_id,
   name,
-  key,
+  key as api_key_texto_plano,
+  key_hash,
   key_preview,
   environment,
   is_active,
@@ -37,8 +47,74 @@ SELECT
 FROM api_keys
 ORDER BY created_at DESC;
 
--- PASO 4: Después de actualizar manualmente, hacer la columna NOT NULL y UNIQUE
--- IMPORTANTE: Solo ejecutar después de actualizar todas las API keys
--- ALTER TABLE api_keys ALTER COLUMN key SET NOT NULL;
--- ALTER TABLE api_keys ADD CONSTRAINT api_keys_key_unique UNIQUE (key);
--- CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(key);
+-- =============================================
+-- PASO 3: ACTUALIZAR TU API KEY
+-- =============================================
+-- Descomenta y ejecuta esto después de ver los resultados de arriba
+-- Reemplaza los valores con los tuyos:
+
+/*
+UPDATE api_keys
+SET key = 'ak_production_042a5f866c7e35630a9340bd224cbdda'
+WHERE id = 'TU_API_KEY_ID_AQUI';
+
+-- Verificar que funcionó
+SELECT 
+  '✅ VERIFICACIÓN' as resultado,
+  id,
+  application_id,
+  name,
+  key,
+  environment,
+  is_active
+FROM api_keys
+WHERE key = 'ak_production_042a5f866c7e35630a9340bd224cbdda';
+*/
+
+-- =============================================
+-- PASO 4 (OPCIONAL): Crear datos de prueba si no tienes
+-- =============================================
+/*
+-- Crear una aplicación
+INSERT INTO applications (name, description)
+VALUES ('Mi Aplicación de Prueba', 'Aplicación para testing')
+RETURNING id as nuevo_application_id, name;
+
+-- Crear API key (reemplaza TU_APP_ID con el UUID de arriba)
+INSERT INTO api_keys (
+  application_id,
+  name,
+  key,
+  key_hash,
+  key_preview,
+  environment,
+  is_active
+)
+VALUES (
+  'TU_APP_ID',
+  'Production API Key',
+  'ak_production_042a5f866c7e35630a9340bd224cbdda',
+  '$2a$10$hash_placeholder',
+  'ak_prod...bdda',
+  'production',
+  true
+)
+RETURNING id, application_id, key, environment;
+
+-- Crear usuario de prueba
+INSERT INTO app_users (
+  application_id,
+  email,
+  full_name,
+  password_hash,
+  is_active
+)
+VALUES (
+  'TU_APP_ID',
+  'juan@example.com',
+  'Juan Pérez',
+  '$2a$10$hash_placeholder',
+  true
+)
+RETURNING id, email, full_name;
+*/

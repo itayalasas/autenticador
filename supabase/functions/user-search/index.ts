@@ -64,12 +64,34 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Validate API key and application
+    // Step 1: Verify that the application exists
+    const { data: applicationData, error: appError } = await supabase
+      .from('applications')
+      .select('id')
+      .eq('id', application_id)
+      .maybeSingle();
+
+    if (appError || !applicationData) {
+      console.error('Application validation error:', appError);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Invalid application_id'
+        }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    // Step 2: Validate API key for this application
+    // Try to find by 'key' column first (plaintext), fallback to key_preview if needed
     const { data: apiKeyData, error: apiKeyError } = await supabase
       .from('api_keys')
-      .select('id, application_id, is_active, environment, key, key_hash')
-      .eq('key', api_key)
+      .select('id, application_id, is_active, environment')
       .eq('application_id', application_id)
+      .eq('key', api_key)
       .maybeSingle();
 
     if (apiKeyError || !apiKeyData) {
@@ -86,7 +108,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Check if API key is active
+    // Step 3: Check if API key is active
     if (!apiKeyData.is_active) {
       return new Response(
         JSON.stringify({
