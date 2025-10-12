@@ -179,6 +179,7 @@ function PublicAuthForms({
             email: formData.email,
             password: formData.password,
             application_id: applicationId,
+            api_key: apiKey,
             callback_url: callbackUrl,
             client_ip: clientIp
           };
@@ -193,6 +194,7 @@ function PublicAuthForms({
             password: formData.password,
             name: formData.name,
             application_id: applicationId,
+            api_key: apiKey,
             callback_url: callbackUrl,
             role: selectedRole || undefined,
             client_ip: clientIp
@@ -203,6 +205,7 @@ function PublicAuthForms({
           payload = {
             email: formData.email,
             application_id: applicationId,
+            api_key: apiKey,
             client_ip: clientIp
           };
           break;

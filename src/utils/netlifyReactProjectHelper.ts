@@ -234,6 +234,15 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
         setLoading(true);
         console.log('Loading application data for:', appId);
 
+        // Get API key from URL first
+        const apiKeyFromUrl = searchParams.get('api_key');
+        if (apiKeyFromUrl) {
+          console.log('✅ API key from URL:', apiKeyFromUrl.substring(0, 20) + '...');
+          setApiKey(apiKeyFromUrl);
+        } else {
+          console.warn('⚠️ No API key in URL');
+        }
+
         try {
           const { data: app, error: appError } = await supabase
             .from('applications')
@@ -245,19 +254,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
             console.error('Application not found:', appId, appError);
             setError('Application not found');
             return;
-          }
-
-          const { data: apiKeys, error: apiKeyError } = await supabase
-            .from('api_keys')
-            .select('*')
-            .eq('application_id', app.id)
-            .eq('is_active', true)
-            .limit(1);
-
-          if (apiKeyError || !apiKeys || apiKeys.length === 0) {
-            console.warn('No active API keys found');
-          } else {
-            setApiKey(apiKeys[0].key_hash);
           }
 
           try {
@@ -290,7 +286,7 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
     };
 
     loadApplicationData();
-  }, [appId]);
+  }, [appId, searchParams]);
 
   if (loading) {
     return (
