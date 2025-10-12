@@ -1,239 +1,137 @@
-# 🎯 SOLUCIÓN: Asignación Incorrecta de Roles en Registro
+# 🎯 SOLUCIÓN FINAL - Application ID Incorrecto
 
-## ❌ PROBLEMA IDENTIFICADO
+## ❌ El Problema Real
 
-Cuando un usuario selecciona **"Cliente"** en el formulario de registro, el sistema lo crea con el rol **"user"** en lugar de **"cliente"**.
-
-### Flujo del Problema:
-
-```
-Formulario de Registro
-  ↓
-Usuario selecciona: "Cliente"
-  ↓
-Frontend envía: { role: "Cliente" }
-  ↓
-Edge Function auth-register
-  ↓
-❌ IGNORA el campo "role"
-  ↓
-Busca: WHERE is_default = true
-  ↓
-Asigna: rol "user"
-  ↓
-❌ Resultado: Usuario con rol incorrecto
-```
+El `application_id` que estás usando **NO es un UUID válido**:
+- **Usado:** `app_a6f840c5-bd1` ❌
+- **Formato UUID esperado:** `a6f840c5-bd12-4abc-9def-123456789abc` ✅
 
 ---
 
-## ✅ SOLUCIÓN IMPLEMENTADA
+## ✅ Solución en 2 Pasos
 
-### 1. **Código Corregido en Edge Function**
+### PASO 1️⃣: Obtener el Application ID Correcto
 
-**Antes (INCORRECTO):**
-```typescript
-// Línea 717-725 (VIEJO)
-const { data: defaultRole } = await supabase
-  .from('application_roles')
-  .select('name, permissions')
-  .eq('application_id', application.id)
-  .eq('is_default', true)  // ← SIEMPRE busca el default
-  .maybeSingle();
+Ve a Supabase SQL Editor:
+https://supabase.com/dashboard/project/sfqtmnncgiqkveaoqckt/editor
 
-const roleToAssign = defaultRole || { name: 'user', permissions: ['read'] };
+Ejecuta:
+
+```sql
+-- Ver todas tus aplicaciones
+SELECT 
+  id as application_id,
+  name,
+  description,
+  created_at
+FROM applications
+ORDER BY created_at DESC;
 ```
 
-**Ahora (CORRECTO):**
-```typescript
-// Líneas 716-778 (NUEVO)
-let roleToAssign: { name: string; permissions: any[] } | null = null;
+**Copia el `id` (UUID completo) de tu aplicación.**
 
-// 1. Si el usuario seleccionó un rol, buscarlo
-if (role) {
-  // Buscar por display_name (ej: "Cliente")
-  const { data: requestedRole } = await supabase
-    .from('application_roles')
-    .select('name, permissions')
-    .eq('application_id', application.id)
-    .eq('display_name', role)
-    .maybeSingle();
+---
 
-  if (requestedRole) {
-    roleToAssign = requestedRole;
-  } else {
-    // Buscar por name (ej: "cliente")
-    const { data: roleByName } = await supabase
-      .from('application_roles')
-      .select('name, permissions')
-      .eq('application_id', application.id)
-      .ilike('name', role)
-      .maybeSingle();
+### PASO 2️⃣: Obtener la API Key Correcta
 
-    if (roleByName) {
-      roleToAssign = roleByName;
-    }
-  }
-}
+Una vez que tengas el `application_id` correcto, ejecuta:
 
-// 2. Si no se encontró, usar el rol por defecto
-if (!roleToAssign) {
-  const { data: defaultRole } = await supabase
-    .from('application_roles')
-    .select('name, permissions')
-    .eq('application_id', application.id)
-    .eq('is_default', true)
-    .maybeSingle();
-
-  roleToAssign = defaultRole || { name: 'user', permissions: ['read'] };
-}
-
-// 3. Asignar el rol al usuario
-await supabase
-  .from('user_roles')
-  .insert({
-    app_user_id: newUser.id,
-    role_name: roleToAssign.name,
-    permissions: roleToAssign.permissions || ['read']
-  });
+```sql
+-- Reemplaza 'TU_APPLICATION_ID_AQUI' con el UUID de tu aplicación
+SELECT 
+  id,
+  application_id,
+  name,
+  key,
+  key_preview,
+  environment
+FROM api_keys
+WHERE application_id = 'TU_APPLICATION_ID_AQUI'
+ORDER BY created_at DESC;
 ```
 
-### 2. **Interface Actualizada**
+**Copia el valor de la columna `key` o `key_preview`.**
 
-```typescript
-interface RegisterRequest {
-  email: string
-  password: string
-  name: string
-  application_id: string
-  api_key: string
-  role?: string           // ← AGREGADO
-  callback_url?: string
-  client_ip?: string
-  metadata?: Record<string, any>
+---
+
+## 🧪 Probar en Postman
+
+Usa los valores **reales** obtenidos:
+
+```json
+{
+  "application_id": "a6f840c5-bd12-4abc-9def-123456789abc",
+  "api_key": "ak_production_042a5f866c7e35630a9340bd224cbdda",
+  "query": "juan",
+  "limit": 10,
+  "offset": 0
 }
 ```
 
-### 3. **Flujo Corregido**
+---
 
+## 🔍 Si No Tienes Aplicaciones Creadas
+
+Ejecuta esto para crear una aplicación de prueba:
+
+```sql
+-- Crear una aplicación de prueba
+INSERT INTO applications (name, description)
+VALUES ('Mi Aplicación de Prueba', 'Aplicación para pruebas de API')
+RETURNING id, name;
+
+-- Guardar el ID que te devuelve
 ```
-Formulario de Registro
-  ↓
-Usuario selecciona: "Cliente"
-  ↓
-Frontend envía: { role: "Cliente", ... }
-  ↓
-Edge Function auth-register
-  ↓
-✅ LEE el campo "role" del payload
-  ↓
-Busca: WHERE display_name = "Cliente"
-  ↓
-Encuentra: { name: "cliente", permissions: [...] }
-  ↓
-Asigna: rol "cliente"
-  ↓
-✅ Resultado: Usuario con rol "cliente"
+
+Luego crea una API key para esa aplicación:
+
+```sql
+-- Reemplaza 'TU_APPLICATION_ID_AQUI' con el ID de arriba
+INSERT INTO api_keys (
+  application_id, 
+  name, 
+  key, 
+  key_preview, 
+  environment
+)
+VALUES (
+  'TU_APPLICATION_ID_AQUI',
+  'Production API Key',
+  'ak_production_042a5f866c7e35630a9340bd224cbdda',
+  'ak_prod...bdda',
+  'production'
+)
+RETURNING id, application_id, key, environment;
 ```
 
 ---
 
-## 🚀 PASOS PARA APLICAR LA SOLUCIÓN
+## ⚠️ Importante
 
-### **Paso 1: Actualizar Edge Function** (2 MINUTOS)
-
-**Opción A - Supabase CLI:**
-```bash
-cd /tmp/cc-agent/58424341/project
-supabase functions deploy auth-register --project-ref sfqtmnncgiqkveaoqckt
-```
-
-**Opción B - Dashboard Manual:**
-1. Ve a: https://supabase.com/dashboard/project/sfqtmnncgiqkveaoqckt/functions
-2. Selecciona **"auth-register"**
-3. Clic en **"Edit"**
-4. Copia el código de: `supabase/functions/auth-register/index.ts`
-5. Pega en el editor
-6. Clic en **"Deploy"**
+1. Los `application_id` son **UUIDs completos**, no strings con prefijos
+2. Asegúrate de usar el `application_id` **exacto** de tu base de datos
+3. La columna `key` debe tener la API key completa
 
 ---
 
-### **Paso 2: Probar el Registro** (1 MINUTO)
+## 📋 Script de Diagnóstico Completo
 
-1. Ve al formulario de registro
-2. Completa los datos
-3. **Selecciona "Cliente"** en "Tipo de Usuario"
-4. Haz clic en "Crear Cuenta"
-5. Ve al dashboard → **Usuarios**
-6. ✅ Verifica que el usuario tenga rol **"cliente"**
+```sql
+-- 1. Ver todas las aplicaciones
+SELECT 'APLICACIONES' as seccion, id, name FROM applications;
 
----
+-- 2. Ver todas las API keys
+SELECT 'API KEYS' as seccion, id, application_id, name, key, environment FROM api_keys;
 
-## 📊 COMPARACIÓN: ANTES vs DESPUÉS
+-- 3. Ver estructura de applications
+SELECT 'COLUMNAS DE applications' as seccion, column_name, data_type 
+FROM information_schema.columns 
+WHERE table_name = 'applications';
 
-| Campo | Antes | Después |
-|-------|-------|---------|
-| **Nombre** | Alejandra Londoño | Alejandra Londoño |
-| **Email** | ale@gmail.com | ale@gmail.com |
-| **Rol Seleccionado** | "Cliente" | "Cliente" |
-| **Rol Asignado** | ❌ "user" | ✅ "cliente" |
-| **Razón** | Ignoraba el campo `role` | Usa el campo `role` |
-
----
-
-## 🔍 LOGS DE DEBUG
-
-La función ahora incluye logs detallados:
-
-```
-✅ User created successfully, assigning role...
-🎭 Role from request: Cliente
-✅ Using requested role: Cliente
-✅ Role assigned successfully: cliente
-✅ Registration successful for user: ale@gmail.com
+-- 4. Ver estructura de api_keys
+SELECT 'COLUMNAS DE api_keys' as seccion, column_name, data_type 
+FROM information_schema.columns 
+WHERE table_name = 'api_keys';
 ```
 
----
-
-## 📝 ARCHIVOS MODIFICADOS
-
-```
-/tmp/cc-agent/58424341/project/
-└── supabase/
-    └── functions/
-        └── auth-register/
-            └── index.ts  ← ACTUALIZADO (líneas 13-23, 417, 716-778)
-```
-
----
-
-## ✅ CHECKLIST DE VERIFICACIÓN
-
-- [x] Interface actualizada con campo `role?`
-- [x] Payload extrae el campo `role` del request
-- [x] Lógica busca rol por `display_name`
-- [x] Fallback busca rol por `name` (case-insensitive)
-- [x] Fallback final usa rol por defecto
-- [x] Logs de debug agregados
-- [ ] **Edge Function desplegada** ← PENDIENTE
-- [ ] **Prueba de registro realizada** ← PENDIENTE
-
----
-
-## 🎉 RESULTADO ESPERADO
-
-Después de actualizar la función:
-
-```
-┌─────────────────────────────────────────┐
-│  Usuario: Nuevo Usuario                 │
-├─────────────────────────────────────────┤
-│  Email: nuevo@example.com               │
-│  Rol Seleccionado: "Cliente"            │
-│  Rol Asignado: "cliente" ✅             │
-│  Estado: Activo                         │
-└─────────────────────────────────────────┘
-```
-
----
-
-**¡Solo falta desplegar la función actualizada!** 🚀
+Ejecuta este script y tendrás toda la información que necesitas.

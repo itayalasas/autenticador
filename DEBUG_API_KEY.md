@@ -1,144 +1,158 @@
-# 🔍 DEBUG: API Key Inválida en Login
+# 🐛 DEBUG: Obtener Application ID y API Key Correctos
 
-## ❌ PROBLEMA:
-El login muestra "API Key inválida o inactiva" aunque el frontend SÍ envía el api_key.
+## 📋 EJECUTA ESTE SCRIPT
 
-## ✅ LO QUE FUNCIONA:
-- ✅ Frontend extrae api_key de URL: `ak_production_43d9493...`
-- ✅ Frontend envía api_key en el payload
-- ✅ Backend recibe el request
+Copia y pega en Supabase SQL Editor:
 
-## ❌ LO QUE FALLA:
-- ❌ Backend NO encuentra el api_key en la tabla `api_keys`
+```sql
+-- =============================================
+-- OBTENER INFORMACIÓN CORRECTA
+-- =============================================
 
----
-
-## 🔎 PASOS PARA DIAGNOSTICAR:
-
-### 1. Verificar API Key Completo en URL
-```
-URL actual (cortada): 
-celadon-begonia-d7eb0e.netlify.app/login?app_id=3acde27f-74d3-465e-aaec-94ad46faa881&...
-
-Necesitas copiar la URL COMPLETA del navegador y pegar aquí:
-- ¿Cuál es el api_key completo?
-- ¿Tiene el formato: ak_production_XXXXX?
-```
-
-### 2. Verificar API Keys en Base de Datos
-
-**Opción A - Supabase Dashboard:**
-```
-1. Ve a: https://supabase.com/dashboard/project/sfqtmnncgiqkveaoqckt
-2. Ve a: SQL Editor
-3. Ejecuta esta query:
-
+-- 1. Ver todas las aplicaciones (con sus UUIDs reales)
 SELECT 
-  ak.name,
-  ak.key_hash,
-  ak.key_preview,
-  ak.is_active,
-  ak.environment,
-  a.name as app_name
-FROM api_keys ak
-JOIN applications a ON ak.application_id = a.id
-WHERE a.application_id = '3acde27f-74d3-465e-aaec-94ad46faa881';
+  '1️⃣ APLICACIONES' as paso,
+  id as application_id_correcto,
+  name,
+  description
+FROM applications
+ORDER BY created_at DESC;
 
-4. Copia el resultado aquí
-```
+-- 2. Ver todas las API keys (con sus valores reales)
+SELECT 
+  '2️⃣ API KEYS' as paso,
+  id,
+  application_id,
+  name,
+  key as api_key_completa,
+  key_preview,
+  environment
+FROM api_keys
+ORDER BY created_at DESC;
 
-### 3. Comparar API Keys
+-- 3. Si necesitas agregar la columna 'key' primero
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'api_keys' AND column_name = 'key'
+  ) THEN
+    ALTER TABLE api_keys ADD COLUMN key text;
+    CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(key);
+    RAISE NOTICE '✅ Columna "key" agregada';
+  END IF;
+END $$;
 
-```
-API Key en URL:  ak_production_____________
-                                  ^
-                                  ¿coincide?
-                                  v
-API Key en DB:   ak_production_____________
-```
+-- 4. Ver usuarios en alguna aplicación (para verificar que hay datos)
+SELECT 
+  '3️⃣ USUARIOS' as paso,
+  application_id,
+  COUNT(*) as total_usuarios
+FROM app_users
+GROUP BY application_id;
 
----
-
-## 🎯 POSIBLES CAUSAS:
-
-### Causa 1: API Key en URL está incompleto
-```
-URL cortada: ...&api_key=ak_production_43d9493...
-            ❌ Falta parte del key
-
-Solución: Copiar URL completa del navegador
-```
-
-### Causa 2: API Key no existe en la base de datos
-```
-Query retorna: (sin resultados)
-
-Solución: Crear un nuevo API key en el dashboard:
-1. Dashboard → API Keys
-2. "Nueva API Key"
-3. Nombre: "Production Key"
-4. Ambiente: "production"
-5. Copiar el key generado
-6. Usarlo en la URL
-```
-
-### Causa 3: API Key existe pero está inactivo
-```
-Query retorna: is_active = false
-
-Solución: Activar el API key:
-1. Dashboard → API Keys
-2. Buscar el key
-3. Toggle "Activo"
-```
-
-### Causa 4: API Key del ambiente incorrecto
-```
-URL tiene:  api_key=ak_production_XXXX
-BD tiene:   key_hash=ak_development_YYYY
-                      ^^^^^^^^
-                      ambiente diferente
-
-Solución: Usar el API key del ambiente correcto
+-- 5. Ver columnas de api_keys
+SELECT 
+  '4️⃣ ESTRUCTURA api_keys' as paso,
+  column_name,
+  data_type,
+  is_nullable
+FROM information_schema.columns
+WHERE table_name = 'api_keys'
+ORDER BY ordinal_position;
 ```
 
 ---
 
-## 🚀 SOLUCIÓN RÁPIDA:
+## 📝 QUÉ HACER CON LOS RESULTADOS
 
-Si no quieres investigar, simplemente:
-
-**1. Crear nuevo API Key:**
+### Resultado 1️⃣ - APLICACIONES
+Encontrarás algo como:
 ```
-Dashboard → API Keys → Nueva API Key
-- Nombre: "Clave de Producción"
-- Ambiente: "production"
-- Copiar: ak_production_NUEVO_KEY_AQUI
+application_id_correcto: a6f840c5-bd12-4abc-9def-123456789abc
+name: Mi Aplicación
 ```
+**👉 Copia el UUID completo (sin el prefijo "app_")**
 
-**2. Actualizar URL de login:**
+### Resultado 2️⃣ - API KEYS
+Encontrarás:
 ```
-Antes:
-https://celadon-begonia-d7eb0e.netlify.app/login?app_id=3acde27f...&api_key=ak_production_VIEJO
-
-Después:
-https://celadon-begonia-d7eb0e.netlify.app/login?app_id=3acde27f...&api_key=ak_production_NUEVO
+application_id: a6f840c5-bd12-4abc-9def-123456789abc
+api_key_completa: ak_production_042a5f866c7e35630a9340bd224cbdda
+environment: production
 ```
 
-**3. Probar de nuevo**
+**Si `api_key_completa` está NULL:**
+```sql
+-- Actualizar la API key con el valor correcto
+UPDATE api_keys
+SET key = 'ak_production_042a5f866c7e35630a9340bd224cbdda'
+WHERE id = 'TU_API_KEY_ID_AQUI';
+```
 
 ---
 
-## 📋 INFORMACIÓN NECESARIA:
+## 🧪 PRUEBA EN POSTMAN
 
-Por favor proporciona:
+Usa los valores **reales** de los resultados:
 
-1. ✅ **URL completa del navegador** (sin cortar)
-2. ✅ **API Keys en la base de datos** (resultado de la query SQL)
-3. ✅ **Screenshot del Network tab** mostrando el payload completo
-
-Con esta información podré identificar exactamente cuál es el problema.
+```json
+{
+  "application_id": "UUID-COMPLETO-DE-PASO-1",
+  "api_key": "API-KEY-COMPLETA-DE-PASO-2",
+  "query": "juan",
+  "limit": 10,
+  "offset": 0
+}
+```
 
 ---
 
-**¿Puedes copiar la URL completa y ejecutar la query SQL?** 🔍
+## ⚡ SI NO APARECEN DATOS
+
+Significa que no tienes aplicaciones ni API keys creadas. Ejecuta:
+
+```sql
+-- Crear aplicación
+INSERT INTO applications (name, description)
+VALUES ('App de Prueba', 'Aplicación para testing')
+RETURNING id as nuevo_application_id, name;
+
+-- COPIA el 'nuevo_application_id' que aparece
+
+-- Crear API key (reemplaza TU_APP_ID con el UUID de arriba)
+INSERT INTO api_keys (
+  application_id,
+  name,
+  key,
+  key_preview,
+  key_hash,
+  environment
+)
+VALUES (
+  'TU_APP_ID',
+  'Production Key',
+  'ak_production_042a5f866c7e35630a9340bd224cbdda',
+  'ak_prod...bdda',
+  'hash_placeholder',
+  'production'
+)
+RETURNING id, application_id, key, environment;
+
+-- Crear un usuario de prueba en la aplicación
+INSERT INTO app_users (
+  application_id,
+  email,
+  full_name,
+  password_hash
+)
+VALUES (
+  'TU_APP_ID',
+  'juan@example.com',
+  'Juan Pérez',
+  '$2a$10$hash_placeholder'
+)
+RETURNING id, email, full_name;
+```
+
+Ahora ejecuta el primer script de nuevo y verás tus datos.
