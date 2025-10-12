@@ -10,6 +10,7 @@ import { getStaticProjectFiles } from '../../utils/projectFilesHelper';
 import { getReactConfigFiles, getCommitMessage } from '../../utils/reactProjectHelper';
 import { getReactProjectFiles } from '../../utils/netlifyReactProjectHelper';
 import { deploymentService } from '../../services/deploymentService';
+import { deploymentSnapshotService } from '../../services/deploymentSnapshotService';
 import { supabase } from '../../lib/supabase';
 import ConfirmationModal from '../ui/ConfirmationModal';
 import NotificationModal from '../ui/NotificationModal';
@@ -1455,6 +1456,31 @@ export default function EnvironmentsManager() {
           addLog('✅ Configuración subida exitosamente a GitHub', 'success');
           addLog(`   Commit: ${commitResult.sha?.substring(0, 7)}`, 'info');
           addLog('   Archivos: .env.production, netlify.toml, _redirects', 'info');
+          addLog('', 'info');
+
+          // Create deployment snapshot for rollback capability
+          addLog('📸 Creando snapshot del deployment...', 'info');
+          try {
+            const snapshot = await deploymentSnapshotService.createSnapshot({
+              application_id: selectedApp!,
+              commit_hash: commitResult.sha || 'unknown',
+              commit_message: getCommitMessage(pendingDeployData.applicationId, pendingDeployData.environmentName),
+              branch: pendingDeployData.repo.default_branch || 'main',
+              deployment_url: siteUrl,
+              status: 'stable',
+              metadata: {
+                environment_name: pendingDeployData.environmentName,
+                netlify_site_id: siteId,
+                netlify_site_name: siteName,
+                github_repo: pendingDeployData.repo.repo_full_name,
+              }
+            });
+            addLog(`   ✓ Snapshot creado: ${snapshot.id.substring(0, 8)}...`, 'success');
+          } catch (snapshotError: any) {
+            console.error('Error creating snapshot:', snapshotError);
+            addLog(`   ⚠️  No se pudo crear snapshot: ${snapshotError?.message || 'Error desconocido'}`, 'warning');
+            // Continue deployment even if snapshot fails
+          }
           addLog('', 'info');
 
           // Actualizar environment con el repo, estado Y URLs corregidas
