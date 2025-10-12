@@ -519,7 +519,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log('✅ API Key validated successfully');
+    console.log('✅ API Key found and active, will verify ownership after loading application');
 
     console.log('🔍 Processing reset password request:', {
       email,

@@ -153,40 +153,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Verify API Key belongs to the application
-    if (apiKeyData.application_id !== application_id) {
-      console.log('❌ API Key does not belong to this application');
-
-      await supabase.from('auth_logs').insert({
-        application_id: null,
-        event_type: 'failed_login',
-        ip_address: ipAddress,
-        user_agent: req.headers.get('user-agent') || 'unknown',
-        success: false,
-        error_message: 'API Key no pertenece a esta aplicación',
-        metadata: {
-          email,
-          application_id,
-          error_type: 'api_key_mismatch'
-        }
-      });
-
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: {
-            code: 'API_KEY_MISMATCH',
-            message: 'API Key no pertenece a esta aplicación'
-          }
-        }),
-        {
-          status: 403,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        }
-      );
-    }
-
-    console.log('✅ API Key validated successfully');
+    console.log('✅ API Key found and active, will verify ownership after loading application');
 
     const { data: blockedIP } = await supabase
       .from('blocked_ips')
@@ -269,6 +236,45 @@ Deno.serve(async (req) => {
         }
       )
     }
+
+    // Verify API Key belongs to the application (compare with internal id)
+    if (apiKeyData.application_id !== application.id) {
+      console.log('❌ API Key does not belong to this application');
+      console.log('  API Key application_id:', apiKeyData.application_id);
+      console.log('  Application internal id:', application.id);
+
+      await supabase.from('auth_logs').insert({
+        application_id: application.id,
+        event_type: 'failed_login',
+        ip_address: ipAddress,
+        user_agent: req.headers.get('user-agent') || 'unknown',
+        success: false,
+        error_message: 'API Key no pertenece a esta aplicación',
+        metadata: {
+          email,
+          application_id,
+          error_type: 'api_key_mismatch',
+          api_key_app_id: apiKeyData.application_id,
+          expected_app_id: application.id
+        }
+      });
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'API_KEY_MISMATCH',
+            message: 'API Key no pertenece a esta aplicación'
+          }
+        }),
+        {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    console.log('✅ API Key belongs to application');
 
     const { data: user, error: userError } = await supabase
       .from('app_users')
