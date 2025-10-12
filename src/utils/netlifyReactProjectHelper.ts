@@ -133,18 +133,16 @@ body {
 }
 `;
 
-  // src/App.tsx - Router for public forms
+  // src/App.tsx - Router for public forms using PublicAuthRouter
   files['src/App.tsx'] = `import React from 'react';
 import { Routes, Route, Navigate, useSearchParams, useLocation } from 'react-router-dom';
-import PublicAuthForms from './components/auth/PublicAuthForms';
+import PublicAuthRouter from './components/auth/PublicAuthRouter';
 
 export default function App() {
   const [searchParams] = useSearchParams();
   const location = useLocation();
 
   const appId = searchParams.get('app_id') || import.meta.env.VITE_APP_ID || '';
-  const apiKey = searchParams.get('api_key') || import.meta.env.VITE_API_KEY || '';
-  const redirectUri = searchParams.get('redirect_uri');
 
   // Map path to form type
   const getFormType = (): 'login' | 'register' | 'reset-password' => {
@@ -163,21 +161,8 @@ export default function App() {
           </p>
           <p className="text-sm text-gray-500">
             Ejemplo: <code className="bg-gray-100 px-2 py-1 rounded text-xs">
-              /login?app_id=xxx&api_key=yyy&redirect_uri=zzz
+              /login?app_id=xxx
             </code>
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!apiKey) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="bg-white p-8 rounded-lg shadow-lg max-w-md">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Error de Configuración</h1>
-          <p className="text-gray-600 mb-4">
-            El parámetro <code className="bg-gray-100 px-2 py-1 rounded">api_key</code> es requerido en la URL.
           </p>
         </div>
       </div>
@@ -189,39 +174,154 @@ export default function App() {
       <Route
         path="/login"
         element={
-          <PublicAuthForms
-            applicationId={appId}
+          <PublicAuthRouter
+            appId={appId}
             formType="login"
-            apiKey={apiKey}
-            redirectUri={redirectUri || undefined}
           />
         }
       />
       <Route
         path="/register"
         element={
-          <PublicAuthForms
-            applicationId={appId}
+          <PublicAuthRouter
+            appId={appId}
             formType="register"
-            apiKey={apiKey}
-            redirectUri={redirectUri || undefined}
           />
         }
       />
       <Route
         path="/reset-password"
         element={
-          <PublicAuthForms
-            applicationId={appId}
+          <PublicAuthRouter
+            appId={appId}
             formType="reset-password"
-            apiKey={apiKey}
-            redirectUri={redirectUri || undefined}
           />
         }
       />
       <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
+  );
+}
+`;
+
+  // src/components/auth/PublicAuthRouter.tsx - Component that loads branding from DB
+  files['src/components/auth/PublicAuthRouter.tsx'] = `import React, { useEffect, useState } from 'react';
+import PublicAuthForms from './PublicAuthForms';
+import { applicationService } from '../../services/applicationService';
+import { supabase } from '../../lib/supabase';
+import { useSearchParams } from 'react-router-dom';
+
+interface PublicAuthRouterProps {
+  appId: string;
+  formType: string;
+}
+
+export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterProps) {
+  const [appData, setAppData] = useState<any>(null);
+  const [apiKey, setApiKey] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [searchParams] = useSearchParams();
+
+  const validFormType = ['login', 'register', 'reset-password'].includes(formType)
+    ? formType as 'login' | 'register' | 'reset-password'
+    : 'login';
+
+  useEffect(() => {
+    const loadApplicationData = async () => {
+      try {
+        setLoading(true);
+        console.log('Loading application data for:', appId);
+
+        try {
+          const { data: app, error: appError } = await supabase
+            .from('applications')
+            .select('*')
+            .eq('application_id', appId)
+            .single();
+
+          if (appError || !app) {
+            console.error('Application not found:', appId, appError);
+            setError('Application not found');
+            return;
+          }
+
+          const { data: apiKeys, error: apiKeyError } = await supabase
+            .from('api_keys')
+            .select('*')
+            .eq('application_id', app.id)
+            .eq('is_active', true)
+            .limit(1);
+
+          if (apiKeyError || !apiKeys || apiKeys.length === 0) {
+            console.warn('No active API keys found');
+          } else {
+            setApiKey(apiKeys[0].key_hash);
+          }
+
+          try {
+            const branding = await applicationService.getBranding(app.id);
+            setAppData({
+              ...app,
+              branding: branding || {}
+            });
+          } catch (brandingError) {
+            console.warn('Could not load branding, using defaults:', brandingError);
+            setAppData({
+              ...app,
+              branding: {}
+            });
+          }
+
+          console.log('Application loaded:', app);
+
+        } catch (supabaseError) {
+          console.error('Supabase connection error:', supabaseError);
+          setError('Failed to connect to database');
+        }
+
+      } catch (error) {
+        console.error('Error loading application:', error);
+        setError('Failed to load application');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadApplicationData();
+  }, [appId]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Error</h1>
+          <p className="text-gray-600">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <PublicAuthForms
+      applicationId={appId}
+      internalApplicationId={appData?.id}
+      formType={validFormType}
+      apiKey={apiKey}
+      branding={appData?.branding}
+      appInfo={appData}
+      onSuccess={(data) => console.log('Auth success:', data)}
+      onError={(error) => console.error('Auth error:', error)}
+    />
   );
 }
 `;
