@@ -67,10 +67,9 @@ Deno.serve(async (req: Request) => {
     // Validate API key and application
     const { data: apiKeyData, error: apiKeyError } = await supabase
       .from('api_keys')
-      .select('id, application_id, is_active, environment')
+      .select('id, application_id, is_active, environment, key, key_hash')
       .eq('key', api_key)
       .eq('application_id', application_id)
-      .eq('is_active', true)
       .maybeSingle();
 
     if (apiKeyError || !apiKeyData) {
@@ -79,6 +78,20 @@ Deno.serve(async (req: Request) => {
         JSON.stringify({
           success: false,
           error: 'Invalid API key or application'
+        }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    // Check if API key is active
+    if (!apiKeyData.is_active) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'API key is inactive'
         }),
         {
           status: 401,

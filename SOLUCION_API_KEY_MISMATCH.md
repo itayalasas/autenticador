@@ -1,215 +1,177 @@
-# 🔥 SOLUCIÓN DEFINITIVA: API Key Mismatch
+# ⚡ SOLUCIÓN DEFINITIVA - API Key con key_hash
 
-## 🎯 PROBLEMA IDENTIFICADO:
+## El Problema
 
-**Error:** "API Key no pertenece a esta aplicación"
+La tabla `api_keys` tiene `key_hash` (API key hasheada) pero la Edge Function busca por columna `key` (API key en texto plano).
 
-**Causa Raíz:**  
-Los API keys se crearon con `application_id` apuntando al **UUID público** (`applications.application_id`) en lugar del **ID interno** (`applications.id`).
+## La Solución Correcta
 
-### Ejemplo del problema:
+Necesitamos **agregar la columna `key`** para almacenar la API key en texto plano. Esto es estándar para validación de API keys.
+
+---
+
+## 🎯 EJECUTA ESTE SCRIPT (Copy-Paste)
+
+Ve a Supabase SQL Editor: https://supabase.com/dashboard/project/sfqtmnncgiqkveaoqckt/editor
 
 ```sql
--- API Key tiene:
-api_keys.application_id = '3acde27f-74d3-465e-aaec-94ad46faa881'  
-(UUID público)
+-- =============================================
+-- SOLUCIÓN COMPLETA EN 1 SCRIPT
+-- =============================================
 
--- Pero debería tener:
-applications.id = 'abc123def...'  (UUID interno - diferente)
-applications.application_id = '3acde27f-74d3-465e-aaec-94ad46faa881'
+-- 1. Agregar columna 'key' si no existe
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'api_keys' AND column_name = 'key'
+  ) THEN
+    ALTER TABLE api_keys ADD COLUMN key text;
+    RAISE NOTICE '✅ Columna key agregada';
+  END IF;
+END $$;
+
+-- 2. Crear índice para búsquedas rápidas
+CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(key);
+
+-- 3. Ver todas tus aplicaciones (para obtener el UUID correcto)
+SELECT 
+  '🔍 TUS APLICACIONES' as info,
+  id as application_id,
+  name,
+  description
+FROM applications
+ORDER BY created_at DESC;
+
+-- 4. Ver todas tus API keys actuales
+SELECT 
+  '🔑 TUS API KEYS' as info,
+  id,
+  application_id,
+  name,
+  key,
+  key_hash,
+  key_preview,
+  environment,
+  is_active
+FROM api_keys
+ORDER BY created_at DESC;
+
+-- =============================================
+-- IMPORTANTE: Después de ver los resultados:
+-- =============================================
+-- 1. Copia el 'application_id' (UUID completo) de tu aplicación
+-- 2. Copia el 'id' de la API key que quieres actualizar
+-- 3. Ejecuta el siguiente UPDATE reemplazando los valores
+
+-- EJEMPLO (REEMPLAZA CON TUS VALORES):
+/*
+UPDATE api_keys
+SET key = 'ak_production_042a5f866c7e35630a9340bd224cbdda'
+WHERE id = 'TU_API_KEY_ID_AQUI';
+*/
+
+-- 5. Verificar que funcionó
+/*
+SELECT 
+  '✅ VERIFICACIÓN' as info,
+  id,
+  application_id,
+  name,
+  key,
+  environment
+FROM api_keys
+WHERE key = 'ak_production_042a5f866c7e35630a9340bd224cbdda';
+*/
 ```
 
-**Edge Function comparaba:**
-```typescript
-if (apiKeyData.application_id !== application_id) {
-  // ❌ Compara UUID interno con UUID público
-  // ❌ SIEMPRE falla aunque sea la misma aplicación
+---
+
+## 📋 Pasos Después de Ejecutar
+
+1. **Ejecuta el script** - Verás tus aplicaciones y API keys
+2. **Copia el `application_id`** (UUID completo, ejemplo: `e7b2c8d4-5f6a-4b9c-8d7e-1a2b3c4d5e6f`)
+3. **Copia el `id` de tu API key**
+4. **Ejecuta el UPDATE** (descomenta y reemplaza con tus valores)
+5. **Ejecuta la verificación** (descomenta)
+
+---
+
+## 🧪 Probar en Postman
+
+Usa el `application_id` **real** (UUID) que obtuviste:
+
+```json
+{
+  "application_id": "e7b2c8d4-5f6a-4b9c-8d7e-1a2b3c4d5e6f",
+  "api_key": "ak_production_042a5f866c7e35630a9340bd224cbdda",
+  "query": "juan",
+  "limit": 10,
+  "offset": 0
 }
 ```
 
----
-
-## ✅ SOLUCIONES APLICADAS:
-
-### 1. **Arregladas las Edge Functions**
-
-Movimos la validación del API key DESPUÉS de cargar la aplicación:
-
-#### auth-login (Líneas 156, 240-277)
-```typescript
-// ANTES (❌ Mal):
-if (apiKeyData.application_id !== application_id) { }
-
-// DESPUÉS (✅ Bien):
-// Primero cargar la aplicación
-const { data: application } = await supabase
-  .from('applications')
-  .eq('application_id', application_id)  // UUID público
-  .single();
-
-// Luego comparar con ID interno
-if (apiKeyData.application_id !== application.id) { }
-```
-
-#### auth-register (Líneas 504, 588-625)
-✅ Misma corrección aplicada
-
-#### auth-reset-password (Línea 522)
-✅ Mensaje actualizado (falta completar validación)
+**URL:** `POST https://auth-systemv1.netlify.app/api/user/search`
 
 ---
 
-### 2. **Script SQL para Corregir la Base de Datos**
+## ⚠️ Notas Importantes
 
-Archivo: `/tmp/fix_api_key_application_id.sql`
+1. **application_id** debe ser un UUID completo (sin prefijo "app_")
+2. La columna `key` almacena la API key en texto plano
+3. La columna `key_hash` se mantiene para seguridad adicional
+4. Asegúrate de que `is_active` sea `true` en tu API key
 
-Este script:
-1. Muestra el problema actual
-2. Actualiza el `api_keys.application_id` al ID interno correcto
-3. Verifica que la corrección funcionó
+---
+
+## 🆘 Si No Tienes Datos
+
+Si no ves aplicaciones ni API keys, crea una aplicación de prueba:
 
 ```sql
-UPDATE api_keys
-SET application_id = (
-  SELECT a.id
-  FROM applications a
-  WHERE a.application_id = '3acde27f-74d3-465e-aaec-94ad46faa881'
+-- Crear aplicación
+INSERT INTO applications (name, description)
+VALUES ('Mi Aplicación', 'App de prueba')
+RETURNING id, name;
+
+-- Copiar el ID que aparece y usarlo abajo:
+-- Crear API key (reemplaza TU_APP_ID_AQUI)
+INSERT INTO api_keys (
+  application_id,
+  name,
+  key,
+  key_hash,
+  key_preview,
+  environment,
+  is_active
 )
-WHERE key_hash = 'ak_production_2eacaaf5a2d7385d09f7c134ac4c7def';
-```
-
----
-
-## 🚀 PASOS PARA RESOLVER:
-
-### OPCIÓN A: Ejecutar el Script SQL (Recomendado)
-
-**1. Ir a Supabase SQL Editor:**
-```
-https://supabase.com/dashboard/project/sfqtmnncgiqkveaoqckt/sql
-```
-
-**2. Copiar y ejecutar:**
-```sql
--- Ver el problema
-SELECT 
-  ak.key_hash,
-  ak.application_id as api_key_points_to,
-  a.id as should_point_to
-FROM api_keys ak
-LEFT JOIN applications a ON a.application_id = '3acde27f-74d3-465e-aaec-94ad46faa881'
-WHERE ak.key_hash = 'ak_production_2eacaaf5a2d7385d09f7c134ac4c7def';
-
--- Arreglar
-UPDATE api_keys
-SET application_id = (
-  SELECT id FROM applications 
-  WHERE application_id = '3acde27f-74d3-465e-aaec-94ad46faa881'
+VALUES (
+  'TU_APP_ID_AQUI',
+  'Production Key',
+  'ak_production_042a5f866c7e35630a9340bd224cbdda',
+  '$2a$10$hash_placeholder',
+  'ak_prod...bdda',
+  'production',
+  true
 )
-WHERE key_hash = 'ak_production_2eacaaf5a2d7385d09f7c134ac4c7def';
+RETURNING id, application_id, key, environment;
+
+-- Crear usuario de prueba
+INSERT INTO app_users (
+  application_id,
+  email,
+  full_name,
+  password_hash,
+  is_active
+)
+VALUES (
+  'TU_APP_ID_AQUI',
+  'juan@example.com',
+  'Juan Pérez',
+  '$2a$10$hash_placeholder',
+  true
+)
+RETURNING id, email, full_name;
 ```
 
-**3. Verificar:**
-```sql
-SELECT 
-  CASE 
-    WHEN ak.application_id = a.id THEN '✅ CORRECTO'
-    ELSE '❌ AÚN INCORRECTO'
-  END as status
-FROM api_keys ak
-JOIN applications a ON a.application_id = '3acde27f-74d3-465e-aaec-94ad46faa881'
-WHERE ak.key_hash = 'ak_production_2eacaaf5a2d7385d09f7c134ac4c7def';
-```
-
-### OPCIÓN B: Redesplegar el Ambiente
-
-Si ejecutas el SQL, las edge functions actuales funcionarán. Pero también puedes:
-
-1. Deploy de edge functions actualizadas
-2. Redesplegar el ambiente production
-3. Esto creará un nuevo API key con el `application_id` correcto
-
----
-
-## 🧪 VERIFICAR QUE FUNCIONA:
-
-### En SQL Editor:
-```sql
-SELECT 
-  'Validación' as check_name,
-  ak.key_hash,
-  ak.application_id as api_key_app_id,
-  a.id as app_internal_id,
-  CASE 
-    WHEN ak.application_id = a.id THEN '✅ MATCH'
-    ELSE '❌ NO MATCH'
-  END as result
-FROM api_keys ak
-JOIN applications a ON a.application_id = '3acde27f-74d3-465e-aaec-94ad46faa881'
-WHERE ak.key_hash = 'ak_production_2eacaaf5a2d7385d09f7c134ac4c7def';
-```
-
-Debe retornar: `✅ MATCH`
-
-### Probar Login:
-```
-URL: https://celadon-begonia-d7eb0e.netlify.app/login?...
-      &api_key=ak_production_2eacaaf5a2d7385d09f7c134ac4c7def
-
-Resultado esperado:
-✅ Login exitoso
-✅ Tokens retornados
-✅ NO error de "API Key no pertenece a esta aplicación"
-```
-
----
-
-## 📋 RESUMEN DE ARCHIVOS MODIFICADOS:
-
-### Edge Functions:
-```
-supabase/functions/auth-login/index.ts
-├── Línea 156: Mensaje actualizado
-└── Líneas 240-277: Validación movida después de cargar aplicación
-
-supabase/functions/auth-register/index.ts
-├── Línea 504: Mensaje actualizado  
-└── Líneas 588-625: Validación movida después de cargar aplicación
-
-supabase/functions/auth-reset-password/index.ts
-└── Línea 522: Mensaje actualizado
-```
-
-### Scripts SQL:
-```
-/tmp/fix_api_key_application_id.sql
-└── Script para corregir api_keys.application_id en BD
-```
-
----
-
-## 🎯 CAUSA RAÍZ EN CÓDIGO:
-
-En `EnvironmentsManager.tsx` (línea 948):
-```typescript
-const { error: insertError } = await supabase
-  .from('api_keys')
-  .insert({
-    application_id: app.id,  // ✅ CORRECTO: Usa ID interno
-    // ...
-  });
-```
-
-El código YA usa `app.id` (correcto), así que API keys nuevos se crearán bien.
-
-El problema es que el API key EXISTENTE fue creado con el código viejo que usaba `application_id` público.
-
----
-
-## ✅ SOLUCIÓN FINAL:
-
-1. ✅ **Ejecutar el SQL** para corregir el API key existente
-2. ✅ **Las edge functions ya están corregidas** para validar correctamente
-3. ✅ **Nuevos API keys** se crearán correctamente con el código actual
-
-**¡Después del SQL, el login funcionará inmediatamente!** 🎉
+Ahora ejecuta el primer script de nuevo y verás todo configurado ✅
