@@ -55,9 +55,7 @@ function PublicAuthForms({
     name: '',
     email: '',
     password: '',
-    confirmPassword: '',
-    documentType: 'DNI',
-    documentNumber: ''
+    confirmPassword: ''
   });
 
   // Use refs to track if initial load is done
@@ -197,8 +195,6 @@ function PublicAuthForms({
             application_id: applicationId,
             callback_url: callbackUrl,
             role: selectedRole || undefined,
-            document_type: formData.documentType,
-            document_number: formData.documentNumber,
             client_ip: clientIp
           };
           break;
@@ -522,56 +518,6 @@ function PublicAuthForms({
                       '--tw-ring-color': defaultBranding.primary_color
                     } as React.CSSProperties}
                     placeholder={getText('register_name_placeholder', 'Tu nombre completo')}
-                  />
-                </div>
-              </div>
-            )}
-
-            {formType === 'register' && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label
-                    className="block text-sm font-medium mb-2"
-                    style={{ color: defaultBranding.text_color }}
-                  >
-                    {getText('register_document_type_label', 'Tipo de Documento')}
-                  </label>
-                  <select
-                    name="documentType"
-                    value={formData.documentType}
-                    onChange={(e) => setFormData(prev => ({ ...prev, documentType: e.target.value }))}
-                    className="w-full px-3 py-3 border border-gray-300 focus:ring-2 focus:border-transparent transition-all"
-                    style={{
-                      borderRadius: \`\${defaultBranding.border_radius}px\`,
-                      '--tw-ring-color': defaultBranding.primary_color
-                    } as React.CSSProperties}
-                  >
-                    <option value="DNI">DNI</option>
-                    <option value="RUT">RUT</option>
-                    <option value="CC">Cédula de Ciudadanía</option>
-                    <option value="CE">Cédula de Extranjería</option>
-                    <option value="PASSPORT">Pasaporte</option>
-                  </select>
-                </div>
-                <div>
-                  <label
-                    className="block text-sm font-medium mb-2"
-                    style={{ color: defaultBranding.text_color }}
-                  >
-                    {getText('register_document_number_label', 'Número')}
-                  </label>
-                  <input
-                    type="text"
-                    name="documentNumber"
-                    value={formData.documentNumber}
-                    onChange={handleInputChange}
-                    required={formType === 'register'}
-                    className="w-full px-3 py-3 border border-gray-300 focus:ring-2 focus:border-transparent transition-all"
-                    style={{
-                      borderRadius: \`\${defaultBranding.border_radius}px\`,
-                      '--tw-ring-color': defaultBranding.primary_color
-                    } as React.CSSProperties}
-                    placeholder={getText('register_document_number_placeholder', '12345678')}
                   />
                 </div>
               </div>

@@ -356,6 +356,29 @@ export const rolesService = {
       console.error('❌ Error fetching roles:', error);
       return [];
     }
+  },
+
+  async getAvailableRolesForRegistration(internalAppId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('application_roles')
+        .select('*')
+        .eq('application_id', internalAppId)
+        .eq('available_for_registration', true)
+        .eq('is_active', true)
+        .order('display_name');
+
+      if (error) {
+        console.error('Error fetching roles for registration:', error);
+        throw error;
+      }
+
+      console.log('✅ Roles for registration loaded:', data);
+      return data || [];
+    } catch (error) {
+      console.error('❌ Error fetching roles for registration:', error);
+      return [];
+    }
   }
 };
 `;
@@ -395,6 +418,22 @@ export const applicationService = {
     } catch (error) {
       console.error('Error verifying API key:', error);
       return false;
+    }
+  },
+
+  async getBranding(internalAppId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('branding_configs')
+        .select('*')
+        .eq('application_id', internalAppId)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error fetching branding:', error);
+      return null;
     }
   },
 
