@@ -476,6 +476,245 @@ HttpRequest request = HttpRequest.newBuilder()
 HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 System.out.println(response.body());`
       }
+    },
+    {
+      id: 'user-search',
+      title: 'Búsqueda de Usuarios',
+      method: 'POST',
+      path: '/api/user/search',
+      description: 'Busca usuarios por nombre o email en tiempo real. Ideal para implementar autocomplete. Soporta paginación y filtros por rol.',
+      params: [
+        { name: 'api_key', type: 'string', required: true, location: 'Body', description: 'Tu API Key de producción' },
+        { name: 'application_id', type: 'string', required: true, location: 'Body', description: 'ID único de la aplicación' },
+        { name: 'query', type: 'string', required: false, location: 'Body', description: 'Término de búsqueda (nombre o email)' },
+        { name: 'role_id', type: 'string', required: false, location: 'Body', description: 'Filtrar por rol específico (opcional)' },
+        { name: 'limit', type: 'number', required: false, location: 'Body', description: 'Número de resultados (default: 20, max: 100)' },
+        { name: 'offset', type: 'number', required: false, location: 'Body', description: 'Offset para paginación (default: 0)' }
+      ],
+      requestExample: (baseUrl: string, apiKey: string) => ({
+        url: `${baseUrl}/api/user/search`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: {
+          api_key: apiKey,
+          application_id: 'app_mk2k3j4h5k6l',
+          query: 'juan',
+          limit: 10,
+          offset: 0
+        }
+      }),
+      response: {
+        success: (baseUrl: string) => `{
+  "success": true,
+  "data": {
+    "users": [
+      {
+        "id": "user_789",
+        "user_id": "uuid-user-789",
+        "email": "juan.perez@ejemplo.com",
+        "full_name": "Juan Pérez",
+        "role": {
+          "id": "role_123",
+          "name": "editor",
+          "display_name": "Editor"
+        },
+        "is_active": true,
+        "created_at": "2024-02-15T10:30:00Z"
+      },
+      {
+        "id": "user_790",
+        "user_id": "uuid-user-790",
+        "email": "juana.garcia@ejemplo.com",
+        "full_name": "Juana García",
+        "role": {
+          "id": "role_124",
+          "name": "viewer",
+          "display_name": "Visor"
+        },
+        "is_active": true,
+        "created_at": "2024-02-16T14:20:00Z"
+      }
+    ],
+    "pagination": {
+      "total": 45,
+      "limit": 10,
+      "offset": 0,
+      "has_more": true
+    }
+  }
+}`,
+        error: `{
+  "success": false,
+  "error": "Invalid API key or application"
+}
+
+// Otros errores posibles:
+{
+  "success": false,
+  "error": "application_id is required"
+}
+
+{
+  "success": false,
+  "error": "api_key is required"
+}`
+      },
+      examples: {
+        javascript: (baseUrl: string, apiKey: string) => `// JavaScript/Fetch - Autocomplete
+const searchInput = document.getElementById('user-search');
+let searchTimeout;
+
+searchInput.addEventListener('input', (e) => {
+  clearTimeout(searchTimeout);
+  const query = e.target.value.trim();
+
+  if (query.length < 2) return;
+
+  // Debounce: esperar 300ms después de que el usuario deje de escribir
+  searchTimeout = setTimeout(async () => {
+    const response = await fetch('${baseUrl}/api/user/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        api_key: '${apiKey}',
+        application_id: 'app_mk2k3j4h5k6l',
+        query: query,
+        limit: 10
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      displayResults(data.data.users);
+      console.log(\`Total: \${data.data.pagination.total} usuarios\`);
+    } else {
+      console.error('Error:', data.error);
+    }
+  }, 300);
+});
+
+function displayResults(users) {
+  const resultsDiv = document.getElementById('results');
+  resultsDiv.innerHTML = users.map(user => \`
+    <div class="user-item">
+      <strong>\${user.full_name}</strong>
+      <span>\${user.email}</span>
+      <span class="role">\${user.role.display_name}</span>
+    </div>
+  \`).join('');
+}`,
+        python: (baseUrl: string, apiKey: string) => `# Python/Requests - Búsqueda con filtro de rol
+import requests
+
+url = '${baseUrl}/api/user/search'
+headers = {'Content-Type': 'application/json'}
+data = {
+    'api_key': '${apiKey}',
+    'application_id': 'app_mk2k3j4h5k6l',
+    'query': 'juan',
+    'role_id': 'role_editor_123',  # Opcional: filtrar por rol
+    'limit': 20,
+    'offset': 0
+}
+
+response = requests.post(url, json=data, headers=headers)
+result = response.json()
+
+if result['success']:
+    users = result['data']['users']
+    pagination = result['data']['pagination']
+
+    for user in users:
+        print(f"{user['full_name']} ({user['email']}) - {user['role']['display_name']}")
+
+    print(f"\\nMostrando {len(users)} de {pagination['total']} usuarios")
+    print(f"¿Hay más?: {pagination['has_more']}")
+else:
+    print(f"Error: {result['error']}")`,
+        php: (baseUrl: string, apiKey: string) => `<?php
+// PHP/cURL - Búsqueda con paginación
+function searchUsers($query, $offset = 0, $limit = 20) {
+    $url = '${baseUrl}/api/user/search';
+    $data = array(
+        'api_key' => '${apiKey}',
+        'application_id' => 'app_mk2k3j4h5k6l',
+        'query' => $query,
+        'limit' => $limit,
+        'offset' => $offset
+    );
+
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+    curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
+
+    $response = curl_exec($ch);
+    curl_close($ch);
+
+    return json_decode($response, true);
+}
+
+// Uso
+$result = searchUsers('juan', 0, 10);
+
+if ($result['success']) {
+    $users = $result['data']['users'];
+    $pagination = $result['data']['pagination'];
+
+    foreach ($users as $user) {
+        echo $user['full_name'] . ' (' . $user['email'] . ')' . PHP_EOL;
+    }
+
+    echo "Total: " . $pagination['total'] . " usuarios" . PHP_EOL;
+
+    // Cargar más resultados si hay
+    if ($pagination['has_more']) {
+        $nextPage = searchUsers('juan', 10, 10);
+    }
+} else {
+    echo "Error: " . $result['error'];
+}
+?>`,
+        java: (baseUrl: string, apiKey: string) => `// Java/HttpClient - Búsqueda de usuarios
+import java.net.http.*;
+import java.net.URI;
+import com.google.gson.Gson;
+import java.util.HashMap;
+import java.util.Map;
+
+public class UserSearch {
+    public static void main(String[] args) throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+        Gson gson = new Gson();
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("api_key", "${apiKey}");
+        data.put("application_id", "app_mk2k3j4h5k6l");
+        data.put("query", "juan");
+        data.put("limit", 10);
+        data.put("offset", 0);
+
+        String json = gson.toJson(data);
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("${baseUrl}/api/user/search"))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(json))
+            .build();
+
+        HttpResponse<String> response = client.send(request,
+            HttpResponse.BodyHandlers.ofString());
+
+        System.out.println(response.body());
+    }
+}`
+      }
     }
   ];
 
