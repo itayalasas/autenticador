@@ -100,71 +100,88 @@ export default function AuthenticationSettings() {
     try {
       setLoading(true);
 
-      // Get application with metadata, auto_block fields, and email_config
+      // Get application with all fields
       const { data: app, error } = await supabase
         .from('applications')
-        .select('*, max_failed_attempts, auto_block_enabled, email_config')
+        .select('*')
         .eq('id', selectedApp)
-        .single();
+        .maybeSingle();
 
-      if (error) throw error;
-
-      if (app) {
-        // Load settings from application metadata and columns
-        const metadata = app.metadata || {};
-        const emailConfig = app.email_config || {};
-        setAuthSettings(prev => ({
-          ...prev,
-          require_email_verification: emailConfig.require_email_verification ?? metadata.enable_email_verification ?? true,
-          allow_public_registration: metadata.allow_public_registration ?? true,
-          enable_two_factor: metadata.enable_two_factor ?? false,
-          password_min_length: metadata.password_min_length ?? 8,
-          password_require_uppercase: metadata.password_require_uppercase ?? true,
-          password_require_lowercase: metadata.password_require_lowercase ?? true,
-          password_require_numbers: metadata.password_require_numbers ?? true,
-          password_require_symbols: metadata.password_require_symbols ?? false,
-          session_timeout: metadata.session_timeout ?? 24,
-          refresh_token_lifetime: metadata.refresh_token_lifetime ?? 30,
-          max_concurrent_sessions: metadata.max_concurrent_sessions ?? 5,
-          enable_rate_limiting: metadata.enable_rate_limiting ?? true,
-          max_login_attempts: metadata.max_login_attempts ?? 5,
-          lockout_duration: metadata.lockout_duration ?? 15,
-          enable_captcha: metadata.enable_captcha ?? false,
-          // Load auto-block settings from columns
-          auto_block_enabled: app.auto_block_enabled ?? true,
-          max_failed_attempts: app.max_failed_attempts ?? 5,
-          jwt_algorithm: metadata.jwt_algorithm ?? 'HS256',
-          token_issuer: metadata.token_issuer ?? 'AuthSystem',
-          include_user_metadata: metadata.include_user_metadata ?? true,
-          allowed_callback_urls: Array.isArray(metadata.allowed_callback_urls)
-            ? metadata.allowed_callback_urls.join('\n')
-            : metadata.allowed_callback_urls || '',
-          allowed_logout_urls: Array.isArray(metadata.allowed_logout_urls)
-            ? metadata.allowed_logout_urls.join('\n')
-            : metadata.allowed_logout_urls || '',
-          allowed_origins: Array.isArray(metadata.cors_origins)
-            ? metadata.cors_origins.join('\n')
-            : metadata.cors_origins || '',
-          // Load email configuration
-          email_provider: emailConfig.email_provider || 'system',
-          send_welcome_email: emailConfig.send_welcome_email ?? false,
-          send_password_reset_email: emailConfig.send_password_reset_email ?? true,
-          notify_admin_new_user: emailConfig.notify_admin_new_user ?? false,
-          admin_notification_email: emailConfig.admin_notification_email || '',
-          from_name: emailConfig.from_name || 'AuthSystem',
-          from_email: emailConfig.from_email || '',
-          // Load SMTP configuration
-          smtp_host: emailConfig.smtp_host || '',
-          smtp_port: emailConfig.smtp_port || 587,
-          smtp_secure: emailConfig.smtp_secure ?? true,
-          smtp_user: emailConfig.smtp_user || '',
-          smtp_password: emailConfig.smtp_password || '',
-          // Load API key
-          api_key: emailConfig.api_key || ''
-        }));
+      if (error) {
+        console.error('Query error:', error);
+        throw error;
       }
-    } catch (error) {
+
+      if (!app) {
+        console.warn('No application found with ID:', selectedApp);
+        showError(
+          'Aplicación no encontrada',
+          'La aplicación seleccionada no existe. Por favor selecciona otra.'
+        );
+        return;
+      }
+
+      // Load settings from application metadata and columns
+      const metadata = app.metadata || {};
+      const emailConfig = app.email_config || {};
+
+      setAuthSettings(prev => ({
+        ...prev,
+        require_email_verification: emailConfig.require_email_verification ?? metadata.enable_email_verification ?? true,
+        allow_public_registration: metadata.allow_public_registration ?? true,
+        enable_two_factor: metadata.enable_two_factor ?? false,
+        password_min_length: metadata.password_min_length ?? 8,
+        password_require_uppercase: metadata.password_require_uppercase ?? true,
+        password_require_lowercase: metadata.password_require_lowercase ?? true,
+        password_require_numbers: metadata.password_require_numbers ?? true,
+        password_require_symbols: metadata.password_require_symbols ?? false,
+        session_timeout: metadata.session_timeout ?? 24,
+        refresh_token_lifetime: metadata.refresh_token_lifetime ?? 30,
+        max_concurrent_sessions: metadata.max_concurrent_sessions ?? 5,
+        enable_rate_limiting: metadata.enable_rate_limiting ?? true,
+        max_login_attempts: metadata.max_login_attempts ?? 5,
+        lockout_duration: metadata.lockout_duration ?? 15,
+        enable_captcha: metadata.enable_captcha ?? false,
+        // Load auto-block settings from columns
+        auto_block_enabled: app.auto_block_enabled ?? true,
+        max_failed_attempts: app.max_failed_attempts ?? 5,
+        jwt_algorithm: metadata.jwt_algorithm ?? 'HS256',
+        token_issuer: metadata.token_issuer ?? 'AuthSystem',
+        include_user_metadata: metadata.include_user_metadata ?? true,
+        allowed_callback_urls: Array.isArray(metadata.allowed_callback_urls)
+          ? metadata.allowed_callback_urls.join('\n')
+          : metadata.allowed_callback_urls || '',
+        allowed_logout_urls: Array.isArray(metadata.allowed_logout_urls)
+          ? metadata.allowed_logout_urls.join('\n')
+          : metadata.allowed_logout_urls || '',
+        allowed_origins: Array.isArray(metadata.cors_origins)
+          ? metadata.cors_origins.join('\n')
+          : metadata.cors_origins || '',
+        // Load email configuration
+        email_provider: emailConfig.email_provider || 'system',
+        send_welcome_email: emailConfig.send_welcome_email ?? false,
+        send_password_reset_email: emailConfig.send_password_reset_email ?? true,
+        notify_admin_new_user: emailConfig.notify_admin_new_user ?? false,
+        admin_notification_email: emailConfig.admin_notification_email || '',
+        from_name: emailConfig.from_name || 'AuthSystem',
+        from_email: emailConfig.from_email || '',
+        // Load SMTP configuration
+        smtp_host: emailConfig.smtp_host || '',
+        smtp_port: emailConfig.smtp_port || 587,
+        smtp_secure: emailConfig.smtp_secure ?? true,
+        smtp_user: emailConfig.smtp_user || '',
+        smtp_password: emailConfig.smtp_password || '',
+        // Load API key
+        api_key: emailConfig.api_key || ''
+      }));
+    } catch (error: any) {
       console.error('Error loading auth settings:', error);
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      });
       showError(
         'Error al cargar configuración',
         'No se pudo cargar la configuración de autenticación. Usando valores por defecto.'
