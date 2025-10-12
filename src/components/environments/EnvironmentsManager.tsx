@@ -934,13 +934,6 @@ export default function EnvironmentsManager() {
           .join('');
         apiKey = keyPrefix + randomPart;
 
-        // Crear hash de la key para almacenamiento seguro
-        const encoder = new TextEncoder();
-        const data = encoder.encode(apiKey);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const keyHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
         // Crear preview (primeros 20 chars + ... + últimos 4)
         const keyPreview = `${apiKey.substring(0, 20)}...${apiKey.substring(apiKey.length - 4)}`;
 
@@ -949,7 +942,7 @@ export default function EnvironmentsManager() {
           .insert({
             application_id: app.id,
             name: `${environmentName} API Key`,
-            key_hash: keyHash,
+            key_hash: apiKey,
             key_preview: keyPreview,
             environment: environmentName,
             is_active: true
@@ -963,17 +956,8 @@ export default function EnvironmentsManager() {
         addLog(`   ✓ API Key creada: ${keyPreview}`, 'success');
       } else {
         // Ya existe una API Key para este ambiente
-        // Por seguridad, las keys completas solo se muestran al crearlas
+        apiKey = apiKeys[0].key_hash;
         addLog(`   ✓ API Key existente encontrada: ${apiKeys[0].key_preview}`, 'success');
-        addLog(`   ⚠️  Nota: Asegúrate de tener guardada tu API Key completa`, 'warning');
-
-        // Para el deploy, necesitamos generar un placeholder
-        // El usuario deberá configurar manualmente la API Key real en Netlify
-        apiKey = `PLACEHOLDER_${environmentName.toUpperCase()}_API_KEY`;
-
-        addLog(`   ℹ️  Deberás configurar la API Key manualmente en Netlify:`, 'info');
-        addLog(`      Variable: AUTHSYSTEM_API_KEY`, 'info');
-        addLog(`      Valor: Tu API Key guardada (${apiKeys[0].key_preview})`, 'info');
       }
 
       addLog('📁 Preparando formularios estáticos...', 'info');
@@ -1497,7 +1481,8 @@ export default function EnvironmentsManager() {
               netlify_site_url: siteUrl,
               last_commit: commitResult.sha,
               last_deploy: new Date().toISOString(),
-              deployment_status: 'deployed'
+              deployment_status: 'deployed',
+              api_key: pendingDeployData.apiKey
             }
           });
 
