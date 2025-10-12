@@ -152,12 +152,15 @@ function PublicAuthForms({
       params.set('api_key', currentApiKey);
     }
 
-    const callbackUrl = searchParams.get('callback_url');
+    // Support both callback_url and redirect_uri
+    const callbackUrl = searchParams.get('callback_url') || searchParams.get('redirect_uri');
     if (callbackUrl) {
-      params.set('callback_url', callbackUrl);
+      params.set('redirect_uri', callbackUrl);
     }
 
-    return \`\${path}?\${params.toString()}\`;
+    const url = \`\${path}?\${params.toString()}\`;
+    console.log('\\ud83d\\udd17 buildNavUrl:', { path, callbackUrl, url });
+    return url;
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -710,7 +713,8 @@ function PublicAuthForms({
           </form>
           )}
 
-          {/* Footer Links */}
+          {/* Footer Links - Hide if reset-password was successful */}
+          {!(formType === 'reset-password' && message?.type === 'success') && (
           <div className="mt-6 text-center space-y-2">
             {formType === 'login' && (
               <>
@@ -758,6 +762,7 @@ function PublicAuthForms({
               </p>
             )}
           </div>
+          )}
         </div>
 
         {/* Security Badge */}
