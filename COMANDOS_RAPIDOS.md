@@ -1,162 +1,135 @@
-# 🚀 SOLUCIÓN AL ERROR: useMemo en GitHub
+# ⚡ COMANDOS RÁPIDOS - DEPLOY COMPLETO
 
-## ⚠️ PROBLEMA IDENTIFICADO
+## 🎯 PROBLEMA ACTUAL:
+- ✅ Login funciona parcialmente pero muestra "API Key inválida"
+- ✅ Register crea usuarios pero con rol incorrecto
+- ✅ Reset password no probado
 
-El código en GitHub todavía tiene `useMemo` en PublicAuthRouter.tsx línea 60 porque:
-- ✅ La Edge Function local está correcta
-- ❌ NO está desplegada en Supabase producción
-- ❌ Por eso GitHub recibe código viejo
+## 📝 LO QUE SE CORRIGIÓ:
 
----
+### 1. Frontend (Dashboard):
+- ✅ Extrae `api_key` de la URL
+- ✅ Envía `api_key` en payload de login, register, reset-password
+- ✅ Envía `role` seleccionado en el registro
 
-## 🎯 SOLUCIÓN EN 3 PASOS
-
-### PASO 1️⃣: Desplegar Edge Function
-
-```bash
-supabase functions deploy collect-source-files --no-verify-jwt
-```
-
-### PASO 2️⃣: Hacer Deploy Nuevo
-
-1. Dashboard de AuthSystem
-2. Ir a "Ambientes" o "Deployments"
-3. Hacer clic en "Deploy" en tu aplicación
-4. Esperar que termine
-
-### PASO 3️⃣: Verificar en GitHub
-
-1. Abrir repositorio en GitHub
-2. Ir a `src/components/auth/PublicAuthRouter.tsx`
-3. Línea 60 debe decir:
-   ```typescript
-   const defaultBranding = (() => ({
-   ```
-4. NO debe tener `useMemo`
+### 2. Backend (Edge Functions):
+- ⚠️ auth-register: Corregida para usar el rol seleccionado
+- ✅ auth-login: Ya tiene validación de API key
+- ✅ auth-reset-password: Ya tiene validación de API key  
+- ✅ auth-reset-password-confirm: Ya tiene validación de API key
 
 ---
 
-## 📦 Si No Tienes Supabase CLI
+## 🚀 DESPLEGAR TODO (3 PASOS):
 
-### Instalación Rápida:
-
+### PASO 1: Desplegar Dashboard (Frontend)
 ```bash
-# npm
-npm install -g supabase
-
-# Homebrew (macOS)
-brew install supabase/tap/supabase
+# Ir a: https://app.netlify.com/
+# Seleccionar: celadon-begonia-d7eb0e
+# Click: Deploys → Deploy manually
+# Arrastrar: dist/
+# Esperar: 1-2 minutos
 ```
 
-### Autenticación y Conexión:
-
+### PASO 2: Desplegar Edge Function (Backend)
 ```bash
-# 1. Login
-supabase login
+# Opción A - CLI (más rápido):
+supabase functions deploy auth-register --project-ref sfqtmnncgiqkveaoqckt
 
-# 2. Ver proyectos
-supabase projects list
+# Opción B - Dashboard:
+# 1. https://supabase.com/dashboard/project/sfqtmnncgiqkveaoqckt/functions
+# 2. Click en "auth-register" → "Edit"
+# 3. Copiar código de: supabase/functions/auth-register/index.ts
+# 4. Pegar y "Deploy"
+```
 
-# 3. Conectar (usa tu Project Ref)
-supabase link --project-ref TU_PROJECT_REF
+### PASO 3: Probar Flujo Completo
+```bash
+# 1. Ir al dashboard actualizado
+# 2. Ir a Aplicaciones → Ambientes
+# 3. Click en "Desplegar"
+# 4. Esperar que genere la URL
+# 5. Click en "Ver Formularios" → "Registro"
+# 6. Completar datos y seleccionar "Cliente"
+# 7. Verificar en Dashboard → Usuarios que tiene rol "cliente"
 ```
 
 ---
 
-## 🚀 Comando Completo (Copia Todo)
+## ✅ CHECKLIST FINAL:
 
-```bash
-# Instalar (si no lo tienes)
-npm install -g supabase
-
-# Login
-supabase login
-
-# Ver proyectos
-supabase projects list
-
-# Conectar (reemplaza con tu Project Ref)
-supabase link --project-ref abcdefghijk
-
-# DESPLEGAR LA FUNCIÓN CRÍTICA
-supabase functions deploy collect-source-files --no-verify-jwt
-
-# Verificar
-supabase functions list
-```
-
-## ✅ Verificar Despliegue
-
-```bash
-# Listar funciones desplegadas
-supabase functions list
-
-# Ver logs de una función específica
-supabase functions logs collect-source-files
-```
-
-## 🔍 Debug (Si algo falla)
-
-```bash
-# Ver logs en tiempo real
-supabase functions logs collect-source-files --follow
-
-# Verificar configuración del proyecto
-supabase projects list
-supabase status
-```
-
-## 📝 Ejemplo Completo (Copia Todo)
-
-```bash
-# 1. Instalar CLI (si no lo tienes)
-npm install -g supabase
-
-# 2. Login
-supabase login
-
-# 3. Ver tus proyectos y copiar el Project Ref
-supabase projects list
-
-# 4. Conectar (reemplaza con tu Project Ref)
-supabase link --project-ref abcdefghijklmno
-
-# 5. Desplegar la función más importante
-supabase functions deploy collect-source-files --no-verify-jwt
-
-# 6. Desplegar las otras dos (opcional)
-supabase functions deploy github-commit-push --no-verify-jwt
-supabase functions deploy deploy-to-netlify --no-verify-jwt
-
-# 7. Verificar que se desplegaron
-supabase functions list
-```
-
-## 🎯 Después del Despliegue
-
-1. Ve a tu dashboard de AuthSystem
-2. Navega a "Ambientes"
-3. Selecciona tu aplicación
-4. Haz clic en "Desplegar" en production
+- [x] Código frontend actualizado (api_key + role)
+- [x] Código backend actualizado (auth-register con roles)
+- [x] Build ejecutado (dist/ generado)
+- [ ] **Dashboard desplegado en Netlify** ← PENDIENTE
+- [ ] **Edge Function desplegada en Supabase** ← PENDIENTE
+- [ ] **Prueba de registro completa** ← PENDIENTE
+- [ ] **Prueba de login completa** ← PENDIENTE
 
 ---
 
-## 💡 Notas Importantes
-
-- **Project Ref**: Es el ID corto que ves en `supabase projects list`
-- **No verificar JWT**: `--no-verify-jwt` es necesario porque estas funciones se llaman desde el frontend
-- **Tiempo de despliegue**: Cada función tarda ~10-30 segundos
-
-## ❓ ¿Cuál es mi Project Ref?
-
-Después de ejecutar `supabase projects list` verás algo como:
+## 📋 ARCHIVOS MODIFICADOS:
 
 ```
-┌─────────────────┬────────────────┬────────────┐
-│   NAME          │   PROJECT REF  │  STATUS    │
-├─────────────────┼────────────────┼────────────┤
-│   My Project    │   abcdefghijk  │  ACTIVE    │
-└─────────────────┴────────────────┴────────────┘
+src/utils/
+├── publicAuthFormsTemplate.ts      ← Agregado api_key a payloads
+└── netlifyReactProjectHelper.ts    ← Extrae api_key de URL
+
+supabase/functions/
+└── auth-register/
+    └── index.ts                    ← Usa rol del payload
 ```
 
-Tu **Project Ref** es: `abcdefghijk`
+---
+
+## 🐛 SI ALGO FALLA:
+
+### "API Key inválida" después de desplegar:
+```bash
+# 1. Verifica que desplegaste el dist/ actualizado
+# 2. Limpia caché del navegador (Ctrl+Shift+R)
+# 3. Verifica en DevTools → Network que el payload incluye api_key
+# 4. Verifica que el api_key en la URL es el correcto
+```
+
+### "Usuario creado con rol incorrecto":
+```bash
+# 1. Verifica que desplegaste la Edge Function actualizada
+# 2. Ve a Supabase → Functions → auth-register
+# 3. Ve a Logs y verifica el mensaje "🎭 Role from request:"
+# 4. Verifica que el rol existe en application_roles
+```
+
+### "Email no llega":
+```bash
+# 1. Ve a Dashboard → Configuración → Email
+# 2. Verifica configuración SMTP/Resend/SendGrid
+# 3. Ve a Supabase → Email Logs para ver el estado
+```
+
+---
+
+## 🎉 RESULTADO ESPERADO:
+
+```
+┌──────────────────────────────────────────────────┐
+│  ✅ REGISTRO                                     │
+│  - Selecciona "Cliente"                          │
+│  - Crea usuario con rol "cliente"                │
+│  - Redirige al callback                          │
+├──────────────────────────────────────────────────┤
+│  ✅ LOGIN                                        │
+│  - Valida API key correctamente                  │
+│  - Retorna tokens de acceso                      │
+│  - Redirige al callback                          │
+├──────────────────────────────────────────────────┤
+│  ✅ RECUPERAR CONTRASEÑA                         │
+│  - Valida API key correctamente                  │
+│  - Envía email con token                         │
+│  - Permite resetear contraseña                   │
+└──────────────────────────────────────────────────┘
+```
+
+---
+
+**¡SOLO FALTA DESPLEGAR! 🚀**
