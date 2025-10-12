@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
-import { Code, Copy, Play, CheckCircle, AlertCircle, Globe, Key, Shield, ExternalLink } from 'lucide-react';
+import { Copy, CheckCircle, AlertCircle, Globe, Key, Shield } from 'lucide-react';
 
 export default function ApiDocumentation() {
-  const [activeEndpoint, setActiveEndpoint] = useState('web-login');
+  const [activeEndpoint, setActiveEndpoint] = useState('auth-login');
   const [activeLanguage, setActiveLanguage] = useState('javascript');
   const [activeEnvironment, setActiveEnvironment] = useState('production');
-  const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
 
   const environments = [
     {
@@ -14,16 +13,14 @@ export default function ApiDocumentation() {
       icon: '⚡',
       baseUrl: 'http://localhost:5173',
       apiKey: 'ak_development_ejemplo123456789',
-      appId: 'app_dev_123456',
       description: 'Ambiente local para desarrollo'
     },
     {
       id: 'testing',
       name: 'Testing',
       icon: '🧪',
-      baseUrl: 'https://auth-test.yourdomain.com',
-      apiKey: 'ak_testing_abcdef1234567890',
-      appId: 'app_test_654321',
+      baseUrl: 'https://auth-test.tudominio.com',
+      apiKey: 'ak_testing_abcdef1234567890abcdef1234567890',
       description: 'Ambiente de pruebas'
     },
     {
@@ -32,7 +29,6 @@ export default function ApiDocumentation() {
       icon: '🚀',
       baseUrl: 'https://celadon-begonia-d7eb0e.netlify.app',
       apiKey: 'ak_production_042a5f866c7e35630a9340bd224cbdda',
-      appId: 'app_a6f840c5-bd1',
       description: 'Ambiente de producción'
     }
   ];
@@ -41,278 +37,444 @@ export default function ApiDocumentation() {
 
   const endpoints = [
     {
-      id: 'web-login',
-      title: 'Login Web (Flujo de Redirección)',
-      method: 'GET',
-      path: '/login',
-      description: 'Redirige al usuario a la página de login. El usuario ingresa sus credenciales y al completar con éxito, es redirigido al callback especificado con los tokens.',
+      id: 'auth-login',
+      title: 'Login de Usuario',
+      method: 'POST',
+      path: '/api/auth/login',
+      description: 'Autentica un usuario mediante formulario web. El API key debe incluirse en la URL como parámetro.',
       params: [
-        { name: 'app_id', type: 'string', required: true, description: 'ID público de la aplicación' },
-        { name: 'redirect_uri', type: 'string', required: true, description: 'URL de callback (debe estar URL encoded)' },
-        { name: 'api_key', type: 'string', required: true, description: 'API Key de producción/testing' }
+        { name: 'api_key', type: 'string', required: true, location: 'URL', description: 'API Key en la URL (ej: ?api_key=ak_production_xxx)' },
+        { name: 'email', type: 'string', required: true, location: 'Body', description: 'Email del usuario' },
+        { name: 'password', type: 'string', required: true, location: 'Body', description: 'Contraseña del usuario' },
+        { name: 'application_id', type: 'string', required: true, location: 'Body', description: 'ID único de la aplicación' }
       ],
+      requestExample: (baseUrl: string, apiKey: string) => ({
+        url: `${baseUrl}/api/auth/login?api_key=${apiKey}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: {
+          email: 'usuario@ejemplo.com',
+          password: 'micontraseña123',
+          application_id: 'app_mk2k3j4h5k6l'
+        }
+      }),
       response: {
-        success: (baseUrl: string) => `// Después del login exitoso, el usuario es redirigido a:
-${baseUrl.replace('/login', '')}/auth/callback?token=ACCESS_TOKEN&refresh_token=REFRESH_TOKEN&state=success
-
-// En tu callback, recibirás:
-{
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "state": "success",
-  "user": {
-    "id": "user_123",
-    "email": "usuario@ejemplo.com",
-    "name": "Usuario Ejemplo"
+        success: (baseUrl: string) => `{
+  "success": true,
+  "data": {
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "token_type": "Bearer",
+    "expires_in": 86400,
+    "user": {
+      "id": "user_123",
+      "email": "usuario@ejemplo.com",
+      "name": "Usuario Ejemplo",
+      "roles": ["user"],
+      "permissions": ["read"],
+      "metadata": {},
+      "last_login": "2024-02-20T10:30:00Z"
+    },
+    "application": {
+      "id": "app_mk2k3j4h5k6l",
+      "name": "Mi Aplicación",
+      "domain": "miapp.com"
+    }
   }
 }`,
-        error: `// En caso de error, el usuario ve un mensaje en la página
-// y puede reintentar el login`
-      },
-      example: (baseUrl: string, apiKey: string, appId: string) => `# Ejemplo de URL completa
-${baseUrl}/login?app_id=${appId}&redirect_uri=${encodeURIComponent('https://tuapp.com/auth/callback')}&api_key=${apiKey}
-
-# URL decodificada para visualización:
-${baseUrl}/login
-  ?app_id=${appId}
-  &redirect_uri=https://tuapp.com/auth/callback
-  &api_key=${apiKey}`,
-      examples: {
-        javascript: (baseUrl: string, apiKey: string, appId: string) => `// JavaScript - Redirigir al usuario al login
-const redirectUri = 'https://tuapp.com/auth/callback';
-const loginUrl = \`${baseUrl}/login\` +
-  \`?app_id=${appId}\` +
-  \`&redirect_uri=\${encodeURIComponent(redirectUri)}\` +
-  \`&api_key=${apiKey}\`;
-
-// Redirigir
-window.location.href = loginUrl;
-
-// ========================================
-// En tu página de callback (/auth/callback):
-// ========================================
-const urlParams = new URLSearchParams(window.location.search);
-const accessToken = urlParams.get('token');
-const refreshToken = urlParams.get('refresh_token');
-const state = urlParams.get('state');
-
-if (accessToken) {
-  // Guardar tokens
-  localStorage.setItem('access_token', accessToken);
-  localStorage.setItem('refresh_token', refreshToken);
-
-  // Redirigir al dashboard
-  window.location.href = '/dashboard';
-}`,
-        python: (baseUrl: string, apiKey: string, appId: string) => `# Python/Flask - Generar URL de login
-from urllib.parse import urlencode
-
-redirect_uri = 'https://tuapp.com/auth/callback'
-params = {
-    'app_id': '${appId}',
-    'redirect_uri': redirect_uri,
-    'api_key': '${apiKey}'
+        error: `{
+  "success": false,
+  "error": {
+    "code": "INVALID_CREDENTIALS",
+    "message": "Email o contraseña incorrectos"
+  }
 }
 
-login_url = f"${baseUrl}/login?{urlencode(params)}"
-
-# Redirigir al usuario
-return redirect(login_url)
-
-# ========================================
-# En tu ruta de callback:
-# ========================================
-@app.route('/auth/callback')
-def auth_callback():
-    access_token = request.args.get('token')
-    refresh_token = request.args.get('refresh_token')
-    state = request.args.get('state')
-
-    if access_token:
-        # Guardar tokens en sesión
-        session['access_token'] = access_token
-        session['refresh_token'] = refresh_token
-        return redirect('/dashboard')
-
-    return redirect('/login')`,
-        php: (baseUrl: string, apiKey: string, appId: string) => `<?php
-// PHP - Generar URL de login
-$redirectUri = 'https://tuapp.com/auth/callback';
-$params = http_build_query([
-    'app_id' => '${appId}',
-    'redirect_uri' => $redirectUri,
-    'api_key' => '${apiKey}'
-]);
-
-$loginUrl = "${baseUrl}/login?" . $params;
-
-// Redirigir
-header("Location: " . $loginUrl);
-exit;
-
-// ========================================
-// En tu página de callback:
-// ========================================
-<?php
-$accessToken = $_GET['token'] ?? null;
-$refreshToken = $_GET['refresh_token'] ?? null;
-$state = $_GET['state'] ?? null;
-
-if ($accessToken) {
-    // Guardar tokens en sesión
-    $_SESSION['access_token'] = $accessToken;
-    $_SESSION['refresh_token'] = $refreshToken;
-
-    header("Location: /dashboard");
-    exit;
-}
-?>`,
-        java: (baseUrl: string, apiKey: string, appId: string) => `// Java/Spring Boot - Redirigir al login
-import org.springframework.web.util.UriComponentsBuilder;
-
-@GetMapping("/login")
-public String redirectToLogin() {
-    String redirectUri = "https://tuapp.com/auth/callback";
-
-    String loginUrl = UriComponentsBuilder
-        .fromHttpUrl("${baseUrl}/login")
-        .queryParam("app_id", "${appId}")
-        .queryParam("redirect_uri", redirectUri)
-        .queryParam("api_key", "${apiKey}")
-        .toUriString();
-
-    return "redirect:" + loginUrl;
+// Otros códigos de error posibles:
+{
+  "success": false,
+  "error": {
+    "code": "API_KEY_INVALID",
+    "message": "API Key inválida o no encontrada"
+  }
 }
 
-// ========================================
-// Callback endpoint:
-// ========================================
-@GetMapping("/auth/callback")
-public String authCallback(
-    @RequestParam("token") String accessToken,
-    @RequestParam("refresh_token") String refreshToken,
-    HttpSession session
-) {
-    // Guardar tokens en sesión
-    session.setAttribute("access_token", accessToken);
-    session.setAttribute("refresh_token", refreshToken);
-
-    return "redirect:/dashboard";
+{
+  "success": false,
+  "error": {
+    "code": "RATE_LIMIT_EXCEEDED",
+    "message": "Demasiados intentos. Por favor intenta más tarde."
+  }
 }`
+      },
+      examples: {
+        javascript: (baseUrl: string, apiKey: string) => `// JavaScript/Fetch
+const response = await fetch('${baseUrl}/api/auth/login?api_key=${apiKey}', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    email: 'usuario@ejemplo.com',
+    password: 'micontraseña123',
+    application_id: 'app_mk2k3j4h5k6l'
+  })
+});
+
+const data = await response.json();
+
+if (data.success) {
+  // Guardar tokens
+  localStorage.setItem('access_token', data.data.access_token);
+  localStorage.setItem('refresh_token', data.data.refresh_token);
+
+  console.log('Login exitoso:', data.data.user);
+} else {
+  console.error('Error:', data.error.message);
+}`,
+        python: (baseUrl: string, apiKey: string) => `# Python/Requests
+import requests
+
+url = '${baseUrl}/api/auth/login?api_key=${apiKey}'
+headers = {'Content-Type': 'application/json'}
+data = {
+    'email': 'usuario@ejemplo.com',
+    'password': 'micontraseña123',
+    'application_id': 'app_mk2k3j4h5k6l'
+}
+
+response = requests.post(url, json=data, headers=headers)
+result = response.json()
+
+if result['success']:
+    access_token = result['data']['access_token']
+    refresh_token = result['data']['refresh_token']
+    print(f"Login exitoso: {result['data']['user']}")
+else:
+    print(f"Error: {result['error']['message']}")`,
+        php: (baseUrl: string, apiKey: string) => `<?php
+// PHP/cURL
+$url = '${baseUrl}/api/auth/login?api_key=${apiKey}';
+$data = array(
+    'email' => 'usuario@ejemplo.com',
+    'password' => 'micontraseña123',
+    'application_id' => 'app_mk2k3j4h5k6l'
+);
+
+$ch = curl_init($url);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_POST, true);
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
+
+$response = curl_exec($ch);
+curl_close($ch);
+
+$result = json_decode($response, true);
+
+if ($result['success']) {
+    $_SESSION['access_token'] = $result['data']['access_token'];
+    $_SESSION['refresh_token'] = $result['data']['refresh_token'];
+    echo "Login exitoso";
+} else {
+    echo "Error: " . $result['error']['message'];
+}
+?>`,
+        java: (baseUrl: string, apiKey: string) => `// Java/HttpClient
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.URI;
+
+HttpClient client = HttpClient.newHttpClient();
+String json = "{\\"email\\":\\"usuario@ejemplo.com\\",\\"password\\":\\"micontraseña123\\",\\"application_id\\":\\"app_mk2k3j4h5k6l\\"}";
+
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create("${baseUrl}/api/auth/login?api_key=${apiKey}"))
+    .header("Content-Type", "application/json")
+    .POST(HttpRequest.BodyPublishers.ofString(json))
+    .build();
+
+HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+System.out.println(response.body());`
       }
     },
     {
-      id: 'web-register',
-      title: 'Registro Web (Flujo de Redirección)',
-      method: 'GET',
-      path: '/register',
-      description: 'Redirige al usuario a la página de registro. El usuario completa el formulario y al registrarse exitosamente, es redirigido al callback.',
+      id: 'auth-register',
+      title: 'Registro de Usuario',
+      method: 'POST',
+      path: '/api/auth/register',
+      description: 'Registra un nuevo usuario en la aplicación. El API key debe incluirse en la URL como parámetro.',
       params: [
-        { name: 'app_id', type: 'string', required: true, description: 'ID público de la aplicación' },
-        { name: 'redirect_uri', type: 'string', required: true, description: 'URL de callback (debe estar URL encoded)' },
-        { name: 'api_key', type: 'string', required: true, description: 'API Key de producción/testing' }
+        { name: 'api_key', type: 'string', required: true, location: 'URL', description: 'API Key en la URL (ej: ?api_key=ak_production_xxx)' },
+        { name: 'email', type: 'string', required: true, location: 'Body', description: 'Email del usuario' },
+        { name: 'password', type: 'string', required: true, location: 'Body', description: 'Contraseña del usuario' },
+        { name: 'name', type: 'string', required: true, location: 'Body', description: 'Nombre completo del usuario' },
+        { name: 'application_id', type: 'string', required: true, location: 'Body', description: 'ID único de la aplicación' },
+        { name: 'metadata', type: 'object', required: false, location: 'Body', description: 'Datos adicionales del usuario (opcional)' }
       ],
+      requestExample: (baseUrl: string, apiKey: string) => ({
+        url: `${baseUrl}/api/auth/register?api_key=${apiKey}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: {
+          email: 'nuevo@ejemplo.com',
+          password: 'contraseña123',
+          name: 'Nuevo Usuario',
+          application_id: 'app_mk2k3j4h5k6l',
+          metadata: {
+            plan: 'premium',
+            source: 'web'
+          }
+        }
+      }),
       response: {
-        success: (baseUrl: string) => `// Después del registro exitoso:
-${baseUrl.replace('/register', '')}/auth/callback?token=ACCESS_TOKEN&refresh_token=REFRESH_TOKEN&state=registered_and_logged_in`,
-        error: `// Error de email duplicado u otro:
-// Se muestra en la página de registro`
+        success: (baseUrl: string) => `{
+  "success": true,
+  "data": {
+    "user": {
+      "id": "user_456",
+      "email": "nuevo@ejemplo.com",
+      "name": "Nuevo Usuario",
+      "status": "active",
+      "created_at": "2024-02-20T10:30:00Z"
+    },
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "message": "Usuario registrado exitosamente"
+  }
+}`,
+        error: `{
+  "success": false,
+  "error": {
+    "code": "EMAIL_ALREADY_EXISTS",
+    "message": "Ya existe un usuario con este email"
+  }
+}
+
+// Otros errores posibles:
+{
+  "success": false,
+  "error": {
+    "code": "WEAK_PASSWORD",
+    "message": "La contraseña debe tener al menos 8 caracteres"
+  }
+}
+
+{
+  "success": false,
+  "error": {
+    "code": "INVALID_EMAIL",
+    "message": "El formato del email es inválido"
+  }
+}`
       },
-      example: (baseUrl: string, apiKey: string, appId: string) => `# URL de registro
-${baseUrl.replace('/login', '/register')}?app_id=${appId}&redirect_uri=${encodeURIComponent('https://tuapp.com/auth/callback')}&api_key=${apiKey}`,
       examples: {
-        javascript: (baseUrl: string, apiKey: string, appId: string) => `// JavaScript - Redirigir al registro
-const redirectUri = 'https://tuapp.com/auth/callback';
-const registerUrl = \`${baseUrl.replace('/login', '/register')}\` +
-  \`?app_id=${appId}\` +
-  \`&redirect_uri=\${encodeURIComponent(redirectUri)}\` +
-  \`&api_key=${apiKey}\`;
+        javascript: (baseUrl: string, apiKey: string) => `// JavaScript/Fetch
+const response = await fetch('${baseUrl}/api/auth/register?api_key=${apiKey}', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    email: 'nuevo@ejemplo.com',
+    password: 'contraseña123',
+    name: 'Nuevo Usuario',
+    application_id: 'app_mk2k3j4h5k6l',
+    metadata: {
+      plan: 'premium',
+      source: 'web'
+    }
+  })
+});
 
-window.location.href = registerUrl;`,
-        python: (baseUrl: string, apiKey: string, appId: string) => `# Python - Redirigir al registro
-from urllib.parse import urlencode
+const data = await response.json();
 
-register_url = f"${baseUrl.replace('/login', '/register')}?{urlencode({
-    'app_id': '${appId}',
-    'redirect_uri': 'https://tuapp.com/auth/callback',
-    'api_key': '${apiKey}'
-})}
+if (data.success) {
+  console.log('Registro exitoso:', data.data.user);
+  localStorage.setItem('access_token', data.data.access_token);
+} else {
+  console.error('Error:', data.error.message);
+}`,
+        python: (baseUrl: string, apiKey: string) => `# Python/Requests
+import requests
 
-return redirect(register_url)`,
-        php: (baseUrl: string, apiKey: string, appId: string) => `<?php
-// PHP - Redirigir al registro
-$registerUrl = "${baseUrl.replace('/login', '/register')}?" . http_build_query([
-    'app_id' => '${appId}',
-    'redirect_uri' => 'https://tuapp.com/auth/callback',
-    'api_key' => '${apiKey}'
-]);
+url = '${baseUrl}/api/auth/register?api_key=${apiKey}'
+data = {
+    'email': 'nuevo@ejemplo.com',
+    'password': 'contraseña123',
+    'name': 'Nuevo Usuario',
+    'application_id': 'app_mk2k3j4h5k6l',
+    'metadata': {
+        'plan': 'premium',
+        'source': 'web'
+    }
+}
 
-header("Location: " . $registerUrl);
+response = requests.post(url, json=data)
+result = response.json()
+
+if result['success']:
+    print(f"Registro exitoso: {result['data']['user']}")
+else:
+    print(f"Error: {result['error']['message']}")`,
+        php: (baseUrl: string, apiKey: string) => `<?php
+$url = '${baseUrl}/api/auth/register?api_key=${apiKey}';
+$data = array(
+    'email' => 'nuevo@ejemplo.com',
+    'password' => 'contraseña123',
+    'name' => 'Nuevo Usuario',
+    'application_id' => 'app_mk2k3j4h5k6l',
+    'metadata' => array(
+        'plan' => 'premium',
+        'source' => 'web'
+    )
+);
+
+$ch = curl_init($url);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_POST, true);
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
+
+$response = curl_exec($ch);
+$result = json_decode($response, true);
+
+if ($result['success']) {
+    echo "Registro exitoso";
+} else {
+    echo "Error: " . $result['error']['message'];
+}
 ?>`,
-        java: (baseUrl: string, apiKey: string, appId: string) => `// Java - Redirigir al registro
-String registerUrl = UriComponentsBuilder
-    .fromHttpUrl("${baseUrl.replace('/login', '/register')}")
-    .queryParam("app_id", "${appId}")
-    .queryParam("redirect_uri", "https://tuapp.com/auth/callback")
-    .queryParam("api_key", "${apiKey}")
-    .toUriString();
+        java: (baseUrl: string, apiKey: string) => `// Java/HttpClient
+String json = "{\\"email\\":\\"nuevo@ejemplo.com\\",\\"password\\":\\"contraseña123\\",\\"name\\":\\"Nuevo Usuario\\",\\"application_id\\":\\"app_mk2k3j4h5k6l\\"}";
 
-return "redirect:" + registerUrl;`
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create("${baseUrl}/api/auth/register?api_key=${apiKey}"))
+    .header("Content-Type", "application/json")
+    .POST(HttpRequest.BodyPublishers.ofString(json))
+    .build();
+
+HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+System.out.println(response.body());`
       }
     },
     {
-      id: 'web-reset-password',
-      title: 'Recuperar Contraseña Web',
-      method: 'GET',
-      path: '/reset-password',
-      description: 'Redirige al usuario a la página de recuperación de contraseña. El usuario ingresa su email y recibe instrucciones.',
+      id: 'auth-reset-password',
+      title: 'Recuperar Contraseña',
+      method: 'POST',
+      path: '/api/auth/reset-password',
+      description: 'Solicita un restablecimiento de contraseña. Se enviará un email al usuario con instrucciones.',
       params: [
-        { name: 'app_id', type: 'string', required: true, description: 'ID público de la aplicación' },
-        { name: 'redirect_uri', type: 'string', required: true, description: 'URL de callback (debe estar URL encoded)' },
-        { name: 'api_key', type: 'string', required: true, description: 'API Key de producción/testing' }
+        { name: 'api_key', type: 'string', required: true, location: 'URL', description: 'API Key en la URL (ej: ?api_key=ak_production_xxx)' },
+        { name: 'email', type: 'string', required: true, location: 'Body', description: 'Email del usuario' },
+        { name: 'application_id', type: 'string', required: true, location: 'Body', description: 'ID único de la aplicación' }
       ],
+      requestExample: (baseUrl: string, apiKey: string) => ({
+        url: `${baseUrl}/api/auth/reset-password?api_key=${apiKey}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: {
+          email: 'usuario@ejemplo.com',
+          application_id: 'app_mk2k3j4h5k6l'
+        }
+      }),
       response: {
-        success: (baseUrl: string) => `// El usuario recibe un email con un link de recuperación
-// Al completar el proceso, es redirigido al callback`,
-        error: `// Error de usuario no encontrado u otro:
-// Se muestra en la página de reset`
+        success: `{
+  "success": true,
+  "data": {
+    "message": "Se ha enviado un email con instrucciones para restablecer tu contraseña",
+    "email": "usuario@ejemplo.com"
+  }
+}`,
+        error: `{
+  "success": false,
+  "error": {
+    "code": "USER_NOT_FOUND",
+    "message": "No existe un usuario con este email"
+  }
+}
+
+// Otros errores:
+{
+  "success": false,
+  "error": {
+    "code": "EMAIL_NOT_CONFIGURED",
+    "message": "El servicio de email no está configurado"
+  }
+}`
       },
-      example: (baseUrl: string, apiKey: string, appId: string) => `# URL de reset password
-${baseUrl.replace('/login', '/reset-password')}?app_id=${appId}&redirect_uri=${encodeURIComponent('https://tuapp.com/auth/callback')}&api_key=${apiKey}`,
       examples: {
-        javascript: (baseUrl: string, apiKey: string, appId: string) => `// JavaScript - Redirigir a reset password
-const redirectUri = 'https://tuapp.com/auth/callback';
-const resetUrl = \`${baseUrl.replace('/login', '/reset-password')}\` +
-  \`?app_id=${appId}\` +
-  \`&redirect_uri=\${encodeURIComponent(redirectUri)}\` +
-  \`&api_key=${apiKey}\`;
+        javascript: (baseUrl: string, apiKey: string) => `// JavaScript/Fetch
+const response = await fetch('${baseUrl}/api/auth/reset-password?api_key=${apiKey}', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    email: 'usuario@ejemplo.com',
+    application_id: 'app_mk2k3j4h5k6l'
+  })
+});
 
-window.location.href = resetUrl;`,
-        python: (baseUrl: string, apiKey: string, appId: string) => `# Python
-reset_url = f"${baseUrl.replace('/login', '/reset-password')}?{urlencode({
-    'app_id': '${appId}',
-    'redirect_uri': 'https://tuapp.com/auth/callback',
-    'api_key': '${apiKey}'
-})}
+const data = await response.json();
 
-return redirect(reset_url)`,
-        php: (baseUrl: string, apiKey: string, appId: string) => `<?php
-$resetUrl = "${baseUrl.replace('/login', '/reset-password')}?" . http_build_query([
-    'app_id' => '${appId}',
-    'redirect_uri' => 'https://tuapp.com/auth/callback',
-    'api_key' => '${apiKey}'
-]);
+if (data.success) {
+  console.log(data.data.message);
+} else {
+  console.error('Error:', data.error.message);
+}`,
+        python: (baseUrl: string, apiKey: string) => `# Python/Requests
+url = '${baseUrl}/api/auth/reset-password?api_key=${apiKey}'
+data = {
+    'email': 'usuario@ejemplo.com',
+    'application_id': 'app_mk2k3j4h5k6l'
+}
 
-header("Location: " . $resetUrl);
+response = requests.post(url, json=data)
+result = response.json()
+
+if result['success']:
+    print(result['data']['message'])
+else:
+    print(f"Error: {result['error']['message']}")`,
+        php: (baseUrl: string, apiKey: string) => `<?php
+$url = '${baseUrl}/api/auth/reset-password?api_key=${apiKey}';
+$data = array(
+    'email' => 'usuario@ejemplo.com',
+    'application_id' => 'app_mk2k3j4h5k6l'
+);
+
+$ch = curl_init($url);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_POST, true);
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
+
+$response = curl_exec($ch);
+$result = json_decode($response, true);
+
+if ($result['success']) {
+    echo $result['data']['message'];
+}
 ?>`,
-        java: (baseUrl: string, apiKey: string, appId: string) => `String resetUrl = UriComponentsBuilder
-    .fromHttpUrl("${baseUrl.replace('/login', '/reset-password')}")
-    .queryParam("app_id", "${appId}")
-    .queryParam("redirect_uri", "https://tuapp.com/auth/callback")
-    .queryParam("api_key", "${apiKey}")
-    .toUriString();
+        java: (baseUrl: string, apiKey: string) => `// Java/HttpClient
+String json = "{\\"email\\":\\"usuario@ejemplo.com\\",\\"application_id\\":\\"app_mk2k3j4h5k6l\\"}";
 
-return "redirect:" + resetUrl;`
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create("${baseUrl}/api/auth/reset-password?api_key=${apiKey}"))
+    .header("Content-Type", "application/json")
+    .POST(HttpRequest.BodyPublishers.ofString(json))
+    .build();
+
+HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+System.out.println(response.body());`
       }
     }
   ];
@@ -325,11 +487,6 @@ return "redirect:" + resetUrl;`
     { id: 'java', name: 'Java', icon: '☕' }
   ];
 
-  const handleTestApi = () => {
-    setTestResult('success');
-    setTimeout(() => setTestResult(null), 3000);
-  };
-
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
   };
@@ -339,7 +496,7 @@ return "redirect:" + resetUrl;`
       <div>
         <h2 className="text-2xl font-bold text-gray-900">Documentación de APIs</h2>
         <p className="text-gray-600">
-          Guías completas y ejemplos para integrar autenticación en tu aplicación
+          Guías completas, ejemplos y formato de requests/responses para integrar con nuestras APIs
         </p>
       </div>
 
@@ -372,48 +529,35 @@ return "redirect:" + resetUrl;`
                 <p className="text-xs text-gray-600 mb-1">API Key:</p>
                 <code className="text-xs font-mono text-gray-800 break-all">{env.apiKey}</code>
               </div>
-              <div className="bg-gray-100 rounded p-2 mt-2">
-                <p className="text-xs text-gray-600 mb-1">App ID:</p>
-                <code className="text-xs font-mono text-gray-800">{env.appId}</code>
-              </div>
             </button>
           ))}
         </div>
       </div>
 
-      {/* Important Notice */}
+      {/* Getting Started */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
         <h3 className="text-lg font-semibold text-blue-900 mb-3 flex items-center space-x-2">
           <Shield className="w-5 h-5" />
-          <span>Flujo de Autenticación Web - Ambiente {currentEnv.name}</span>
+          <span>Comenzando - Ambiente {currentEnv.name}</span>
         </h3>
         <div className="space-y-2 text-blue-800">
           <p>• <strong>Base URL:</strong> <code className="bg-blue-100 px-2 py-1 rounded">{currentEnv.baseUrl}</code></p>
-          <p>• <strong>Parámetros requeridos en URL:</strong></p>
-          <ul className="ml-6 space-y-1">
-            <li>- <code className="bg-blue-100 px-2 py-1 rounded">app_id</code>: ID público de tu aplicación</li>
-            <li>- <code className="bg-blue-100 px-2 py-1 rounded">redirect_uri</code>: URL de callback (debe estar URL encoded)</li>
-            <li>- <code className="bg-blue-100 px-2 py-1 rounded">api_key</code>: Tu API Key de producción/testing</li>
-          </ul>
-          <p className="mt-3">• <strong>Flujo:</strong></p>
-          <ol className="ml-6 space-y-1">
-            <li>1. Redirige al usuario a la página de login/registro con los parámetros</li>
-            <li>2. El usuario completa el formulario</li>
-            <li>3. Al completar, es redirigido a tu <code className="bg-blue-100 px-1 rounded">redirect_uri</code></li>
-            <li>4. Los tokens vienen en los query params del callback</li>
-          </ol>
+          <p>• <strong>API Key:</strong> <code className="bg-blue-100 px-2 py-1 rounded">{currentEnv.apiKey}</code></p>
+          <p>• <strong>Importante:</strong> El API Key debe enviarse como parámetro en la URL: <code className="bg-blue-100 px-2 py-1 rounded">?api_key=YOUR_API_KEY</code></p>
+          <p>• Formato de respuesta: JSON</p>
+          <p>• Rate limiting: 10 requests por 15 minutos por IP</p>
         </div>
 
         <div className="mt-4 p-3 bg-yellow-100 rounded-lg border border-yellow-200">
           <h4 className="font-semibold text-yellow-900 mb-2 flex items-center space-x-2">
             <Key className="w-4 h-4" />
-            <span>⚠️ Obtener tus credenciales reales</span>
+            <span>Obtener tu API Key Real</span>
           </h4>
           <div className="space-y-1 text-sm text-yellow-800">
-            <p>1. Ve a <strong>API Keys</strong> en el dashboard</p>
+            <p>1. Ve a la sección <strong>API Keys</strong> en el dashboard</p>
             <p>2. Selecciona tu aplicación y ambiente</p>
-            <p>3. Copia el <strong>App ID</strong> y la <strong>API Key</strong></p>
-            <p>4. Reemplaza los valores de ejemplo con tus credenciales reales</p>
+            <p>3. Crea una nueva API Key o copia una existente</p>
+            <p>4. Reemplaza la API Key de ejemplo con tu clave real</p>
           </div>
         </div>
       </div>
@@ -435,10 +579,7 @@ return "redirect:" + resetUrl;`
                   }`}
                 >
                   <div className="flex items-center space-x-2">
-                    <span className={`px-2 py-0.5 rounded text-xs font-mono ${
-                      endpoint.method === 'GET' ? 'bg-green-100 text-green-800' :
-                      'bg-blue-100 text-blue-800'
-                    }`}>
+                    <span className="px-2 py-0.5 rounded text-xs font-mono bg-blue-100 text-blue-800">
                       {endpoint.method}
                     </span>
                   </div>
@@ -456,10 +597,7 @@ return "redirect:" + resetUrl;`
               {/* Endpoint Header */}
               <div className="bg-white rounded-lg border border-gray-200 p-6">
                 <div className="flex items-center space-x-3 mb-3">
-                  <span className={`px-3 py-1 rounded text-sm font-mono ${
-                    currentEndpoint.method === 'GET' ? 'bg-green-100 text-green-800' :
-                    'bg-blue-100 text-blue-800'
-                  }`}>
+                  <span className="px-3 py-1 rounded text-sm font-mono bg-blue-100 text-blue-800">
                     {currentEndpoint.method}
                   </span>
                   <code className="text-lg font-mono text-gray-900">{currentEndpoint.path}</code>
@@ -469,12 +607,13 @@ return "redirect:" + resetUrl;`
 
               {/* Parameters */}
               <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <h4 className="font-semibold text-gray-900 mb-4">Parámetros (Query String)</h4>
+                <h4 className="font-semibold text-gray-900 mb-4">Parámetros</h4>
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-gray-200">
                         <th className="text-left py-2 font-medium text-gray-900">Nombre</th>
+                        <th className="text-left py-2 font-medium text-gray-900">Ubicación</th>
                         <th className="text-left py-2 font-medium text-gray-900">Tipo</th>
                         <th className="text-left py-2 font-medium text-gray-900">Requerido</th>
                         <th className="text-left py-2 font-medium text-gray-900">Descripción</th>
@@ -485,6 +624,13 @@ return "redirect:" + resetUrl;`
                         <tr key={index} className="border-b border-gray-100">
                           <td className="py-3">
                             <code className="text-sm bg-gray-100 px-2 py-1 rounded">{param.name}</code>
+                          </td>
+                          <td className="py-3">
+                            <span className={`px-2 py-1 rounded text-xs ${
+                              param.location === 'URL' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
+                            }`}>
+                              {param.location}
+                            </span>
                           </td>
                           <td className="py-3 text-sm text-gray-600">{param.type}</td>
                           <td className="py-3">
@@ -504,41 +650,26 @@ return "redirect:" + resetUrl;`
                 </div>
               </div>
 
-              {/* Example URL */}
+              {/* Request Example */}
               <div className="bg-white rounded-lg border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h4 className="font-semibold text-gray-900">URL de Ejemplo</h4>
+                  <h4 className="font-semibold text-gray-900">Ejemplo de Request</h4>
                   <button
-                    onClick={() => copyToClipboard(typeof currentEndpoint.example === 'function' ? currentEndpoint.example(currentEnv.baseUrl, currentEnv.apiKey, currentEnv.appId) : currentEndpoint.example)}
+                    onClick={() => copyToClipboard(JSON.stringify(currentEndpoint.requestExample(currentEnv.baseUrl, currentEnv.apiKey), null, 2))}
                     className="p-2 text-gray-400 hover:text-gray-600"
                   >
                     <Copy className="w-4 h-4" />
                   </button>
                 </div>
                 <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm">
-                  <code>
-                    {typeof currentEndpoint.example === 'function'
-                      ? currentEndpoint.example(currentEnv.baseUrl, currentEnv.apiKey, currentEnv.appId)
-                      : currentEndpoint.example}
-                  </code>
+                  <code>{JSON.stringify(currentEndpoint.requestExample(currentEnv.baseUrl, currentEnv.apiKey), null, 2)}</code>
                 </pre>
-                <div className="mt-4">
-                  <a
-                    href={typeof currentEndpoint.example === 'function' ? currentEndpoint.example(currentEnv.baseUrl, currentEnv.apiKey, currentEnv.appId).split('\n')[1].trim() : currentEndpoint.example}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center space-x-2 text-blue-600 hover:text-blue-700 text-sm"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    <span>Abrir en nueva pestaña</span>
-                  </a>
-                </div>
               </div>
 
               {/* Code Examples */}
               <div className="bg-white rounded-lg border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h4 className="font-semibold text-gray-900">Ejemplos de Integración</h4>
+                  <h4 className="font-semibold text-gray-900">Ejemplos de Código</h4>
                   <div className="flex items-center space-x-2">
                     {languages.map((lang) => (
                       <button
@@ -558,30 +689,26 @@ return "redirect:" + resetUrl;`
                 </div>
                 <div className="flex items-center justify-end space-x-2 mb-2">
                   <button
-                    onClick={() => copyToClipboard(typeof currentEndpoint.examples?.[activeLanguage] === 'function' ? currentEndpoint.examples[activeLanguage](currentEnv.baseUrl, currentEnv.apiKey, currentEnv.appId) : '')}
+                    onClick={() => copyToClipboard(currentEndpoint.examples[activeLanguage](currentEnv.baseUrl, currentEnv.apiKey))}
                     className="p-2 text-gray-400 hover:text-gray-600"
                   >
                     <Copy className="w-4 h-4" />
                   </button>
                 </div>
                 <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm">
-                  <code>
-                    {typeof currentEndpoint.examples?.[activeLanguage] === 'function'
-                      ? currentEndpoint.examples[activeLanguage](currentEnv.baseUrl, currentEnv.apiKey, currentEnv.appId)
-                      : 'No disponible'}
-                  </code>
+                  <code>{currentEndpoint.examples[activeLanguage](currentEnv.baseUrl, currentEnv.apiKey)}</code>
                 </pre>
               </div>
 
               {/* Response Examples */}
               <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <h4 className="font-semibold text-gray-900 mb-4">Después del Login/Registro</h4>
+                <h4 className="font-semibold text-gray-900 mb-4">Ejemplos de Respuesta</h4>
 
                 <div className="space-y-4">
                   <div>
                     <div className="flex items-center space-x-2 mb-2">
                       <CheckCircle className="w-5 h-5 text-green-500" />
-                      <span className="font-medium text-green-800">Callback con tokens</span>
+                      <span className="font-medium text-green-800">Respuesta Exitosa (200)</span>
                     </div>
                     <pre className="bg-green-50 border border-green-200 p-4 rounded-lg overflow-x-auto text-sm">
                       <code className="text-green-900">
@@ -595,7 +722,7 @@ return "redirect:" + resetUrl;`
                   <div>
                     <div className="flex items-center space-x-2 mb-2">
                       <AlertCircle className="w-5 h-5 text-red-500" />
-                      <span className="font-medium text-red-800">En caso de error</span>
+                      <span className="font-medium text-red-800">Respuesta de Error (400/401/500)</span>
                     </div>
                     <pre className="bg-red-50 border border-red-200 p-4 rounded-lg overflow-x-auto text-sm">
                       <code className="text-red-900">
@@ -607,21 +734,6 @@ return "redirect:" + resetUrl;`
                   </div>
                 </div>
               </div>
-
-              {testResult && (
-                <div className={`p-4 rounded-lg ${
-                  testResult === 'success'
-                    ? 'bg-green-50 border border-green-200'
-                    : 'bg-red-50 border border-red-200'
-                }`}>
-                  <div className="flex items-center space-x-2">
-                    <CheckCircle className="w-5 h-5 text-green-500" />
-                    <span className="font-medium text-green-800">
-                      URL copiada al portapapeles
-                    </span>
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </div>
