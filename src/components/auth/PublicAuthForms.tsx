@@ -221,6 +221,7 @@ function PublicAuthForms({
             email: formData.email,
             application_id: applicationId,
             api_key: apiKey,
+            redirect_uri: callbackUrl,
             client_ip: clientIp
           };
           break;
