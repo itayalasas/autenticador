@@ -500,6 +500,144 @@ System.out.println(response.body());`
         </p>
       </div>
 
+      {/* Web Integration Flow - RECOMMENDED */}
+      <div className="bg-gradient-to-r from-green-50 to-blue-50 border-2 border-green-300 rounded-lg p-6">
+        <div className="flex items-start space-x-3 mb-4">
+          <div className="bg-green-500 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold text-sm">✓</div>
+          <div className="flex-1">
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Integración Web Recomendada (Flujo de Redirección)</h3>
+            <p className="text-gray-700 mb-4">
+              <strong>Este es el método recomendado para la mayoría de aplicaciones web.</strong> Tu aplicación redirige al usuario a AuthSystem,
+              el usuario se autentica, y AuthSystem lo redirige de vuelta con los tokens.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div>
+            <h4 className="font-semibold text-gray-900 mb-3 flex items-center space-x-2">
+              <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">1</span>
+              <span>Redirigir al usuario a AuthSystem</span>
+            </h4>
+            <div className="bg-white rounded-lg p-4 border border-gray-200">
+              <p className="text-sm text-gray-600 mb-2">Tu aplicación construye una URL y redirige:</p>
+              <pre className="bg-gray-900 text-gray-100 p-3 rounded text-sm overflow-x-auto">
+{`// Login
+window.location.href = '${currentEnv.baseUrl}/login' +
+  '?app_id=app_mk2k3j4h5k6l' +
+  '&redirect_uri=' + encodeURIComponent('https://tuapp.com/callback') +
+  '&api_key=${currentEnv.apiKey}';
+
+// Registro
+window.location.href = '${currentEnv.baseUrl}/register' +
+  '?app_id=app_mk2k3j4h5k6l' +
+  '&redirect_uri=' + encodeURIComponent('https://tuapp.com/callback') +
+  '&api_key=${currentEnv.apiKey}';`}
+              </pre>
+            </div>
+          </div>
+
+          <div>
+            <h4 className="font-semibold text-gray-900 mb-3 flex items-center space-x-2">
+              <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">2</span>
+              <span>Usuario completa el formulario</span>
+            </h4>
+            <div className="bg-white rounded-lg p-4 border border-gray-200">
+              <p className="text-sm text-gray-600">
+                El usuario ve el formulario de login/registro con tu branding personalizado.
+                AuthSystem valida las credenciales, verifica la API key, y maneja toda la lógica de seguridad internamente.
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <h4 className="font-semibold text-gray-900 mb-3 flex items-center space-x-2">
+              <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">3</span>
+              <span>AuthSystem redirige de vuelta a tu aplicación</span>
+            </h4>
+            <div className="bg-white rounded-lg p-4 border border-gray-200">
+              <p className="text-sm text-gray-600 mb-2">Después de un login exitoso, AuthSystem redirige a:</p>
+              <pre className="bg-gray-900 text-gray-100 p-3 rounded text-sm overflow-x-auto mb-3">
+{`https://tuapp.com/callback?token=ACCESS_TOKEN&refresh_token=REFRESH_TOKEN&user_id=USER_ID&state=authenticated`}
+              </pre>
+              <p className="text-sm text-gray-600">Tu aplicación procesa el callback:</p>
+              <pre className="bg-gray-900 text-gray-100 p-3 rounded text-sm overflow-x-auto">
+{`// En tu página /callback
+const params = new URLSearchParams(window.location.search);
+const accessToken = params.get('token');
+const refreshToken = params.get('refresh_token');
+const userId = params.get('user_id');
+
+if (accessToken) {
+  // Guardar tokens
+  localStorage.setItem('access_token', accessToken);
+  localStorage.setItem('refresh_token', refreshToken);
+
+  // Decodificar token para obtener datos del usuario
+  const payload = JSON.parse(atob(accessToken.split('.')[1]));
+  console.log('Usuario:', payload);
+
+  // Redirigir al dashboard
+  window.location.href = '/dashboard';
+} else {
+  // Error en autenticación
+  window.location.href = '/login';
+}`}
+              </pre>
+            </div>
+          </div>
+
+          <div>
+            <h4 className="font-semibold text-gray-900 mb-3 flex items-center space-x-2">
+              <span className="bg-green-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">✓</span>
+              <span>Datos en el Token JWT</span>
+            </h4>
+            <div className="bg-white rounded-lg p-4 border border-gray-200">
+              <p className="text-sm text-gray-600 mb-2">El access token contiene toda la información del usuario:</p>
+              <pre className="bg-gray-900 text-gray-100 p-3 rounded text-sm overflow-x-auto">
+{`{
+  "sub": "user_123",              // ID del usuario
+  "email": "usuario@ejemplo.com",
+  "name": "Usuario Ejemplo",
+  "app_id": "app_mk2k3j4h5k6l",
+  "roles": ["user", "admin"],
+  "permissions": ["read", "write"],
+  "iat": 1234567890,              // Fecha de emisión
+  "exp": 1234654290,              // Expiración (24h)
+  "iss": "AuthSystem",
+  "aud": "tuapp.com"
+}`}
+              </pre>
+            </div>
+          </div>
+
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <h4 className="font-semibold text-yellow-900 mb-2">Ventajas del Flujo de Redirección</h4>
+            <ul className="text-sm text-yellow-800 space-y-1">
+              <li>✓ No manejas credenciales de usuario directamente</li>
+              <li>✓ Branding personalizado automático</li>
+              <li>✓ Seguridad gestionada por AuthSystem (rate limiting, IP blocking, logs)</li>
+              <li>✓ Más simple de implementar</li>
+              <li>✓ No necesitas construir formularios de login/registro</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      {/* API Integration - Advanced */}
+      <div className="bg-gray-50 border border-gray-300 rounded-lg p-6">
+        <div className="flex items-start space-x-3 mb-4">
+          <div className="bg-gray-500 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold text-sm">⚡</div>
+          <div className="flex-1">
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Integración API Directa (Avanzado)</h3>
+            <p className="text-gray-700">
+              <strong>Solo para casos avanzados:</strong> Apps móviles nativas, CLIs, o servicios backend-to-backend.
+              Si estás construyendo una aplicación web, usa el flujo de redirección arriba.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Environment Selector */}
       <div className="bg-white rounded-lg border border-gray-200 p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
