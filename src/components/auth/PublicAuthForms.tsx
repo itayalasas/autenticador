@@ -137,6 +137,25 @@ function PublicAuthForms({
     };
   }, []); // Empty deps array - only run once
 
+  // Helper function to build navigation URLs with preserved params
+  const buildNavUrl = (path: string) => {
+    const params = new URLSearchParams();
+    params.set('app_id', applicationId);
+
+    // Use apiKey from props or searchParams
+    const currentApiKey = apiKey || searchParams.get('api_key');
+    if (currentApiKey) {
+      params.set('api_key', currentApiKey);
+    }
+
+    const callbackUrl = searchParams.get('callback_url');
+    if (callbackUrl) {
+      params.set('callback_url', callbackUrl);
+    }
+
+    return `${path}?${params.toString()}`;
+  };
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData(prev => ({
       ...prev,
@@ -673,7 +692,7 @@ function PublicAuthForms({
             {formType === 'login' && (
               <>
                 <a
-                  href={`/reset-password?app_id=${applicationId}&api_key=${searchParams.get('api_key') || ''}&callback_url=${encodeURIComponent(searchParams.get('callback_url') || '')}`}
+                  href={buildNavUrl('/reset-password')}
                   className="text-sm hover:underline"
                   style={{ color: defaultBranding.accent_color }}
                 >
@@ -682,7 +701,7 @@ function PublicAuthForms({
                 <p className="text-sm text-gray-600">
                   {getText('login_register_link_text', '¿No tienes cuenta? Regístrate aquí').split('Regístrate aquí')[0]}
                   <a
-                    href={`/register?app_id=${applicationId}&api_key=${searchParams.get('api_key') || ''}&callback_url=${encodeURIComponent(searchParams.get('callback_url') || '')}`}
+                    href={buildNavUrl('/register')}
                     className="hover:underline"
                     style={{ color: defaultBranding.accent_color }}
                   >
@@ -695,7 +714,7 @@ function PublicAuthForms({
               <p className="text-sm text-gray-600">
                 {getText('register_login_link_text', '¿Ya tienes cuenta? Inicia sesión').split('Inicia sesión')[0]}
                 <a
-                  href={`/login?app_id=${applicationId}&api_key=${searchParams.get('api_key') || ''}&callback_url=${encodeURIComponent(searchParams.get('callback_url') || '')}`}
+                  href={buildNavUrl('/login')}
                   className="hover:underline"
                   style={{ color: defaultBranding.accent_color }}
                 >
@@ -707,7 +726,7 @@ function PublicAuthForms({
               <p className="text-sm text-gray-600">
                 {getText('reset_login_link_text', '¿Recordaste tu contraseña? Inicia sesión').split('Inicia sesión')[0]}
                 <a
-                  href={`/login?app_id=${applicationId}&api_key=${searchParams.get('api_key') || ''}&callback_url=${encodeURIComponent(searchParams.get('callback_url') || '')}`}
+                  href={buildNavUrl('/login')}
                   className="hover:underline"
                   style={{ color: defaultBranding.accent_color }}
                 >
