@@ -1,189 +1,130 @@
-# ✅ CORRECCIÓN: API Key Mismatch en URLs de Deploy
+# 🔧 Solución al Error: "Invalid API key or application"
 
-## 🐛 PROBLEMA IDENTIFICADO:
+## 🎯 Problema Identificado
 
-**Síntoma:**
-- Login mostraba "API Key inválida o inactiva"
-- API Key en tarjeta: `ak_production_43d94935fca24fa5883a81d0a60aa176`
-- API Key en URL: `ak_production_2eacaaf5a2d7385d09f7c134ac4c7def`
-- API Key real en BD: `ak_production_2eacaaf5a2d7385d09f7c134ac4c7def`
+La tabla `api_keys` **NO tiene una columna llamada `key`**, solo tiene:
+- `key_hash` (hash de la key)  
+- `key_preview` (vista previa)
 
-**Causa Raíz:**
-1. Cuando se creaba un nuevo API key, se **hasheaba** con SHA-256
-2. El hash se guardaba en `key_hash` (no el API key original)
-3. Cuando ya existía un API key, se usaba un **PLACEHOLDER** en lugar del valor real
-4. Las URLs generadas incluían el PLACEHOLDER, no el API key real
+Pero la Edge Function `user-search` busca por la columna `key` que **no existe**.
 
 ---
 
-## ✅ CORRECCIONES APLICADAS:
+## ✅ Solución Inmediata (3 Pasos)
 
-### 1. Eliminado el Hashing del API Key
+### 📋 PASO 1: Verificar el Estado Actual
 
-**Antes:**
-```typescript
-const keyHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+Ve a: https://supabase.com/dashboard/project/sfqtmnncgiqkveaoqckt/editor
 
-const { error: insertError } = await supabase
-  .from('api_keys')
-  .insert({
-    key_hash: keyHash,  // ❌ Hash SHA-256
-    // ...
-  });
+Ejecuta en **SQL Editor**:
+
+```sql
+-- Ver estructura de api_keys
+SELECT column_name, data_type 
+FROM information_schema.columns 
+WHERE table_name = 'api_keys';
 ```
 
-**Después:**
-```typescript
-const { error: insertError } = await supabase
-  .from('api_keys')
-  .insert({
-    key_hash: apiKey,  // ✅ API key completo sin hashear
-    // ...
-  });
-```
-
-**Razón:** Los API keys son seguros por sí mismos (como Stripe). No necesitan hashearse.
+**Resultado esperado:** NO verás la columna `key` en la lista.
 
 ---
 
-### 2. Usar API Key Real Cuando Ya Existe
+### 🛠️ PASO 2: Aplicar la Corrección
 
-**Antes:**
-```typescript
-} else {
-  // Ya existe una API Key para este ambiente
-  apiKey = `PLACEHOLDER_${environmentName.toUpperCase()}_API_KEY`;  // ❌
-  addLog(`   ℹ️  Deberás configurar la API Key manualmente en Netlify:`, 'info');
+En el mismo **SQL Editor**, ejecuta TODO este script:
+
+```sql
+-- Agregar columna 'key'
+ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS key text;
+
+-- Crear índice
+CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(key);
+
+-- Actualizar tu API key
+UPDATE api_keys
+SET key = 'ak_production_042a5f866c7e35630a9340bd224cbdda'
+WHERE application_id = 'app_a6f840c5-bd1';
+
+-- Verificar
+SELECT id, application_id, name, key, environment
+FROM api_keys
+WHERE application_id = 'app_a6f840c5-bd1';
+```
+
+**Resultado esperado:** Deberías ver tu API key con la columna `key` llena.
+
+---
+
+### 🧪 PASO 3: Probar en Postman
+
+**URL:**
+```
+POST https://auth-systemv1.netlify.app/api/user/search
+```
+
+**Headers:**
+```
+Content-Type: application/json
+```
+
+**Body:**
+```json
+{
+  "application_id": "app_a6f840c5-bd1",
+  "api_key": "ak_production_042a5f866c7e35630a9340bd224cbdda",
+  "query": "juan",
+  "limit": 10,
+  "offset": 0
 }
 ```
 
-**Después:**
-```typescript
-} else {
-  // Ya existe una API Key para este ambiente
-  apiKey = apiKeys[0].key_hash;  // ✅ Usar el API key real
-  addLog(`   ✓ API Key existente encontrada: ${apiKeys[0].key_preview}`, 'success');
-}
-```
-
----
-
-### 3. Guardar API Key en Metadata del Environment
-
-**Añadido:**
-```typescript
-await applicationService.updateEnvironment(pendingDeployData.environmentId, {
-  // ...
-  metadata: {
-    // ...
-    api_key: pendingDeployData.apiKey  // ✅ Guardar API key correcto
+**Respuesta esperada:**
+```json
+{
+  "success": true,
+  "data": {
+    "users": [...],
+    "pagination": {...}
   }
-});
-```
-
-Esto asegura que:
-- ✅ La tarjeta muestre el API key correcto
-- ✅ Las URLs generadas tengan el API key correcto
-- ✅ El login funcione correctamente
-
----
-
-## 📋 ARCHIVOS MODIFICADOS:
-
-```
-src/components/environments/EnvironmentsManager.tsx
-├── Línea 930-956: Eliminado hashing de API key
-├── Línea 964-977: Usar API key real en lugar de PLACEHOLDER
-└── Línea 1485: Guardar API key en metadata del environment
+}
 ```
 
 ---
 
-## 🚀 PRÓXIMOS PASOS:
+## 📊 Verificación Final
 
-### 1. Desplegar Dashboard Actualizado
-```bash
-# Ir a: https://app.netlify.com/
-# Seleccionar: celadon-begonia-d7eb0e
-# Deploys → Deploy manually
-# Arrastrar: dist/
+Ejecuta en SQL Editor:
+
+```sql
+-- Esta es la misma consulta que hace la Edge Function
+SELECT id, application_id, environment
+FROM api_keys
+WHERE key = 'ak_production_042a5f866c7e35630a9340bd224cbdda'
+  AND application_id = 'app_a6f840c5-bd1';
 ```
 
-### 2. Redesplegar el Ambiente de Producción
-```
-Dashboard → Ambientes → Production → Desplegar
-```
-
-Esto hará que:
-1. ✅ Se obtenga el API key correcto de la BD
-2. ✅ Se generen URLs con el API key correcto
-3. ✅ Se actualice la tarjeta con el API key correcto
-4. ✅ El login funcione sin error "API Key inválida"
+Si ves **1 resultado**, todo está correcto ✅
 
 ---
 
-## 🧪 CÓMO PROBAR:
+## 📁 Archivos de Ayuda
 
-### Paso 1: Verificar API Key en Tarjeta
-```
-Dashboard → Ambientes → Production
-API Key mostrado: ak_production_2eacaaf5a2d7385d09f7c134ac4c7def
-```
+He creado estos archivos en tu proyecto:
 
-### Paso 2: Verificar URL Generada
-```
-Login URL debe contener:
-...&api_key=ak_production_2eacaaf5a2d7385d09f7c134ac4c7def
-```
-
-### Paso 3: Probar Login
-```
-1. Click en "Ver Formularios" → Login
-2. Ingresar credenciales
-3. ✅ NO debe mostrar "API Key inválida"
-4. ✅ Debe retornar tokens y redirigir
-```
+1. **FIX_API_KEYS_SCRIPT.sql** - Script completo con comentarios
+2. **DIAGNOSTICO_RAPIDO.sql** - Para verificar tu base de datos
+3. **FIX_API_KEY_MISMATCH.md** - Esta guía visual
 
 ---
 
-## 🔐 NOTA DE SEGURIDAD:
+## ⚠️ Notas Importantes
 
-**¿Por qué no hashear los API keys?**
-
-1. Los API keys son **tokens de autenticación** seguros por sí mismos
-2. Similar a como Stripe, AWS, etc. almacenan sus keys
-3. El hashing impide recuperar el valor original para las URLs
-4. La seguridad se mantiene con:
-   - ✅ HTTPS en todas las comunicaciones
-   - ✅ RLS policies en Supabase
-   - ✅ Validación en Edge Functions
-   - ✅ Rate limiting
-   - ✅ IP blocking
+1. La Edge Function `user-search` debe estar desplegada en Supabase
+2. La columna `key` almacena la API key en texto plano (necesario para validación)
+3. Después de esto, todas tus API keys funcionarán correctamente
 
 ---
 
-## ✅ RESULTADO ESPERADO:
+## 🆘 Si Aún Tienes Problemas
 
-```
-┌─────────────────────────────────────────┐
-│  ANTES                                  │
-├─────────────────────────────────────────┤
-│  Tarjeta: ak_production_43d9493...      │
-│  URL: api_key=ak_production_43d9493...  │
-│  BD: ak_production_2eacaa...            │
-│  ❌ Login: "API Key inválida"           │
-└─────────────────────────────────────────┘
-
-┌─────────────────────────────────────────┐
-│  DESPUÉS                                │
-├─────────────────────────────────────────┤
-│  Tarjeta: ak_production_2eacaa...       │
-│  URL: api_key=ak_production_2eacaa...   │
-│  BD: ak_production_2eacaa...            │
-│  ✅ Login: Tokens retornados            │
-└─────────────────────────────────────────┘
-```
-
----
-
-**¡Ahora los API keys coincidirán y el login funcionará correctamente!** 🎉
+Ejecuta `DIAGNOSTICO_RAPIDO.sql` y envíame los resultados para ayudarte más.

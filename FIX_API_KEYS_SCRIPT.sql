@@ -1,56 +1,56 @@
-/*
-  # Fix API Keys Application ID
+-- =============================================
+-- SCRIPT PARA ARREGLAR API KEYS
+-- =============================================
+-- Este script:
+-- 1. Agrega la columna 'key' a la tabla api_keys
+-- 2. Actualiza tu API key específica
+-- 3. Verifica que todo esté correcto
+-- =============================================
 
-  ## Problem:
-  API keys were created with application_id pointing to the PUBLIC UUID
-  (applications.application_id) instead of the INTERNAL UUID (applications.id).
+-- PASO 1: Agregar columna 'key' si no existe
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'api_keys' AND column_name = 'key'
+  ) THEN
+    ALTER TABLE api_keys ADD COLUMN key text;
+    RAISE NOTICE 'Columna "key" agregada exitosamente';
+  ELSE
+    RAISE NOTICE 'Columna "key" ya existe';
+  END IF;
+END $$;
 
-  This causes "API Key does not belong to this application" errors.
+-- PASO 2: Crear índice para búsquedas rápidas
+CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(key);
 
-  ## Solution:
-  Update all api_keys to point to the correct internal application ID.
-*/
+-- PASO 3: Actualizar tu API key específica
+-- IMPORTANTE: Ajusta el WHERE clause según tu aplicación
+UPDATE api_keys
+SET key = 'ak_production_042a5f866c7e35630a9340bd224cbdda'
+WHERE application_id = 'app_a6f840c5-bd1'
+  AND key_preview LIKE '%042a5f866c7e35630a9340bd224cbdda%';
 
--- Step 1: Show the problem
+-- PASO 4: Verificar que se actualizó correctamente
+SELECT 
+  id,
+  application_id,
+  name,
+  key,
+  key_preview,
+  environment
+FROM api_keys
+WHERE application_id = 'app_a6f840c5-bd1';
+
+-- PASO 5 (OPCIONAL): Hacer la columna UNIQUE
+-- Solo ejecuta esto después de actualizar TODAS tus API keys
+-- ALTER TABLE api_keys ADD CONSTRAINT api_keys_key_unique UNIQUE (key);
+
+-- PASO 6: Verificar la consulta que hace la Edge Function
 SELECT
-  '🔍 PROBLEMA ACTUAL' as status,
-  ak.key_hash,
-  ak.key_preview,
-  ak.application_id as api_key_apunta_a,
-  a.id as deberia_apuntar_a,
-  a.application_id as app_public_id,
-  a.name as app_name,
-  CASE
-    WHEN ak.application_id = a.id THEN '✅ CORRECTO'
-    ELSE '❌ INCORRECTO - Apunta al UUID público'
-  END as validation
-FROM api_keys ak
-LEFT JOIN applications a ON a.application_id = ak.application_id::text;
-
--- Step 2: Fix ALL api_keys
-UPDATE api_keys ak
-SET application_id = a.id
-FROM applications a
-WHERE a.application_id::text = ak.application_id::text
-  AND ak.application_id != a.id;
-
--- Step 3: Verify the fix
-SELECT
-  '✅ DESPUÉS DE LA CORRECCIÓN' as status,
-  ak.key_hash,
-  ak.key_preview,
-  ak.application_id as api_key_app_id,
-  a.id as app_internal_id,
-  a.name as app_name,
-  CASE
-    WHEN ak.application_id = a.id THEN '✅ CORRECTO'
-    ELSE '❌ AÚN INCORRECTO'
-  END as validation
-FROM api_keys ak
-JOIN applications a ON ak.application_id = a.id;
-
--- Step 4: Count fixed records
-SELECT
-  COUNT(*) as total_api_keys_corregidos
-FROM api_keys ak
-JOIN applications a ON ak.application_id = a.id;
+  id,
+  application_id,
+  environment
+FROM api_keys
+WHERE key = 'ak_production_042a5f866c7e35630a9340bd224cbdda'
+  AND application_id = 'app_a6f840c5-bd1';

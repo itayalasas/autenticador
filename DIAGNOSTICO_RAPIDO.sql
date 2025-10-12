@@ -1,38 +1,42 @@
--- 🔍 DIAGNÓSTICO RÁPIDO DEL PROBLEMA
+-- =============================================
+-- DIAGNÓSTICO RÁPIDO Y SIMPLE
+-- =============================================
 
--- 1. Ver la aplicación
-SELECT 
-  '1️⃣ APLICACIÓN' as paso,
-  id as uuid_interno,
-  application_id as uuid_publico,
-  name,
-  domain
+-- PASO 1: Ver estructura de la tabla applications
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_name = 'applications'
+ORDER BY ordinal_position;
+
+-- PASO 2: Ver estructura de la tabla api_keys
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_name = 'api_keys'
+ORDER BY ordinal_position;
+
+-- PASO 3: Ver la aplicación específica
+SELECT *
 FROM applications
-WHERE application_id = '3acde27f-74d3-465e-aaec-94ad46faa881';
+WHERE id = 'app_a6f840c5-bd1';
 
--- 2. Ver el API key
-SELECT 
-  '2️⃣ API KEY' as paso,
-  key_hash,
-  key_preview,
-  application_id as apunta_a_uuid,
-  is_active,
-  environment
+-- PASO 4: Ver todas las API keys de esa aplicación
+SELECT *
 FROM api_keys
-WHERE key_hash = 'ak_production_2eacaaf5a2d7385d09f7c134ac4c7def';
+WHERE application_id = 'app_a6f840c5-bd1';
 
--- 3. ¿Coinciden?
-SELECT 
-  '3️⃣ COMPARACIÓN' as paso,
-  ak.application_id as api_key_uuid,
-  a.id as app_uuid_interno,
-  a.application_id as app_uuid_publico,
-  CASE
-    WHEN ak.application_id = a.id THEN '✅ COINCIDEN (CORRECTO)'
-    WHEN ak.application_id::text = a.application_id::text THEN '❌ API key usa UUID público (INCORRECTO)'
-    ELSE '❌ NO COINCIDEN EN ABSOLUTO (ERROR GRAVE)'
-  END as diagnostico
-FROM api_keys ak
-CROSS JOIN applications a
-WHERE ak.key_hash = 'ak_production_2eacaaf5a2d7385d09f7c134ac4c7def'
-  AND a.application_id = '3acde27f-74d3-465e-aaec-94ad46faa881';
+-- PASO 5: Buscar si existe la API key por key_preview
+SELECT *
+FROM api_keys
+WHERE key_preview LIKE '%042a5f866c7e35630a9340bd224cbdda%';
+
+-- PASO 6: Ver todos los usuarios de la aplicación
+SELECT COUNT(*) as total_usuarios
+FROM app_users
+WHERE application_id = 'app_a6f840c5-bd1';
+
+-- PASO 7: Ver usuarios con nombre "juan"
+SELECT id, email, full_name, role_id
+FROM app_users
+WHERE application_id = 'app_a6f840c5-bd1'
+  AND (full_name ILIKE '%juan%' OR email ILIKE '%juan%')
+LIMIT 5;

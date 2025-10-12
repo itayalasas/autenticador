@@ -1,74 +1,59 @@
-# ⚡ SOLUCIÓN INMEDIATA - API Key Mismatch
+# ⚡ SOLUCIÓN INMEDIATA - Copia y Pega
 
-## 🚨 ERROR ACTUAL:
-```
-API Key no pertenece a esta aplicación
-```
+## El Problema
+La tabla `api_keys` no tiene la columna `key`, por eso falla la validación.
 
-## 🎯 CAUSA:
-El `application_id` en la tabla `api_keys` está apuntando al UUID **público** en lugar del UUID **interno**.
+## La Solución (1 minuto)
 
-## ✅ SOLUCIÓN EN 3 PASOS:
+### 1️⃣ Ve a Supabase SQL Editor
+https://supabase.com/dashboard/project/sfqtmnncgiqkveaoqckt/editor
 
-### 📍 PASO 1: Abrir Supabase SQL Editor
-```
-https://supabase.com/dashboard/project/sfqtmnncgiqkveaoqckt/sql
-```
+### 2️⃣ Copia y Pega ESTE código completo:
 
-### 📍 PASO 2: Ejecutar este SQL (diagnóstico)
 ```sql
-SELECT 
-  ak.application_id as api_key_apunta_a,
-  a.id as deberia_apuntar_a,
-  CASE
-    WHEN ak.application_id = a.id THEN '✅ YA ESTÁ CORRECTO'
-    ELSE '❌ NECESITA CORRECCIÓN'
-  END as estado
-FROM api_keys ak
-CROSS JOIN applications a
-WHERE ak.key_hash = 'ak_production_2eacaaf5a2d7385d09f7c134ac4c7def'
-  AND a.application_id = '3acde27f-74d3-465e-aaec-94ad46faa881';
-```
+-- Agregar columna key
+ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS key text;
 
-**Si dice "❌ NECESITA CORRECCIÓN", continúa con el Paso 3.**
+-- Crear índice
+CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(key);
 
-### 📍 PASO 3: Ejecutar la corrección
-```sql
+-- Actualizar tu API key
 UPDATE api_keys
-SET application_id = (
-  SELECT id 
-  FROM applications 
-  WHERE application_id = '3acde27f-74d3-465e-aaec-94ad46faa881'
-)
-WHERE key_hash = 'ak_production_2eacaaf5a2d7385d09f7c134ac4c7def';
+SET key = 'ak_production_042a5f866c7e35630a9340bd224cbdda'
+WHERE application_id = 'app_a6f840c5-bd1';
+
+-- Verificar que funcionó
+SELECT 
+  'API Key actualizada correctamente ✅' as resultado,
+  id, 
+  application_id, 
+  name, 
+  key, 
+  environment
+FROM api_keys
+WHERE application_id = 'app_a6f840c5-bd1';
 ```
 
-## 🧪 PROBAR:
+### 3️⃣ Click en "Run"
 
-Después de ejecutar el SQL, **refresca la página de login** y vuelve a intentar.
+Deberías ver: **"API Key actualizada correctamente ✅"**
 
-**URL:**
-```
-https://celadon-begonia-d7eb0e.netlify.app/login?app_id=3acde27f-74d3-465e-aaec-94ad46faa881&redirect_uri=https%3A%2F%2Fdashboard.authsystem.local%2Fauth%2Fcallback&api_key=ak_production_2eacaaf5a2d7385d09f7c134ac4c7def
-```
+### 4️⃣ Prueba en Postman
 
-**Resultado esperado:** ✅ Login exitoso
+Ya debería funcionar! 🎉
 
 ---
 
-## 📊 ARCHIVOS CREADOS:
+## ¿Sigues teniendo problemas?
 
-1. **DIAGNOSTICO_RAPIDO.sql** - Para ver qué está mal
-2. **FIX_API_KEYS_SCRIPT.sql** - Script completo de corrección
-3. **PASOS_PARA_ARREGLAR_API_KEY.md** - Guía detallada paso a paso
-4. **Este archivo** - Solución rápida
+Ejecuta esto para verificar:
 
----
+```sql
+-- Verificar que la columna existe
+SELECT column_name 
+FROM information_schema.columns 
+WHERE table_name = 'api_keys' 
+  AND column_name = 'key';
+```
 
-## ⏱️ TIEMPO ESTIMADO: 2 minutos
-
-1. Abrir Supabase SQL Editor (30 seg)
-2. Copiar y ejecutar SQL de corrección (30 seg)
-3. Probar login (1 min)
-
-**¡Listo!** ✨
+Si ves la columna `key`, todo está bien ✅
