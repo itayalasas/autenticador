@@ -121,7 +121,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Build query
+    // Build query with LEFT JOIN for roles (optional)
     let queryBuilder = supabase
       .from('app_users')
       .select(`
@@ -132,15 +132,15 @@ Deno.serve(async (req: Request) => {
         role_id,
         is_active,
         created_at,
-        role:application_roles(id, name, display_name)
-      `)
+        application_roles!left(id, name, display_name)
+      `, { count: 'exact' })
       .eq('application_id', application_id);
 
-    // Apply search filter if query is provided
+    // Apply search filter if query is provided (case-insensitive with ilike)
     if (query && query.trim() !== '') {
-      const searchTerm = `%${query.trim()}%`;
+      const searchTerm = query.trim().toLowerCase();
       queryBuilder = queryBuilder.or(
-        `full_name.ilike.${searchTerm},email.ilike.${searchTerm}`
+        `full_name.ilike.*${searchTerm}*,email.ilike.*${searchTerm}*`
       );
     }
 
@@ -149,38 +149,46 @@ Deno.serve(async (req: Request) => {
       queryBuilder = queryBuilder.eq('role_id', role_id);
     }
 
-    // Apply pagination
+    // Apply pagination and sorting
     queryBuilder = queryBuilder
-      .range(offset, offset + limit - 1)
-      .order('full_name', { ascending: true });
+      .order('full_name', { ascending: true })
+      .range(offset, offset + limit - 1);
 
-    const { data: users, error: usersError, count } = await queryBuilder;
+    const { data: users, error: usersError, count: totalCount } = await queryBuilder;
 
     if (usersError) {
       console.error('Error fetching users:', usersError);
-      throw new Error('Error searching users');
+      console.error('Error details:', JSON.stringify(usersError, null, 2));
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Error searching users',
+          details: usersError.message || 'Unknown error'
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
     }
 
-    // Get total count for pagination
-    const { count: totalCount } = await supabase
-      .from('app_users')
-      .select('*', { count: 'exact', head: true })
-      .eq('application_id', application_id);
-
     // Format response
-    const formattedUsers = (users || []).map(user => ({
-      id: user.id,
-      user_id: user.user_id,
-      email: user.email,
-      full_name: user.full_name,
-      role: {
-        id: (user.role as any)?.id || null,
-        name: (user.role as any)?.name || null,
-        display_name: (user.role as any)?.display_name || null,
-      },
-      is_active: user.is_active,
-      created_at: user.created_at
-    }));
+    const formattedUsers = (users || []).map(user => {
+      const roleData = user.application_roles;
+      return {
+        id: user.id,
+        user_id: user.user_id,
+        email: user.email,
+        full_name: user.full_name,
+        role: roleData ? {
+          id: roleData.id || null,
+          name: roleData.name || null,
+          display_name: roleData.display_name || null,
+        } : null,
+        is_active: user.is_active,
+        created_at: user.created_at
+      };
+    });
 
     return new Response(
       JSON.stringify({
