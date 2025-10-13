@@ -221,16 +221,16 @@ export default function EditApplicationWizard({
                       ...prev,
                       environment_urls: {
                         development: {
-                          base_url: prev.environment_urls.development.base_url || placeholders.development.base_url,
-                          callback_url: prev.environment_urls.development.callback_url || placeholders.development.callback_url
+                          base_url: prev.environment_urls?.development?.base_url || placeholders.development.base_url,
+                          callback_url: prev.environment_urls?.development?.callback_url || placeholders.development.callback_url
                         },
                         testing: {
-                          base_url: prev.environment_urls.testing.base_url || placeholders.testing.base_url,
-                          callback_url: prev.environment_urls.testing.callback_url || placeholders.testing.callback_url
+                          base_url: prev.environment_urls?.testing?.base_url || placeholders.testing.base_url,
+                          callback_url: prev.environment_urls?.testing?.callback_url || placeholders.testing.callback_url
                         },
                         production: {
-                          base_url: prev.environment_urls.production.base_url || placeholders.production.base_url,
-                          callback_url: prev.environment_urls.production.callback_url || placeholders.production.callback_url
+                          base_url: prev.environment_urls?.production?.base_url || placeholders.production.base_url,
+                          callback_url: prev.environment_urls?.production?.callback_url || placeholders.production.callback_url
                         }
                       }
                     }));
