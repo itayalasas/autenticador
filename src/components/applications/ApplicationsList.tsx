@@ -172,11 +172,16 @@ export default function ApplicationsList() {
   };
 
   const handleUpdateApp = async (appData: any) => {
-    if (!editingApplication) return;
-    
+    if (!editingApplication) {
+      console.warn('⚠️ handleUpdateApp called without editingApplication');
+      return;
+    }
+
+    console.log('💾 handleUpdateApp called with data:', appData);
+
     try {
       setCreateLoading(true);
-      
+
       // Actualizar información básica
       await applicationService.updateApplication(editingApplication.id, {
         name: appData.name,
@@ -191,7 +196,10 @@ export default function ApplicationsList() {
           allow_public_registration: appData.allow_public_registration
         }
       });
-      
+
+      console.log('✅ Application updated successfully');
+
+      // Solo cerrar si no hubo error
       setShowEditWizard(false);
       setEditingApplication(null);
       await loadApplications();
@@ -200,11 +208,12 @@ export default function ApplicationsList() {
         'La aplicación ha sido actualizada exitosamente con todas sus configuraciones.'
       );
     } catch (error) {
-      console.error('Error updating application:', error);
+      console.error('❌ Error updating application:', error);
       showError(
         'Error al actualizar',
         'Ha ocurrido un error al actualizar la aplicación. Por favor, inténtalo de nuevo.'
       );
+      // NO cerrar el modal si hay error
     } finally {
       setCreateLoading(false);
     }

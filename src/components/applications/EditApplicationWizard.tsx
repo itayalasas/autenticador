@@ -169,7 +169,21 @@ export default function EditApplicationWizard({
       console.log('✅ Submitting form data');
       onSubmit(formData);
     } else {
-      console.warn('⚠️ Submit called but not on step 3');
+      console.warn('⚠️ Submit called but not on step 3, preventing submission');
+      // No hacer nada, prevenir que se cierre el modal
+      return false;
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Prevenir submit cuando se presiona Enter en cualquier paso que no sea el 3
+    if (e.key === 'Enter' && currentStep !== 3) {
+      e.preventDefault();
+      console.log('⚠️ Enter pressed but not on step 3, preventing submit');
+      // Avanzar al siguiente paso si es válido
+      if (isStepValid(currentStep)) {
+        handleNext();
+      }
     }
   };
 
@@ -460,7 +474,7 @@ export default function EditApplicationWizard({
         </div>
 
         {/* Content */}
-        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+        <form onSubmit={handleSubmit} onKeyDown={handleKeyDown} className="flex flex-col flex-1 min-h-0">
           <div className="flex-1 p-6 overflow-y-auto min-h-0">
             {renderStepContent()}
           </div>
