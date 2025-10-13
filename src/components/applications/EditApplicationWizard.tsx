@@ -116,7 +116,7 @@ export default function EditApplicationWizard({
       environment_urls: {
         ...prev.environment_urls,
         [env]: {
-          ...prev.environment_urls[env],
+          ...(prev.environment_urls?.[env] || {}),
           [field]: value
         }
       }
@@ -142,8 +142,13 @@ export default function EditApplicationWizard({
   };
 
   const handleNext = () => {
+    console.log('🔄 handleNext called, currentStep:', currentStep);
+    console.log('📋 isStepValid:', isStepValid(currentStep));
+    console.log('📝 formData:', formData);
+
     if (currentStep < 3) {
       setCurrentStep(currentStep + 1);
+      console.log('✅ Moving to step:', currentStep + 1);
     }
   };
 
@@ -155,8 +160,17 @@ export default function EditApplicationWizard({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('Submitting form data:', formData);
-    onSubmit(formData);
+    console.log('💾 handleSubmit called');
+    console.log('📋 currentStep:', currentStep);
+    console.log('📝 formData:', formData);
+
+    // Solo enviar si estamos en el paso 3
+    if (currentStep === 3) {
+      console.log('✅ Submitting form data');
+      onSubmit(formData);
+    } else {
+      console.warn('⚠️ Submit called but not on step 3');
+    }
   };
 
   const isStepValid = (step: number) => {
@@ -164,8 +178,8 @@ export default function EditApplicationWizard({
       case 1:
         return formData.name && formData.domain;
       case 2:
-        return formData.environment_urls.development.base_url && 
-               formData.environment_urls.development.callback_url;
+        return formData.environment_urls?.development?.base_url &&
+               formData.environment_urls?.development?.callback_url;
       case 3:
         return true; // Paso opcional
       default:
