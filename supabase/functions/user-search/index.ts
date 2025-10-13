@@ -64,11 +64,11 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Step 1: Verify that the application exists and get its name
+    // Step 1: Verify that the application exists by application_id (text field, not UUID)
     const { data: applicationData, error: appError } = await supabase
       .from('applications')
-      .select('id, name')
-      .eq('id', application_id)
+      .select('id, name, application_id')
+      .eq('application_id', application_id)
       .maybeSingle();
 
     if (appError || !applicationData) {
@@ -122,23 +122,23 @@ Deno.serve(async (req: Request) => {
     }
 
     // Build query - NOTE: Roles are not included because app_users doesn't have role_id FK yet
+    // Use the UUID (id) from applications table, not the text application_id
     let queryBuilder = supabase
       .from('app_users')
       .select(`
         id,
-        user_id,
         email,
-        full_name,
-        is_active,
+        name,
+        status,
         created_at
       `, { count: 'exact' })
-      .eq('application_id', application_id);
+      .eq('application_id', applicationData.id);
 
     // Apply search filter if query is provided (case-insensitive with ilike)
     if (query && query.trim() !== '') {
       const searchTerm = query.trim().toLowerCase();
       queryBuilder = queryBuilder.or(
-        `full_name.ilike.*${searchTerm}*,email.ilike.*${searchTerm}*`
+        `name.ilike.*${searchTerm}*,email.ilike.*${searchTerm}*`
       );
     }
 
@@ -149,7 +149,7 @@ Deno.serve(async (req: Request) => {
 
     // Apply pagination and sorting
     queryBuilder = queryBuilder
-      .order('full_name', { ascending: true })
+      .order('name', { ascending: true })
       .range(offset, offset + limit - 1);
 
     const { data: users, error: usersError, count: totalCount } = await queryBuilder;
@@ -173,11 +173,10 @@ Deno.serve(async (req: Request) => {
     // Format response
     const formattedUsers = (users || []).map(user => ({
       id: user.id,
-      user_id: user.user_id,
       email: user.email,
-      full_name: user.full_name,
+      name: user.name,
+      status: user.status,
       role: null, // Roles will be included once role_id FK is added
-      is_active: user.is_active,
       created_at: user.created_at
     }));
 
