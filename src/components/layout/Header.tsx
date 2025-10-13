@@ -48,8 +48,8 @@ export default function Header({ title, subtitle, onMenuClick }: HeaderProps) {
           .from('profiles')
           .select('*')
           .eq('user_id', user.id)
-          .single();
-        
+          .maybeSingle();
+
         if (!profileError && profile) {
           setUserProfile(profile);
         }

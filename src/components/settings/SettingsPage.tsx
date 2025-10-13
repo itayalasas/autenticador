@@ -78,7 +78,7 @@ export default function SettingsPage() {
           .from('profiles')
           .select('*')
           .eq('user_id', user.id)
-          .single();
+          .maybeSingle();
 
         if (!profileError && profile) {
           setUserProfile(profile);
