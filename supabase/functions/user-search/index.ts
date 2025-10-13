@@ -121,7 +121,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Build query with LEFT JOIN for roles (optional)
+    // Build query - NOTE: Roles are not included because app_users doesn't have role_id FK yet
     let queryBuilder = supabase
       .from('app_users')
       .select(`
@@ -129,10 +129,8 @@ Deno.serve(async (req: Request) => {
         user_id,
         email,
         full_name,
-        role_id,
         is_active,
-        created_at,
-        application_roles!left(id, name, display_name)
+        created_at
       `, { count: 'exact' })
       .eq('application_id', application_id);
 
@@ -144,10 +142,10 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Apply role filter if provided
-    if (role_id) {
-      queryBuilder = queryBuilder.eq('role_id', role_id);
-    }
+    // Role filter is disabled until role_id FK is added to app_users
+    // if (role_id) {
+    //   queryBuilder = queryBuilder.eq('role_id', role_id);
+    // }
 
     // Apply pagination and sorting
     queryBuilder = queryBuilder
@@ -173,22 +171,15 @@ Deno.serve(async (req: Request) => {
     }
 
     // Format response
-    const formattedUsers = (users || []).map(user => {
-      const roleData = user.application_roles;
-      return {
-        id: user.id,
-        user_id: user.user_id,
-        email: user.email,
-        full_name: user.full_name,
-        role: roleData ? {
-          id: roleData.id || null,
-          name: roleData.name || null,
-          display_name: roleData.display_name || null,
-        } : null,
-        is_active: user.is_active,
-        created_at: user.created_at
-      };
-    });
+    const formattedUsers = (users || []).map(user => ({
+      id: user.id,
+      user_id: user.user_id,
+      email: user.email,
+      full_name: user.full_name,
+      role: null, // Roles will be included once role_id FK is added
+      is_active: user.is_active,
+      created_at: user.created_at
+    }));
 
     return new Response(
       JSON.stringify({
