@@ -18,6 +18,7 @@ export default function EditApplicationWizard({
   application 
 }: EditApplicationWizardProps) {
   const [currentStep, setCurrentStep] = useState(1);
+  const [canSubmit, setCanSubmit] = useState(false);
   const [formData, setFormData] = useState({
     // Paso 1: Información básica
     name: '',
@@ -147,8 +148,16 @@ export default function EditApplicationWizard({
     console.log('📝 formData:', formData);
 
     if (currentStep < 3) {
+      setCanSubmit(false);
       setCurrentStep(currentStep + 1);
       console.log('✅ Moving to step:', currentStep + 1);
+
+      if (currentStep + 1 === 3) {
+        setTimeout(() => {
+          setCanSubmit(true);
+          console.log('✅ Submit enabled for step 3');
+        }, 100);
+      }
     }
   };
 
@@ -162,15 +171,14 @@ export default function EditApplicationWizard({
     e.preventDefault();
     console.log('💾 handleSubmit called');
     console.log('📋 currentStep:', currentStep);
+    console.log('📋 canSubmit:', canSubmit);
     console.log('📝 formData:', formData);
 
-    // Solo enviar si estamos en el paso 3
-    if (currentStep === 3) {
+    if (currentStep === 3 && canSubmit) {
       console.log('✅ Submitting form data');
       onSubmit(formData);
     } else {
-      console.warn('⚠️ Submit called but not on step 3, preventing submission');
-      // No hacer nada, prevenir que se cierre el modal
+      console.warn('⚠️ Submit prevented - currentStep:', currentStep, 'canSubmit:', canSubmit);
       return false;
     }
   };
@@ -514,7 +522,7 @@ export default function EditApplicationWizard({
                 ) : (
                   <button
                     type="submit"
-                    disabled={loading}
+                    disabled={loading || !canSubmit}
                     className="flex items-center space-x-2 px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {loading ? (
