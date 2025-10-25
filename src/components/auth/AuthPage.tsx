@@ -37,7 +37,6 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
         if (error) throw error;
 
         setMessage({ type: 'success', text: '¡Bienvenido de vuelta!' });
-        setTimeout(() => onAuthSuccess(), 1000);
       } else {
         if (formData.password !== formData.confirmPassword) {
           throw new Error('Las contraseñas no coinciden');
@@ -50,7 +49,6 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
           type: 'success',
           text: 'Cuenta creada exitosamente. Revisa tu email para confirmar.'
         });
-        setTimeout(() => onAuthSuccess(), 2000);
       }
     } catch (error: any) {
       setMessage({

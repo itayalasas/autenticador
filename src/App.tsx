@@ -110,7 +110,7 @@ function MainApp() {
 
   // Show login page if not authenticated and not on public route
   if (!user) {
-    return <AuthPage onAuthSuccess={() => window.location.reload()} />;
+    return <AuthPage onAuthSuccess={() => {}} />;
   }
 
   const getSectionTitle = (section: string) => {
