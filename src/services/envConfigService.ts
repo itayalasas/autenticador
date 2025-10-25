@@ -43,6 +43,8 @@ class EnvConfigService {
 
   private async fetchConfig(): Promise<void> {
     try {
+      console.log('🔄 Fetching environment configuration from API...');
+
       const response = await fetch(
         'https://ffihaeatoundrjzgtpzk.supabase.co/functions/v1/get-env',
         {
@@ -62,13 +64,15 @@ class EnvConfigService {
       this.loaded = true;
 
       if (this.config && this.config.variables) {
+        (window as any).__ENV__ = {};
         Object.entries(this.config.variables).forEach(([key, value]) => {
-          (window as any).__ENV__ = (window as any).__ENV__ || {};
           (window as any).__ENV__[key] = value;
         });
-      }
 
-      console.log('✅ Environment configuration loaded successfully');
+        console.log('✅ Environment configuration loaded successfully');
+        console.log(`📦 Loaded ${Object.keys(this.config.variables).length} variables`);
+        console.log('🔑 Variables:', Object.keys(this.config.variables).join(', '));
+      }
     } catch (error) {
       console.error('❌ Failed to load environment configuration:', error);
       throw error;

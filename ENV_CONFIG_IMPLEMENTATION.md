@@ -76,9 +76,53 @@ Las siguientes variables se cargan desde la API:
 4. **Manejo de errores**: Interfaz clara cuando la configuración no está disponible
 5. **Seguridad**: Las variables sensibles se obtienen de forma segura mediante API key
 
+## Flujo de Inicialización
+
+1. **Carga de Configuración** (`main.tsx`):
+   - Muestra pantalla de carga
+   - Llama a `envConfigService.loadConfig()`
+   - Espera a que se carguen todas las variables
+   - Renderiza la aplicación
+
+2. **Inicialización de Supabase** (`lib/supabase.ts`):
+   - Usa **lazy initialization** (inicialización perezosa)
+   - Se inicializa solo cuando se usa por primera vez
+   - Verifica que `envConfigService.isLoaded()` sea true
+   - Obtiene las variables de `envConfigService.getVariable()`
+
+3. **Acceso a Variables**:
+   - Las variables se almacenan en `window.__ENV__`
+   - `getEnvVariable()` lee de `window.__ENV__`
+   - Fallback a `import.meta.env` si no existe en `window.__ENV__`
+
+## Solución de Problemas
+
+### Error: "Supabase not configured"
+
+Este error puede ocurrir si:
+1. La configuración no se cargó correctamente desde la API
+2. El cliente de Supabase se intentó usar antes de cargar la configuración
+
+**Solución implementada:**
+- El cliente de Supabase usa **Proxy pattern** para lazy initialization
+- Se inicializa solo cuando se accede por primera vez
+- Verifica que la configuración esté cargada antes de inicializar
+
+### Logs de Depuración
+
+En la consola del navegador verás:
+```
+🔄 Fetching environment configuration from API...
+✅ Environment configuration loaded successfully
+📦 Loaded 9 variables
+🔑 Variables: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, ...
+✅ Supabase client initialized
+```
+
 ## Consideraciones
 
 - La API debe estar disponible para que la aplicación funcione
 - La primera carga puede tardar unos segundos dependiendo de la conexión
 - Se recomienda implementar caché local o service workers para aplicaciones offline
 - La API key está hardcodeada pero debería considerarse un método más seguro en producción
+- **Importante**: El archivo `.env` local es ignorado, todas las variables vienen de la API
