@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { getEnvVariable } from './envConfigService';
 
 export interface DeploymentSnapshot {
   id: string;
@@ -145,7 +146,7 @@ export const deploymentSnapshotService = {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw new Error('Not authenticated');
 
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseUrl = getEnvVariable('VITE_SUPABASE_URL');
     const response = await fetch(
       `${supabaseUrl}/functions/v1/rollback-deployment`,
       {

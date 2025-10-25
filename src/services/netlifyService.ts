@@ -1,3 +1,5 @@
+import { getEnvVariable } from './envConfigService';
+
 interface NetlifyDeployOptions {
   siteId?: string;
   branch?: string;
@@ -42,8 +44,8 @@ class NetlifyService {
   private baseUrl = 'https://api.netlify.com/api/v1';
 
   constructor() {
-    this.accessToken = import.meta.env.VITE_NETLIFY_ACCESS_TOKEN || '';
-    this.siteId = import.meta.env.VITE_NETLIFY_SITE_ID || '';
+    this.accessToken = getEnvVariable('VITE_NETLIFY_ACCESS_TOKEN') || '';
+    this.siteId = getEnvVariable('VITE_NETLIFY_SITE_ID') || '';
   }
 
   setAccessToken(token: string) {

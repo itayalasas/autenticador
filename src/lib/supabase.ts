@@ -1,7 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
+import { getEnvVariable } from '../services/envConfigService'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || ''
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+const supabaseUrl = getEnvVariable('VITE_SUPABASE_URL') || ''
+const supabaseAnonKey = getEnvVariable('VITE_SUPABASE_ANON_KEY') || ''
 
 // Declare variables at module level
 let supabase: any

@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { Subscription, SubscriptionPlan, PaymentMethod } from '../types';
 import { dLocalService } from './dLocalService';
+import { getEnvVariable } from './envConfigService';
 
 export const subscriptionService = {
   // Get all available subscription plans
@@ -329,9 +330,9 @@ export const subscriptionService = {
   async createDLocalSubscription(plan: SubscriptionPlan, user: any, paymentMethodId?: string) {
     // DLocal API integration
     const dLocalConfig = {
-      apiKey: import.meta.env.VITE_DLOCAL_API_KEY,
-      secretKey: import.meta.env.VITE_DLOCAL_SECRET_KEY,
-      environment: import.meta.env.VITE_DLOCAL_ENVIRONMENT || 'sandbox'
+      apiKey: getEnvVariable('VITE_DLOCAL_API_KEY'),
+      secretKey: getEnvVariable('VITE_DLOCAL_SECRET_KEY'),
+      environment: getEnvVariable('VITE_DLOCAL_ENVIRONMENT') || 'sandbox'
     };
 
     const paymentData = {

@@ -184,8 +184,9 @@ function PublicAuthForms({
       const clientIp = await ipService.getClientIP();
       console.log('📍 Client IP:', clientIp);
 
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const { getEnvVariable } = await import('../../services/envConfigService');
+      const supabaseUrl = getEnvVariable('VITE_SUPABASE_URL');
+      const supabaseAnonKey = getEnvVariable('VITE_SUPABASE_ANON_KEY');
 
       let endpoint = '';
       let payload: any = {};

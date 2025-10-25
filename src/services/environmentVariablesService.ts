@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { getEnvVariable } from './envConfigService';
 
 export interface EnvironmentVariable {
   id: string;
@@ -73,13 +74,13 @@ class EnvironmentVariablesService {
   }
 
   async initializeDefaultVariables(applicationId: string): Promise<void> {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-    const dlocalApiUrl = import.meta.env.VITE_DLOCAL_API_URL;
-    const dlocalCheckoutUrl = import.meta.env.VITE_DLOCAL_CHECKOUT_URL;
-    const dlocalApiKey = import.meta.env.VITE_DLOCAL_API_KEY;
-    const dlocalSecretKey = import.meta.env.VITE_DLOCAL_SECRET_KEY;
-    const dlocalPlansEndpoint = import.meta.env.VITE_DLOCAL_PLANS_ENDPOINT;
+    const supabaseUrl = getEnvVariable('VITE_SUPABASE_URL');
+    const supabaseAnonKey = getEnvVariable('VITE_SUPABASE_ANON_KEY');
+    const dlocalApiUrl = getEnvVariable('VITE_DLOCAL_API_URL');
+    const dlocalCheckoutUrl = getEnvVariable('VITE_DLOCAL_CHECKOUT_URL');
+    const dlocalApiKey = getEnvVariable('VITE_DLOCAL_API_KEY');
+    const dlocalSecretKey = getEnvVariable('VITE_DLOCAL_SECRET_KEY');
+    const dlocalPlansEndpoint = getEnvVariable('VITE_DLOCAL_PLANS_ENDPOINT');
 
     const defaultVariables = [
       {

@@ -1,3 +1,5 @@
+import { getEnvVariable } from './envConfigService';
+
 export const ipService = {
   async getClientIP(): Promise<string> {
     try {
@@ -27,8 +29,8 @@ export const ipService = {
       // Get IP if not provided
       const ipToCheck = clientIp || await this.getClientIP();
 
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const supabaseUrl = getEnvVariable('VITE_SUPABASE_URL');
+      const supabaseAnonKey = getEnvVariable('VITE_SUPABASE_ANON_KEY');
       const apiUrl = `${supabaseUrl}/functions/v1/check-ip-status`;
 
       console.log('🔍 Checking IP status for:', ipToCheck);

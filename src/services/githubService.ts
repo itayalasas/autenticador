@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { connectorsService } from './connectorsService';
+import { getEnvVariable } from './envConfigService';
 
 interface GitHubUser {
   login: string;
@@ -87,11 +88,11 @@ class GitHubService {
     }
 
     // Exchange code for access token via Edge Function
-    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/github-oauth-callback`, {
+    const response = await fetch(`${getEnvVariable('VITE_SUPABASE_URL')}/functions/v1/github-oauth-callback`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        'Authorization': `Bearer ${getEnvVariable('VITE_SUPABASE_ANON_KEY')}`,
       },
       body: JSON.stringify({ code, userId: currentUser.id }),
     });
@@ -300,11 +301,11 @@ class GitHubService {
       const connection = await this.getActiveConnection();
       if (!connection) throw new Error('No active GitHub connection');
 
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/github-commit-push`, {
+      const response = await fetch(`${getEnvVariable('VITE_SUPABASE_URL')}/functions/v1/github-commit-push`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          'Authorization': `Bearer ${getEnvVariable('VITE_SUPABASE_ANON_KEY')}`,
         },
         body: JSON.stringify({
           accessToken: connection.access_token,

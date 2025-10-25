@@ -1,3 +1,5 @@
+import { getEnvVariable } from './envConfigService';
+
 // Service for DLocal API integration
 export interface DLocalPlan {
   id: number;
@@ -35,12 +37,12 @@ class DLocalService {
   private merchantId: string;
 
   constructor() {
-    this.apiUrl = import.meta.env.VITE_DLOCAL_API_URL || 'https://api-sbx.dlocalgo.com';
-    this.checkoutUrl = import.meta.env.VITE_DLOCAL_CHECKOUT_URL || 'https://checkout-sbx.dlocalgo.com';
-    this.apiKey = import.meta.env.VITE_DLOCAL_API_KEY || '';
-    this.secretKey = import.meta.env.VITE_DLOCAL_SECRET_KEY || '';
-    this.plansEndpoint = import.meta.env.VITE_DLOCAL_PLANS_ENDPOINT || 'v1/subscription/plan/all';
-    this.merchantId = import.meta.env.VITE_DLOCAL_MERCHANT_ID || '3348';
+    this.apiUrl = getEnvVariable('VITE_DLOCAL_API_URL') || 'https://api-sbx.dlocalgo.com';
+    this.checkoutUrl = getEnvVariable('VITE_DLOCAL_CHECKOUT_URL') || 'https://checkout-sbx.dlocalgo.com';
+    this.apiKey = getEnvVariable('VITE_DLOCAL_API_KEY') || '';
+    this.secretKey = getEnvVariable('VITE_DLOCAL_SECRET_KEY') || '';
+    this.plansEndpoint = getEnvVariable('VITE_DLOCAL_PLANS_ENDPOINT') || 'v1/subscription/plan/all';
+    this.merchantId = getEnvVariable('VITE_DLOCAL_MERCHANT_ID') || '3348';
   }
 
   private getAuthHeaders() {
