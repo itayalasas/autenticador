@@ -4,6 +4,8 @@ import { applicationService } from '../../services/applicationService';
 import { useEffect } from 'react';
 import { useNotification } from '../../hooks/useNotification';
 import NotificationModal from '../ui/NotificationModal';
+import BrandingExtendedControls from './BrandingExtendedControls';
+import { applyThemePreset } from '../../utils/themePresets';
 
 export default function BrandingManager() {
   const [applications, setApplications] = useState<any[]>([]);
@@ -86,6 +88,43 @@ export default function BrandingManager() {
     role_selection_description: 'Selecciona el tipo de acceso que necesitas'
   });
 
+  const [extendedBranding, setExtendedBranding] = useState({
+    theme_style: 'corporate',
+    card_style: 'elevated',
+    card_background: '#FFFFFF',
+    card_blur: 0,
+    input_style: 'outlined',
+    input_background: '#F9FAFB',
+    input_border_color: '#D1D5DB',
+    input_focus_color: '#3B82F6',
+    button_variant: 'solid',
+    button_size: 'medium',
+    button_hover_transform: true,
+    shadow_intensity: 'medium',
+    gradient_start: '',
+    gradient_end: '',
+    error_color: '#EF4444',
+    success_color: '#10B981',
+    warning_color: '#F59E0B',
+    heading_font_family: '',
+    font_size_scale: 'medium',
+    use_gradient: false,
+    glass_effect: false,
+    blur_background: false,
+    enable_animations: true,
+    animation_speed: 'normal',
+    form_width: 'medium',
+    spacing: 'normal',
+    message_loading_text: 'Authenticating...',
+    message_success_text: 'Welcome back! Redirecting...',
+    message_error_text: 'Invalid credentials. Please try again.',
+    message_error_help_text: 'Please check your email and password.',
+    redirect_delay: 2000,
+    message_loading_bg: '#DBEAFE',
+    message_success_bg: '#DCFCE7',
+    message_error_bg: '#FEE2E2'
+  });
+
   const [previewMode, setPreviewMode] = useState('login');
 
   const {
@@ -135,6 +174,44 @@ export default function BrandingManager() {
           button_style: brandingConfig.button_style || 'rounded'
         });
 
+        // Load extended branding fields
+        setExtendedBranding({
+          theme_style: brandingConfig.theme_style || 'corporate',
+          card_style: brandingConfig.card_style || 'elevated',
+          card_background: brandingConfig.card_background || '#FFFFFF',
+          card_blur: brandingConfig.card_blur || 0,
+          input_style: brandingConfig.input_style || 'outlined',
+          input_background: brandingConfig.input_background || '#F9FAFB',
+          input_border_color: brandingConfig.input_border_color || '#D1D5DB',
+          input_focus_color: brandingConfig.input_focus_color || '#3B82F6',
+          button_variant: brandingConfig.button_variant || 'solid',
+          button_size: brandingConfig.button_size || 'medium',
+          button_hover_transform: brandingConfig.button_hover_transform ?? true,
+          shadow_intensity: brandingConfig.shadow_intensity || 'medium',
+          gradient_start: brandingConfig.gradient_start || '',
+          gradient_end: brandingConfig.gradient_end || '',
+          error_color: brandingConfig.error_color || '#EF4444',
+          success_color: brandingConfig.success_color || '#10B981',
+          warning_color: brandingConfig.warning_color || '#F59E0B',
+          heading_font_family: brandingConfig.heading_font_family || '',
+          font_size_scale: brandingConfig.font_size_scale || 'medium',
+          use_gradient: brandingConfig.use_gradient || false,
+          glass_effect: brandingConfig.glass_effect || false,
+          blur_background: brandingConfig.blur_background || false,
+          enable_animations: brandingConfig.enable_animations ?? true,
+          animation_speed: brandingConfig.animation_speed || 'normal',
+          form_width: brandingConfig.form_width || 'medium',
+          spacing: brandingConfig.spacing || 'normal',
+          message_loading_text: brandingConfig.message_loading_text || 'Authenticating...',
+          message_success_text: brandingConfig.message_success_text || 'Welcome back! Redirecting...',
+          message_error_text: brandingConfig.message_error_text || 'Invalid credentials. Please try again.',
+          message_error_help_text: brandingConfig.message_error_help_text || 'Please check your email and password.',
+          redirect_delay: brandingConfig.redirect_delay || 2000,
+          message_loading_bg: brandingConfig.message_loading_bg || '#DBEAFE',
+          message_success_bg: brandingConfig.message_success_bg || '#DCFCE7',
+          message_error_bg: brandingConfig.message_error_bg || '#FEE2E2'
+        });
+
         // Load custom texts if they exist
         if (brandingConfig.custom_texts) {
           setTexts(prev => ({
@@ -160,6 +237,67 @@ export default function BrandingManager() {
 
   const handleTextChange = (field: string, value: string) => {
     setTexts(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleExtendedChange = (field: string, value: any) => {
+    setExtendedBranding(prev => ({ ...prev, [field]: value }));
+  };
+
+  const applyTheme = (themeName: string) => {
+    const preset = applyThemePreset(themeName, branding);
+
+    // Update basic fields
+    setBranding({
+      ...branding,
+      primary_color: preset.primary_color,
+      secondary_color: preset.secondary_color,
+      accent_color: preset.accent_color,
+      background_color: preset.background_color,
+      text_color: preset.text_color,
+      font_family: preset.font_family,
+      border_radius: preset.border_radius?.toString() || '8',
+      button_style: preset.button_style
+    });
+
+    // Update extended fields
+    setExtendedBranding({
+      theme_style: preset.theme_style || themeName,
+      card_style: preset.card_style || 'elevated',
+      card_background: preset.card_background || '#FFFFFF',
+      card_blur: preset.card_blur || 0,
+      input_style: preset.input_style || 'outlined',
+      input_background: preset.input_background || '#F9FAFB',
+      input_border_color: preset.input_border_color || '#D1D5DB',
+      input_focus_color: preset.input_focus_color || '#3B82F6',
+      button_variant: preset.button_variant || 'solid',
+      button_size: preset.button_size || 'medium',
+      button_hover_transform: preset.button_hover_transform ?? true,
+      shadow_intensity: preset.shadow_intensity || 'medium',
+      gradient_start: preset.gradient_start || '',
+      gradient_end: preset.gradient_end || '',
+      error_color: preset.error_color || '#EF4444',
+      success_color: preset.success_color || '#10B981',
+      warning_color: preset.warning_color || '#F59E0B',
+      heading_font_family: preset.heading_font_family || '',
+      font_size_scale: preset.font_size_scale || 'medium',
+      use_gradient: preset.use_gradient || false,
+      glass_effect: preset.glass_effect || false,
+      blur_background: preset.blur_background || false,
+      enable_animations: preset.enable_animations ?? true,
+      animation_speed: preset.animation_speed || 'normal',
+      form_width: preset.form_width || 'medium',
+      spacing: preset.spacing || 'normal',
+      message_loading_text: preset.message_loading_text || 'Authenticating...',
+      message_success_text: preset.message_success_text || 'Welcome back! Redirecting...',
+      message_error_text: preset.message_error_text || 'Invalid credentials. Please try again.',
+      message_error_help_text: preset.message_error_help_text || 'Please check your email and password.',
+      redirect_delay: preset.redirect_delay || 2000,
+      message_loading_bg: preset.message_loading_bg || '#DBEAFE',
+      message_success_bg: preset.message_success_bg || '#DCFCE7',
+      message_error_bg: preset.message_error_bg || '#FEE2E2'
+    });
+
+    showSuccess('Tema aplicado exitosamente');
   };
 
   const resetToDefaults = () => {
@@ -254,7 +392,9 @@ export default function BrandingManager() {
         favicon_url: branding.favicon_url,
         border_radius: parseInt(branding.border_radius),
         button_style: branding.button_style as 'rounded' | 'square',
-        custom_texts: texts
+        custom_texts: texts,
+        // Extended branding fields
+        ...extendedBranding
       });
       showSuccess(
         'Branding guardado',
@@ -1401,8 +1541,24 @@ export default function BrandingManager() {
             </div>
           </div>
         </div>
+
+        {/* Advanced Configuration Section */}
+        <div className="mt-8">
+          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg p-6 mb-6 text-white">
+            <h2 className="text-2xl font-bold mb-2">Configuración Avanzada</h2>
+            <p className="text-blue-100">
+              Personaliza completamente el aspecto de tus formularios públicos con temas predefinidos o configuración detallada
+            </p>
+          </div>
+
+          <BrandingExtendedControls
+            branding={extendedBranding}
+            onChange={handleExtendedChange}
+            onApplyTheme={applyTheme}
+          />
+        </div>
       </div>
-      
+
       {/* Notification Modal */}
       <NotificationModal
         notification={notification}
