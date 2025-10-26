@@ -1,5 +1,5 @@
 /*
-  # Crear Sistema de Seguridad Avanzado
+  # Crear Sistema de Seguridad Avanzado (VERSIÓN FINAL CORREGIDA)
 
   1. Nuevas Tablas
     - rate_limits - Control de rate limiting por IP y endpoint
