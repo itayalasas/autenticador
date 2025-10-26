@@ -237,8 +237,8 @@ function PublicAuthForms({
       const clientIp = await ipService.getClientIP();
       console.log('📍 Client IP:', clientIp);
 
-      // Use public API instead of calling edge functions directly
-      const apiBaseUrl = 'https://authsystem-dashboard.netlify.app/.netlify/functions/api';
+      // Use relative URL to avoid CORS issues - this will use the same domain as the current page
+      const apiBaseUrl = '/.netlify/functions/api';
 
       let endpoint = '';
       let payload: any = {};
