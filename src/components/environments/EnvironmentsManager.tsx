@@ -1446,6 +1446,33 @@ export default function EnvironmentsManager() {
         addLog(`   Sitio Netlify: ${siteName}`, 'info');
         addLog('', 'info');
 
+        // Log all files being committed
+        addLog('📋 Archivos a commitear:', 'info');
+        addLog('', 'info');
+
+        // Group files by directory for better readability
+        const filesByDir: Record<string, string[]> = {};
+        Object.keys(pendingDeployData.files).forEach(filePath => {
+          const dir = filePath.includes('/') ? filePath.split('/')[0] : 'root';
+          if (!filesByDir[dir]) filesByDir[dir] = [];
+          filesByDir[dir].push(filePath);
+        });
+
+        // Log files organized by directory
+        Object.keys(filesByDir).sort().forEach(dir => {
+          addLog(`   📁 ${dir}/`, 'info');
+          filesByDir[dir].sort().forEach(file => {
+            const fileName = file.includes('/') ? file.split('/').slice(1).join('/') : file;
+            const size = pendingDeployData.files[file].length;
+            const sizeKB = (size / 1024).toFixed(1);
+            addLog(`      ✓ ${fileName} (${sizeKB} KB)`, 'info');
+          });
+        });
+
+        addLog('', 'info');
+        addLog(`🚀 Commiteando ${Object.keys(pendingDeployData.files).length} archivos a GitHub...`, 'info');
+        addLog('', 'info');
+
         try {
           const commitResult = await githubService.commitAndPush(
             pendingDeployData.repo.repo_full_name,
