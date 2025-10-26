@@ -1432,9 +1432,10 @@ export default function EnvironmentsManager() {
             return;
           }
 
-          addLog('✅ Configuración subida exitosamente a GitHub', 'success');
+          addLog('✅ Código subido exitosamente a GitHub', 'success');
           addLog(`   Commit: ${commitResult.sha?.substring(0, 7)}`, 'info');
-          addLog('   Archivos: .env.production, netlify.toml, _redirects', 'info');
+          addLog(`   Total de archivos: ${Object.keys(pendingDeployData.files).length}`, 'info');
+          addLog('   Incluye: componentes React, servicios, configuración, etc.', 'info');
           addLog('', 'info');
 
           // Create deployment snapshot for rollback capability
