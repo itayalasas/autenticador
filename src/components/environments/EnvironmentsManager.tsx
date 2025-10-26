@@ -985,14 +985,41 @@ export default function EnvironmentsManager() {
 
       addLog(`   ✓ ${Object.keys(files).length} archivos recolectados`, 'success');
       addLog('   ✓ Incluye componentes React, servicios y configuración', 'success');
+      addLog('', 'info');
 
       // STEP 6: Hacer commit y push a GitHub
-      addLog(`📤 Subiendo código a GitHub (${repo.repo_full_name})...`, 'info');
+      addLog(`📤 Preparando commit a GitHub (${repo.repo_full_name})...`, 'info');
+      addLog('', 'info');
+      addLog('📋 Archivos a commitear:', 'info');
+
+      // Group files by directory for better readability
+      const filesByDir: Record<string, string[]> = {};
+      Object.keys(files).forEach(filePath => {
+        const dir = filePath.includes('/') ? filePath.split('/')[0] : 'root';
+        if (!filesByDir[dir]) filesByDir[dir] = [];
+        filesByDir[dir].push(filePath);
+      });
+
+      // Log files organized by directory
+      Object.keys(filesByDir).sort().forEach(dir => {
+        addLog(`   📁 ${dir}/`, 'info');
+        filesByDir[dir].forEach(file => {
+          const fileName = file.includes('/') ? file.split('/').slice(1).join('/') : file;
+          const size = files[file].length;
+          const sizeKB = (size / 1024).toFixed(1);
+          addLog(`      ✓ ${fileName} (${sizeKB} KB)`, 'info');
+        });
+      });
+
+      addLog('', 'info');
+      addLog(`🚀 Commiteando ${Object.keys(files).length} archivos...`, 'info');
+
       await githubService.commitAndPush(
         repo.repo_full_name,
         files,
         `Deploy ${environmentName} - ${new Date().toLocaleString()}`
       );
+
       addLog('✅ Código subido a GitHub exitosamente', 'success');
       addLog('', 'info');
       addLog('📡 GitHub notificará a Netlify sobre el nuevo código', 'info');
