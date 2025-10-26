@@ -69,18 +69,101 @@ export interface Environment {
   };
 }
 
+export type ThemeStyle = 'modern-glass' | 'minimal-clean' | 'corporate' | 'gradient-bold' | 'neumorphic' | 'custom';
+export type CardStyle = 'flat' | 'elevated' | 'glass' | 'neumorphic';
+export type InputStyle = 'outlined' | 'filled' | 'underlined';
+export type ButtonVariant = 'solid' | 'outline' | 'ghost' | 'gradient';
+export type ButtonSize = 'small' | 'medium' | 'large';
+export type ShadowIntensity = 'none' | 'light' | 'medium' | 'strong';
+export type FontSizeScale = 'small' | 'medium' | 'large';
+export type AnimationSpeed = 'slow' | 'normal' | 'fast';
+export type FormWidth = 'narrow' | 'medium' | 'wide';
+export type Spacing = 'compact' | 'normal' | 'relaxed';
+
 export interface BrandingConfig {
+  // Theme System
+  theme_style?: ThemeStyle;
+
+  // Basic Colors (existing)
   primary_color: string;
   secondary_color: string;
   accent_color: string;
-  logo_url?: string;
-  favicon_url?: string;
   background_color: string;
   text_color: string;
+
+  // Extended Colors
+  gradient_start?: string;
+  gradient_end?: string;
+  error_color?: string;
+  success_color?: string;
+  warning_color?: string;
+
+  // Logo & Assets (existing)
+  logo_url?: string;
+  favicon_url?: string;
+  background_image_url?: string;
+
+  // Typography (existing + extended)
   font_family: string;
-  border_radius: number;
+  heading_font_family?: string;
+  font_size_scale?: FontSizeScale;
+
+  // Card Styling
+  card_style?: CardStyle;
+  card_background?: string;
+  card_blur?: number;
+
+  // Input Styling
+  input_style?: InputStyle;
+  input_background?: string;
+  input_border_color?: string;
+  input_focus_color?: string;
+
+  // Button Styling (existing + extended)
   button_style: 'rounded' | 'square';
+  button_variant?: ButtonVariant;
+  button_size?: ButtonSize;
+  button_hover_transform?: boolean;
+
+  // Borders (existing + extended)
+  border_radius: number;
+  shadow_intensity?: ShadowIntensity;
+
+  // Background Effects
+  background_pattern?: string;
+  use_gradient?: boolean;
+  glass_effect?: boolean;
+  blur_background?: boolean;
+
+  // Animation Settings
+  enable_animations?: boolean;
+  animation_speed?: AnimationSpeed;
+
+  // Layout Settings
+  form_width?: FormWidth;
+  spacing?: Spacing;
+
+  // Message Customization
+  message_loading_text?: string;
+  message_success_text?: string;
+  message_error_text?: string;
+  message_error_help_text?: string;
+  redirect_delay?: number;
+
+  // Message Colors
+  message_loading_bg?: string;
+  message_success_bg?: string;
+  message_error_bg?: string;
+
+  // Custom Texts (existing)
   custom_texts?: Record<string, string>;
+}
+
+export interface ThemePreset {
+  name: string;
+  label: string;
+  description: string;
+  config: Partial<BrandingConfig>;
 }
 
 export interface AppUser {
