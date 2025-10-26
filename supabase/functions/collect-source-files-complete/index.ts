@@ -266,7 +266,7 @@ export default function App() {
     const brandingJSON = JSON.stringify(branding || {});
 
     files['src/components/auth/PublicAuthRouter.tsx'] = `import React, { useEffect, useState } from 'react';
-import PublicAuthForms from './PublicAuthForms';
+import BrandedPublicAuth from './BrandedPublicAuth';
 import { supabase } from '../../lib/supabase';
 
 interface PublicAuthRouterProps {
@@ -355,14 +355,14 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
   }
 
   return (
-    <PublicAuthForms
+    <BrandedPublicAuth
       applicationId={appId}
-      internalApplicationId={appData?.id}
       formType={validFormType}
-      apiKey={apiKey}
       branding={appData?.branding}
-      appInfo={appData}
-      availableRoles={${rolesJSON}}
+      onSubmit={async (data) => {
+        // Handle auth here
+        console.log('Auth submit:', data);
+      }}
       onSuccess={(data) => console.log('Auth success:', data)}
       onError={(error) => console.error('Auth error:', error)}
     />

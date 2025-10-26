@@ -31,7 +31,11 @@ const SOURCE_FILES_TO_DEPLOY = [
 
   // Auth components (the most important!)
   'src/components/auth/PublicAuthForms.tsx',
+  'src/components/auth/BrandedPublicAuth.tsx',
   'src/components/auth/PublicAuthRouter.tsx',
+
+  // UI Components
+  'src/components/ui/BrandedComponents.tsx',
 
   // Services
   'src/services/rolesService.ts',
@@ -40,6 +44,9 @@ const SOURCE_FILES_TO_DEPLOY = [
 
   // Hooks
   'src/hooks/useAuth.ts',
+
+  // Utils
+  'src/utils/themePresets.ts',
 
   // Types
   'src/types/index.ts',
