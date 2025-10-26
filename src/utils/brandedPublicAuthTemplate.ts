@@ -62,8 +62,8 @@ export default function BrandedPublicAuth({
     const value = e.target.value;
     setFormData(prev => ({ ...prev, [field]: value }));
 
-    // Validate password strength in real-time
-    if (field === 'password' && formType !== 'reset-password') {
+    // Validate password strength in real-time (only for register)
+    if (field === 'password' && formType === 'register') {
       const validation = validatePassword(value);
       setPasswordStrength(validation.strength);
     }
