@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Palette, Upload, Eye, Save, RotateCcw, Type, MessageSquare } from 'lucide-react';
+import { Palette, Upload, Eye, Save, RotateCcw, Type, MessageSquare, Wand2, Settings } from 'lucide-react';
 import { applicationService } from '../../services/applicationService';
 import { useEffect } from 'react';
 import { useNotification } from '../../hooks/useNotification';
 import NotificationModal from '../ui/NotificationModal';
 import BrandingExtendedControls from './BrandingExtendedControls';
 import { applyThemePreset } from '../../utils/themePresets';
+import BrandedPublicAuth from '../auth/BrandedPublicAuth';
 
 export default function BrandingManager() {
   const [applications, setApplications] = useState<any[]>([]);
@@ -126,6 +127,7 @@ export default function BrandingManager() {
   });
 
   const [previewMode, setPreviewMode] = useState('login');
+  const [activeTab, setActiveTab] = useState<'basic' | 'advanced' | 'texts'>('basic');
 
   const {
     notification,
@@ -851,9 +853,49 @@ export default function BrandingManager() {
         </select>
       </div>
 
+      {/* Tabs Navigation */}
+      <div className="bg-white rounded-lg border border-gray-200 p-2">
+        <div className="flex space-x-2">
+          <button
+            onClick={() => setActiveTab('basic')}
+            className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg font-medium transition-all ${
+              activeTab === 'basic'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            <Palette className="w-5 h-5" />
+            <span>Básico</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('advanced')}
+            className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg font-medium transition-all ${
+              activeTab === 'advanced'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            <Wand2 className="w-5 h-5" />
+            <span>Avanzado</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('texts')}
+            className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg font-medium transition-all ${
+              activeTab === 'texts'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            <MessageSquare className="w-5 h-5" />
+            <span>Textos</span>
+          </button>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Configuration Panel */}
-        <div className="space-y-6">
+        <div className="space-y-6">{activeTab === 'basic' && (
+          <>
           {/* Colors */}
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
@@ -1446,6 +1488,28 @@ export default function BrandingManager() {
               )}
             </div>
           </div>
+          </>
+          )}
+
+          {activeTab === 'advanced' && (
+            <BrandingExtendedControls
+              branding={extendedBranding}
+              onChange={handleExtendedChange}
+              onApplyTheme={applyTheme}
+            />
+          )}
+
+          {activeTab === 'texts' && (
+            <div className="bg-white rounded-lg border border-gray-200 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Textos Personalizados</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Los textos se configuran por tipo de formulario. Usa los botones de la vista previa para cambiar entre Login, Registro y Recuperación.
+              </p>
+              <div className="text-center py-8 text-gray-500">
+                Selecciona un formulario en la vista previa para ver y editar sus textos
+              </div>
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex items-center space-x-4">
@@ -1511,14 +1575,27 @@ export default function BrandingManager() {
             </div>
 
             {/* Preview Window */}
-            <div 
-              className="border-2 border-gray-200 rounded-lg p-8 min-h-96 flex items-center justify-center"
-              style={{ 
-                backgroundColor: branding.background_color,
-                fontFamily: branding.font_family
-              }}
-            >
-              {renderPreviewForm()}
+            <div className="border-2 border-gray-200 rounded-lg overflow-hidden">
+              <BrandedPublicAuth
+                applicationId={selectedApp || 'preview'}
+                formType={previewMode as 'login' | 'register' | 'reset-password'}
+                branding={{
+                  ...branding,
+                  ...extendedBranding,
+                  border_radius: parseInt(branding.border_radius),
+                  custom_texts: texts
+                }}
+                onSubmit={async (data) => {
+                  console.log('Preview submit:', data);
+                  return { success: true };
+                }}
+                onSuccess={() => {
+                  console.log('Preview success');
+                }}
+                onError={(error) => {
+                  console.log('Preview error:', error);
+                }}
+              />
             </div>
           </div>
 
@@ -1540,22 +1617,6 @@ export default function BrandingManager() {
               />
             </div>
           </div>
-        </div>
-
-        {/* Advanced Configuration Section */}
-        <div className="mt-8">
-          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg p-6 mb-6 text-white">
-            <h2 className="text-2xl font-bold mb-2">Configuración Avanzada</h2>
-            <p className="text-blue-100">
-              Personaliza completamente el aspecto de tus formularios públicos con temas predefinidos o configuración detallada
-            </p>
-          </div>
-
-          <BrandingExtendedControls
-            branding={extendedBranding}
-            onChange={handleExtendedChange}
-            onApplyTheme={applyTheme}
-          />
         </div>
       </div>
 
