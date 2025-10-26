@@ -1,4 +1,3 @@
-import React from 'react';
 import { Palette, Wand2, Layers, Type, Sparkles, Settings } from 'lucide-react';
 import { themePresets } from '../../utils/themePresets';
 import { ThemeStyle, CardStyle, InputStyle, ButtonVariant, ButtonSize, ShadowIntensity, AnimationSpeed, FormWidth, Spacing } from '../../types';

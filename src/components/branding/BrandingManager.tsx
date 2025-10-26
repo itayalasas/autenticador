@@ -244,7 +244,7 @@ export default function BrandingManager() {
   };
 
   const applyTheme = (themeName: string) => {
-    const preset = applyThemePreset(themeName, branding);
+    const preset = applyThemePreset(themeName as any, branding);
 
     // Update basic fields
     setBranding({
@@ -297,7 +297,7 @@ export default function BrandingManager() {
       message_error_bg: preset.message_error_bg || '#FEE2E2'
     });
 
-    showSuccess('Tema aplicado exitosamente');
+    showSuccess('Tema aplicado', 'El tema ha sido aplicado exitosamente');
   };
 
   const resetToDefaults = () => {
@@ -395,7 +395,7 @@ export default function BrandingManager() {
         custom_texts: texts,
         // Extended branding fields
         ...extendedBranding
-      });
+      } as any);
       showSuccess(
         'Branding guardado',
         'La configuración de branding y textos ha sido guardada exitosamente.'
