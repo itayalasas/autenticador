@@ -310,15 +310,98 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
     );
   }
 
+  const handleAuthSubmit = async (formData: any) => {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const callbackUrl = urlParams.get('callback_url') || urlParams.get('redirect_uri');
+
+      // Get client IP
+      const ipResponse = await fetch('https://api.ipify.org?format=json');
+      const ipData = await ipResponse.json();
+      const clientIp = ipData.ip;
+
+      // Determine endpoint and payload
+      let endpoint = '';
+      let payload: any = {};
+
+      switch (validFormType) {
+        case 'login':
+          endpoint = \`\${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auth-login\`;
+          payload = {
+            email: formData.email,
+            password: formData.password,
+            application_id: appId,
+            api_key: apiKey,
+            callback_url: callbackUrl,
+            client_ip: clientIp
+          };
+          break;
+        case 'register':
+          if (formData.password !== formData.confirmPassword) {
+            throw new Error('Las contraseñas no coinciden');
+          }
+          endpoint = \`\${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auth-register\`;
+          payload = {
+            email: formData.email,
+            password: formData.password,
+            name: formData.name,
+            application_id: appId,
+            api_key: apiKey,
+            callback_url: callbackUrl,
+            client_ip: clientIp
+          };
+          break;
+        case 'reset-password':
+          endpoint = \`\${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auth-reset-password\`;
+          payload = {
+            email: formData.email,
+            application_id: appId,
+            api_key: apiKey,
+            redirect_uri: callbackUrl,
+            client_ip: clientIp
+          };
+          break;
+      }
+
+      // Make API request
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': \`Bearer \${import.meta.env.VITE_SUPABASE_ANON_KEY}\`,
+          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+          'X-Client-Info': 'authsystem-public-form/1.0'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.error?.message || 'Error de autenticación');
+      }
+
+      // Handle success - redirect if callback URL exists
+      if (result.data?.callback_url) {
+        console.log('🔄 Redirecting to:', result.data.callback_url);
+        setTimeout(() => {
+          window.location.href = result.data.callback_url;
+        }, 2000);
+      }
+
+      return result.data;
+    } catch (error: any) {
+      console.error('❌ Auth error:', error);
+      throw error;
+    }
+  };
+
   return (
     <BrandedPublicAuth
       applicationId={appId}
       formType={validFormType}
       branding={appData?.branding}
-      onSubmit={async (data) => {
-        // Handle auth submission
-        console.log('Auth submit:', data);
-      }}
+      onSubmit={handleAuthSubmit}
       onSuccess={(data) => console.log('Auth success:', data)}
       onError={(error) => console.error('Auth error:', error)}
     />
