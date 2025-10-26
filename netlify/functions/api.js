@@ -1,10 +1,11 @@
 const { createClient } = require('@supabase/supabase-js');
 
-// CORS headers
+// CORS headers - Must allow all necessary headers from clients
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key, X-Client-Info, apikey, x-forwarded-for, user-agent, accept, accept-language, content-language',
+  'Access-Control-Max-Age': '86400',
 };
 
 // Initialize Supabase client
