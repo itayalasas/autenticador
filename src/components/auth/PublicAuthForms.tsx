@@ -237,15 +237,16 @@ function PublicAuthForms({
       const clientIp = await ipService.getClientIP();
       console.log('📍 Client IP:', clientIp);
 
-      // Use /api path (configured in netlify.toml redirects)
-      const apiBaseUrl = '/api';
+      // Use Supabase Edge Functions URL
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const apiBaseUrl = `${supabaseUrl}/functions/v1`;
 
       let endpoint = '';
       let payload: any = {};
 
       switch (formType) {
         case 'login':
-          endpoint = `${apiBaseUrl}/auth/login`;
+          endpoint = `${apiBaseUrl}/auth-login`;
           payload = {
             email: formData.email,
             password: formData.password,
@@ -259,7 +260,7 @@ function PublicAuthForms({
           if (formData.password !== formData.confirmPassword) {
             throw new Error('Las contraseñas no coinciden');
           }
-          endpoint = `${apiBaseUrl}/auth/register`;
+          endpoint = `${apiBaseUrl}/auth-register`;
           payload = {
             email: formData.email,
             password: formData.password,
@@ -272,7 +273,7 @@ function PublicAuthForms({
           };
           break;
         case 'reset-password':
-          endpoint = `${apiBaseUrl}/auth/reset-password`;
+          endpoint = `${apiBaseUrl}/auth-reset-password`;
           payload = {
             email: formData.email,
             application_id: applicationId,
@@ -289,11 +290,14 @@ function PublicAuthForms({
         payload: { ...payload, password: '***' }
       });
 
-      // Llamar a la API pública de AuthSystem
+      // Llamar a la Edge Function de Supabase
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseAnonKey}`,
+          'apikey': supabaseAnonKey,
           'X-Client-Info': 'authsystem-public-form/1.0'
         },
         body: JSON.stringify(payload)
