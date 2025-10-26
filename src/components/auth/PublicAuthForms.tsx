@@ -12,6 +12,7 @@ interface PublicAuthFormsProps {
   apiKey: string | null;
   appInfo?: any;
   branding?: {
+    // Basic colors
     primary_color?: string;
     secondary_color?: string;
     accent_color?: string;
@@ -21,6 +22,32 @@ interface PublicAuthFormsProps {
     logo_url?: string;
     border_radius?: number;
     button_style?: string;
+    // Extended branding
+    theme_style?: string;
+    card_style?: string;
+    card_background?: string;
+    card_blur?: number;
+    input_style?: string;
+    input_background?: string;
+    input_border_color?: string;
+    input_focus_color?: string;
+    button_variant?: string;
+    button_size?: string;
+    button_hover_transform?: boolean;
+    color_success?: string;
+    color_error?: string;
+    color_warning?: string;
+    use_gradient?: boolean;
+    gradient_start?: string;
+    gradient_end?: string;
+    shadow_intensity?: string;
+    glassmorphism_enabled?: boolean;
+    background_blur_enabled?: boolean;
+    animations_enabled?: boolean;
+    animation_speed?: string;
+    form_width?: string;
+    spacing?: string;
+    custom_texts?: any;
   };
   onSuccess?: (data: any) => void;
   onError?: (error: string) => void;
@@ -59,6 +86,7 @@ function PublicAuthForms({
 
   // Default branding values
   const defaultBranding = {
+    // Basic
     primary_color: branding?.primary_color || '#3B82F6',
     secondary_color: branding?.secondary_color || '#1E40AF',
     accent_color: branding?.accent_color || '#F59E0B',
@@ -67,7 +95,32 @@ function PublicAuthForms({
     font_family: branding?.font_family || 'Inter',
     logo_url: branding?.logo_url || '',
     border_radius: branding?.border_radius || 8,
-    button_style: branding?.button_style || 'rounded'
+    button_style: branding?.button_style || 'rounded',
+    // Extended
+    theme_style: branding?.theme_style || 'modern',
+    card_style: branding?.card_style || 'elevated',
+    card_background: branding?.card_background || '#FFFFFF',
+    card_blur: branding?.card_blur || 10,
+    input_style: branding?.input_style || 'outlined',
+    input_background: branding?.input_background || '#FFFFFF',
+    input_border_color: branding?.input_border_color || '#D1D5DB',
+    input_focus_color: branding?.input_focus_color || '#3B82F6',
+    button_variant: branding?.button_variant || 'solid',
+    button_size: branding?.button_size || 'medium',
+    button_hover_transform: branding?.button_hover_transform !== false,
+    color_success: branding?.color_success || '#10B981',
+    color_error: branding?.color_error || '#EF4444',
+    color_warning: branding?.color_warning || '#F59E0B',
+    use_gradient: branding?.use_gradient || false,
+    gradient_start: branding?.gradient_start || '#3B82F6',
+    gradient_end: branding?.gradient_end || '#8B5CF6',
+    shadow_intensity: branding?.shadow_intensity || 'medium',
+    glassmorphism_enabled: branding?.glassmorphism_enabled || false,
+    background_blur_enabled: branding?.background_blur_enabled || false,
+    animations_enabled: branding?.animations_enabled !== false,
+    animation_speed: branding?.animation_speed || 'normal',
+    form_width: branding?.form_width || 'medium',
+    spacing: branding?.spacing || 'normal'
   };
 
   useEffect(() => {
@@ -384,6 +437,114 @@ function PublicAuthForms({
     }
   };
 
+  // Generate dynamic styles based on extended branding
+  const getBackgroundStyle = (): React.CSSProperties => {
+    const baseStyle: React.CSSProperties = {
+      fontFamily: defaultBranding.font_family
+    };
+
+    if (defaultBranding.use_gradient) {
+      baseStyle.background = `linear-gradient(135deg, ${defaultBranding.gradient_start}, ${defaultBranding.gradient_end})`;
+    } else {
+      baseStyle.backgroundColor = defaultBranding.background_color;
+    }
+
+    return baseStyle;
+  };
+
+  const getCardStyle = (): React.CSSProperties => {
+    const style: React.CSSProperties = {
+      borderRadius: `${defaultBranding.border_radius}px`
+    };
+
+    if (defaultBranding.card_style === 'glass') {
+      style.background = `${defaultBranding.card_background}80`;
+      style.backdropFilter = `blur(${defaultBranding.card_blur}px)`;
+      style.border = '1px solid rgba(255, 255, 255, 0.2)';
+    } else {
+      style.backgroundColor = defaultBranding.card_background;
+
+      if (defaultBranding.card_style === 'elevated') {
+        const shadows = {
+          light: '0 1px 3px rgba(0, 0, 0, 0.1)',
+          medium: '0 4px 6px rgba(0, 0, 0, 0.1)',
+          strong: '0 10px 15px rgba(0, 0, 0, 0.2)'
+        };
+        style.boxShadow = shadows[defaultBranding.shadow_intensity as keyof typeof shadows] || shadows.medium;
+      }
+    }
+
+    return style;
+  };
+
+  const getInputStyle = (): React.CSSProperties => {
+    const style: React.CSSProperties = {
+      borderRadius: `${defaultBranding.border_radius}px`,
+      backgroundColor: defaultBranding.input_background,
+      borderColor: defaultBranding.input_border_color,
+      transition: 'all 0.2s'
+    };
+
+    if (defaultBranding.input_style === 'filled') {
+      style.border = 'none';
+      style.backgroundColor = `${defaultBranding.input_border_color}40`;
+    } else if (defaultBranding.input_style === 'underlined') {
+      style.borderTop = 'none';
+      style.borderLeft = 'none';
+      style.borderRight = 'none';
+      style.borderRadius = '0';
+      style.backgroundColor = 'transparent';
+    }
+
+    return style;
+  };
+
+  const getButtonStyle = (): React.CSSProperties => {
+    const style: React.CSSProperties = {
+      borderRadius: defaultBranding.button_style === 'rounded'
+        ? `${defaultBranding.border_radius}px`
+        : '4px',
+      transition: defaultBranding.animations_enabled ? 'all 0.2s' : 'none'
+    };
+
+    if (defaultBranding.button_variant === 'gradient' && defaultBranding.use_gradient) {
+      style.background = `linear-gradient(135deg, ${defaultBranding.gradient_start}, ${defaultBranding.gradient_end})`;
+    } else if (defaultBranding.button_variant === 'outline') {
+      style.backgroundColor = 'transparent';
+      style.border = `2px solid ${defaultBranding.primary_color}`;
+      style.color = defaultBranding.primary_color;
+    } else if (defaultBranding.button_variant === 'ghost') {
+      style.backgroundColor = `${defaultBranding.primary_color}20`;
+      style.color = defaultBranding.primary_color;
+    } else {
+      style.backgroundColor = defaultBranding.primary_color;
+    }
+
+    if (defaultBranding.button_hover_transform) {
+      style.transform = 'scale(1)';
+    }
+
+    return style;
+  };
+
+  const getFormWidthClass = () => {
+    const widths = {
+      narrow: 'max-w-sm',
+      medium: 'max-w-md',
+      wide: 'max-w-lg'
+    };
+    return widths[defaultBranding.form_width as keyof typeof widths] || widths.medium;
+  };
+
+  const getSpacingClass = () => {
+    const spacings = {
+      compact: 'space-y-2',
+      normal: 'space-y-4',
+      relaxed: 'space-y-6'
+    };
+    return spacings[defaultBranding.spacing as keyof typeof spacings] || spacings.normal;
+  };
+
   // Show loading while checking IP
   if (checkingIP) {
     return (
@@ -442,10 +603,7 @@ function PublicAuthForms({
   return (
     <div
       className="min-h-screen flex items-center justify-center p-4"
-      style={{
-        backgroundColor: defaultBranding.background_color,
-        fontFamily: defaultBranding.font_family
-      }}
+      style={getBackgroundStyle()}
     >
       {/* Background Pattern */}
       <div className="absolute inset-0 overflow-hidden">
@@ -459,7 +617,7 @@ function PublicAuthForms({
         ></div>
       </div>
 
-      <div className="relative w-full max-w-md">
+      <div className={`relative w-full ${getFormWidthClass()}`}>
         {/* Logo and Header */}
         <div className="text-center mb-8">
           {defaultBranding.logo_url ? (
@@ -491,11 +649,9 @@ function PublicAuthForms({
         </div>
 
         {/* Auth Card */}
-        <div 
-          className="bg-white/80 backdrop-blur-lg shadow-xl border border-white/20 p-8"
-          style={{ 
-            borderRadius: `${defaultBranding.border_radius}px`
-          }}
+        <div
+          className="p-8"
+          style={getCardStyle()}
         >
           {/* Message */}
           {message && (
@@ -535,7 +691,7 @@ function PublicAuthForms({
 
           {/* Form - Hide if reset-password was successful */}
           {!(formType === 'reset-password' && message?.type === 'success') && (
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className={getSpacingClass()}>
             {formType === 'register' && (
               <div>
                 <label 
@@ -580,10 +736,10 @@ function PublicAuthForms({
                   value={formData.email}
                   onChange={handleInputChange}
                   required
-                  className="w-full pl-10 pr-4 py-3 border border-gray-300 focus:ring-2 focus:border-transparent transition-all"
-                  style={{ 
-                    borderRadius: `${defaultBranding.border_radius}px`,
-                    '--tw-ring-color': defaultBranding.primary_color
+                  className="w-full pl-10 pr-4 py-3 border focus:ring-2 focus:border-transparent transition-all"
+                  style={{
+                    ...getInputStyle(),
+                    '--tw-ring-color': defaultBranding.input_focus_color
                   } as React.CSSProperties}
                   placeholder={formType === 'login' ? getText('login_email_placeholder', 'tu@email.com') : 
                               formType === 'register' ? getText('register_email_placeholder', 'tu@email.com') :
@@ -609,10 +765,10 @@ function PublicAuthForms({
                     value={formData.password}
                     onChange={handleInputChange}
                     required
-                    className="w-full pl-10 pr-12 py-3 border border-gray-300 focus:ring-2 focus:border-transparent transition-all"
-                    style={{ 
-                      borderRadius: `${defaultBranding.border_radius}px`,
-                      '--tw-ring-color': defaultBranding.primary_color
+                    className="w-full pl-10 pr-12 py-3 border focus:ring-2 focus:border-transparent transition-all"
+                    style={{
+                      ...getInputStyle(),
+                      '--tw-ring-color': defaultBranding.input_focus_color
                     } as React.CSSProperties}
                     placeholder={formType === 'login' ? getText('login_password_placeholder', '••••••••') : 
                                 getText('register_password_placeholder', '••••••••')}
@@ -666,10 +822,10 @@ function PublicAuthForms({
                 <select
                   value={selectedRole}
                   onChange={(e) => setSelectedRole(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 focus:ring-2 focus:border-transparent transition-all"
-                  style={{ 
-                    borderRadius: `${defaultBranding.border_radius}px`,
-                    '--tw-ring-color': defaultBranding.primary_color
+                  className="w-full px-3 py-2 border focus:ring-2 focus:border-transparent transition-all"
+                  style={{
+                    ...getInputStyle(),
+                    '--tw-ring-color': defaultBranding.input_focus_color
                   } as React.CSSProperties}
                 >
                   <option value="">{getText('role_selection_placeholder', 'Selecciona un rol')}</option>
@@ -689,12 +845,9 @@ function PublicAuthForms({
             <button
               type="submit"
               disabled={loading}
-              className="w-full text-white py-3 px-4 font-medium hover:opacity-90 focus:ring-2 focus:ring-offset-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
-              style={{ 
-                backgroundColor: defaultBranding.primary_color,
-                borderRadius: defaultBranding.button_style === 'rounded' 
-                  ? `${defaultBranding.border_radius}px` 
-                  : '4px',
+              className="w-full text-white py-3 px-4 font-medium hover:opacity-90 hover:scale-105 focus:ring-2 focus:ring-offset-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+              style={{
+                ...getButtonStyle(),
                 '--tw-ring-color': defaultBranding.primary_color
               } as React.CSSProperties}
             >
