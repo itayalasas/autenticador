@@ -921,10 +921,9 @@ export const applicationService = {
   // src/lib/config.ts - Configuration for public auth forms
   files['src/lib/config.ts'] = `// Public configuration for auth forms
 // These values are embedded at build time
-// Note: supabaseAnonKey is safe to expose as it only allows access to public endpoints
+// The forms call the public API (Netlify Functions), not Supabase directly
 export const config = {
-  supabaseUrl: '${supabaseUrl}',
-  supabaseAnonKey: '${supabaseAnonKey}',
+  apiBaseUrl: 'https://authsystem-dashboard.netlify.app/.netlify/functions/api',
   appId: '${applicationId}',
   apiKey: '${apiKey}'
 };
