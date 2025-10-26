@@ -946,6 +946,47 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
   // _redirects file (backup for netlify.toml)
   files['_redirects'] = `/*    /index.html   200`;
 
+  // .gitignore - IMPORTANT: Only ignore build outputs, keep all source files
+  files['.gitignore'] = `# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+
+# Production build
+dist/
+build/
+
+# Misc
+.DS_Store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Editor directories and files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+`;
+
   // README.md
   files['README.md'] = `# AuthSystem Public Forms
 
