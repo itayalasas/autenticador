@@ -2,6 +2,9 @@
 // This uses the actual PublicAuthForms component instead of static HTML
 
 import { PUBLIC_AUTH_FORMS_TEMPLATE } from './publicAuthFormsTemplate';
+import { BRANDED_PUBLIC_AUTH_TEMPLATE } from './brandedPublicAuthTemplate';
+import { BRANDED_COMPONENTS_TEMPLATE } from './brandedComponentsTemplate';
+import { THEME_PRESETS_TEMPLATE } from './themePresetsTemplate';
 
 export async function getReactProjectFiles(
   applicationId: string,
@@ -326,6 +329,15 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
   // src/components/auth/PublicAuthForms.tsx - DEPRECATED, keeping for compatibility
   files['src/components/auth/PublicAuthForms.tsx'] = PUBLIC_AUTH_FORMS_TEMPLATE;
 
+  // src/components/auth/BrandedPublicAuth.tsx - Main auth component with branding
+  files['src/components/auth/BrandedPublicAuth.tsx'] = BRANDED_PUBLIC_AUTH_TEMPLATE;
+
+  // src/components/ui/BrandedComponents.tsx - UI components with neumorphic/glass effects
+  files['src/components/ui/BrandedComponents.tsx'] = BRANDED_COMPONENTS_TEMPLATE;
+
+  // src/utils/themePresets.ts - Default branding configuration
+  files['src/utils/themePresets.ts'] = THEME_PRESETS_TEMPLATE;
+
   // ============================================
   // SERVICE FILES - Required by PublicAuthForms
   // ============================================
@@ -585,32 +597,12 @@ Todas las rutas requieren los parámetros \`app_id\` y \`api_key\` en la URL.
 `;
 
   // ============================================
-  // BRANDED AUTH COMPONENTS - Required for styled forms
+  // ALL FILES READY - Now includes branded components
   // ============================================
-
-  // Read actual component files from the project
-  try {
-    // BrandedPublicAuth.tsx - Main auth component with branding support
-    const brandedAuthResponse = await fetch('/src/components/auth/BrandedPublicAuth.tsx');
-    if (brandedAuthResponse.ok) {
-      files['src/components/auth/BrandedPublicAuth.tsx'] = await brandedAuthResponse.text();
-    }
-
-    // BrandedComponents.tsx - UI components with neumorphic/glass effects
-    const brandedComponentsResponse = await fetch('/src/components/ui/BrandedComponents.tsx');
-    if (brandedComponentsResponse.ok) {
-      files['src/components/ui/BrandedComponents.tsx'] = await brandedComponentsResponse.text();
-    }
-
-    // themePresets.ts - Default branding configuration
-    const themePresetsResponse = await fetch('/src/utils/themePresets.ts');
-    if (themePresetsResponse.ok) {
-      files['src/utils/themePresets.ts'] = await themePresetsResponse.text();
-    }
-  } catch (error) {
-    console.warn('Could not load branded component files:', error);
-    // Continue without these files - will fall back to PublicAuthForms
-  }
+  console.log('✅ Generated files with branding support');
+  console.log(`   - BrandedPublicAuth.tsx (main auth component)`);
+  console.log(`   - BrandedComponents.tsx (UI components)`);
+  console.log(`   - themePresets.ts (default config)`);
 
   return files;
 }
