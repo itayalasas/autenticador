@@ -925,8 +925,8 @@ export const config = {
   files['src/lib/supabase.ts'] = `import { createClient } from '@supabase/supabase-js';
 
 // Supabase client for public read-only access to branding data
-const supabaseUrl = 'https://wqrfqrzhgfzpxgvxvyto.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndxcmZxcnpoZ2Z6cHhndnh2eXRvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzAzNTI0OTEsImV4cCI6MjA0NTkyODQ5MX0.xfkRXhDxMBiK9QTm1m1CQFJ_a4K1YCUh_wlG1eT0vVw';
+const supabaseUrl = 'https://sfqtmnncgiqkveaoqckt.supabase.co';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNmcXRtbm5jZ2lxa3ZlYW9xY2t0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4MDEyNDMsImV4cCI6MjA3NTM3NzI0M30.n2yaYrfHDLAFePP1tA3-250P6bgKmf696fYJFHfRZaQ';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 `;
