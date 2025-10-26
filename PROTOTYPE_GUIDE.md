@@ -119,9 +119,238 @@ Cada formulario incluye:
 2. **Título y Subtítulo**: Textos configurables
 3. **Input de Email**: Con icono y validación
 4. **Input de Password**: Con toggle show/hide
-5. **Botón Principal**: Con animaciones y estados hover
-6. **Enlaces**: Recuperar contraseña y crear cuenta
-7. **Badge de Seguridad**: "Protected by AuthSystem"
+5. **Mensajes de Estado**: Loading, Success y Error con animaciones únicas
+6. **Botones de Test**: Para probar estados de éxito y error
+7. **Enlaces**: Recuperar contraseña y crear cuenta
+8. **Badge de Seguridad**: "Protected by AuthSystem"
+
+---
+
+## 📨 Sistema de Mensajes de Estado Modernos
+
+### 🎯 Cómo Probar los Mensajes
+
+Cada formulario incluye **dos botones de prueba** para demostrar los diferentes estados:
+
+- **"Test Success"** (botón verde/izquierdo): Simula autenticación exitosa
+- **"Test Error"** (botón rojo/derecho): Simula error de autenticación
+
+### Estados Disponibles
+
+#### 1️⃣ **Loading (Cargando)**
+**Comportamiento:**
+- Se muestra inmediatamente al hacer clic
+- Mensaje: "Authenticating..." / "Processing..." / "Verifying..."
+- Animación: Spinner girando + pulse
+- Duración: 1.5 segundos (simulado)
+
+**Visual por estilo:**
+- **Modern Glass**: Fondo azul translúcido con blur, spinner blanco animado
+- **Minimal Clean**: Borde azul izquierdo, spinner azul con pulse
+- **Corporate**: Caja azul claro con título "Authenticating" y spinner en cuadro
+- **Gradient Bold**: Gradiente cyan-azul con borde brillante y efecto glow
+- **Neumorphic**: Sombra interna neumórfica con icono azul
+
+#### 2️⃣ **Success (Éxito)**
+**Comportamiento:**
+- Aparece después del loading si la operación fue exitosa
+- Mensaje: "Welcome back! Redirecting to your dashboard..."
+- Animación: **Slide-in** desde arriba (suave)
+- Icono: CheckCircle verde en círculo
+- Auto-redirect: Después de 2 segundos (visible en consola)
+
+**Visual por estilo:**
+- **Modern Glass**: Fondo verde translúcido con blur, checkmark en círculo glassmorphic
+- **Minimal Clean**: Borde verde izquierdo, mensaje limpio y directo
+- **Corporate**: Tarjeta verde con progress bar animado al final
+- **Gradient Bold**: Gradiente verde-esmeralda con borde brillante
+- **Neumorphic**: Sombra neumórfica con icono verde elevado
+
+**Callback URL Integration:**
+```javascript
+// En producción se ejecutaría:
+window.location.href = callbackUrl;
+// O con parámetros:
+window.location.href = `${callbackUrl}?token=${accessToken}&user_id=${userId}`;
+```
+
+#### 3️⃣ **Error (Error)**
+**Comportamiento:**
+- Aparece después del loading si hubo un error
+- Mensaje: "Invalid credentials. Please check your email and password."
+- Animación: **Shake** horizontal (sacudir)
+- Icono: XCircle rojo
+- Mensaje de ayuda adicional según el estilo
+
+**Visual por estilo:**
+- **Modern Glass**: Fondo rojo translúcido con blur y X en círculo
+- **Minimal Clean**: Borde rojo con mensaje de ayuda abajo
+- **Corporate**: Tarjeta roja con título "Authentication Failed"
+- **Gradient Bold**: Gradiente rojo-naranja con efecto de advertencia
+- **Neumorphic**: Sombra neumórfica con icono rojo prominente
+
+**Mensajes de ayuda incluidos:**
+- "Please try again or reset your password"
+- "Double-check your credentials and try again"
+- "Verify your information and try again"
+
+### 🎬 Características de las Animaciones
+
+**Animaciones por Estado:**
+
+| Estado | Animación | Duración | Efecto |
+|--------|-----------|----------|--------|
+| **Loading** | Pulse + Spin | Continuo | El mensaje "respira" mientras el spinner gira |
+| **Success** | Slide-in | 0.5s | Entrada suave desde arriba |
+| **Error** | Shake | 0.5s | Sacudida horizontal para llamar atención |
+
+**Progress Bar (solo Corporate):**
+- Aparece en mensajes de éxito
+- Animación de 0% a 100% en 2 segundos
+- Indica visualmente el tiempo hasta el redirect
+
+### ✨ Personalización Total
+
+Cada aspecto de los mensajes es personalizable desde el Branding Manager:
+
+**Colores:**
+```typescript
+message_colors: {
+  loading: {
+    background: '#3B82F6',
+    text: '#1E3A8A',
+    icon: '#2563EB'
+  },
+  success: {
+    background: '#10B981',
+    text: '#065F46',
+    icon: '#059669'
+  },
+  error: {
+    background: '#EF4444',
+    text: '#7F1D1D',
+    icon: '#DC2626'
+  }
+}
+```
+
+**Textos:**
+```typescript
+message_texts: {
+  loading: 'Verificando credenciales...',
+  success: '¡Bienvenido! Redirigiendo a tu panel...',
+  success_redirect: 'Serás redirigido en {seconds} segundos',
+  error: 'Credenciales inválidas. Por favor intenta nuevamente.',
+  error_help: 'Verifica tu email y contraseña o restablece tu contraseña',
+  error_retry: 'Reintentar',
+  error_reset: 'Olvidé mi contraseña'
+}
+```
+
+**Animaciones:**
+```typescript
+message_animations: {
+  loading_duration: 'infinite',
+  success_duration: '0.5s',
+  error_duration: '0.5s',
+  auto_dismiss: false,  // No se oculta automáticamente
+  redirect_delay: 2000  // 2 segundos antes de redirect
+}
+```
+
+### 🔄 Flujo Completo con Callback
+
+```typescript
+// 1. Usuario hace submit
+async function handleSubmit(e: React.FormEvent) {
+  e.preventDefault();
+
+  // 2. Mostrar loading
+  setMessageStatus('loading');
+  setMessageText('Authenticating...');
+
+  try {
+    // 3. Llamar al API de autenticación
+    const response = await fetch(authEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email,
+        password,
+        application_id: appId,
+        callback_url: callbackUrl
+      })
+    });
+
+    const data = await response.json();
+
+    // 4. Manejar respuesta exitosa
+    if (data.success) {
+      setMessageStatus('success');
+      setMessageText('Welcome back! Redirecting to your dashboard...');
+
+      // 5. Redirect después de mostrar mensaje
+      setTimeout(() => {
+        // Construir URL de callback con parámetros
+        const params = new URLSearchParams({
+          token: data.access_token,
+          refresh_token: data.refresh_token,
+          user_id: data.user.id,
+          state: 'authenticated'
+        });
+
+        window.location.href = `${data.callback_url}?${params.toString()}`;
+      }, 2000);
+    }
+    // 6. Manejar respuesta con error
+    else {
+      setMessageStatus('error');
+      setMessageText(data.error?.message || 'Authentication failed');
+
+      // El usuario puede intentar nuevamente
+      // No hay auto-dismiss en error para que puedan leer el mensaje
+    }
+  } catch (error) {
+    // 7. Manejar errores de red
+    setMessageStatus('error');
+    setMessageText('Network error. Please check your connection and try again.');
+  }
+}
+```
+
+### 🎨 Variantes de Estilo de Mensajes
+
+Cada estilo tiene su propia personalidad en los mensajes:
+
+**Modern Glass:**
+- Fondo translúcido con blur
+- Bordes semi-transparentes
+- Iconos en círculos con backdrop-blur
+- Perfecto para: Apps modernas
+
+**Minimal Clean:**
+- Borde de color a la izquierda
+- Sin bordes en otros lados
+- Tipografía limpia
+- Perfecto para: Apps minimalistas
+
+**Corporate:**
+- Caja con bordes y sombras
+- Título + mensaje
+- Progress bar en success
+- Perfecto para: Empresas
+
+**Gradient Bold:**
+- Gradientes vibrantes de fondo
+- Bordes con glow
+- Iconos en cuadros con gradiente
+- Perfecto para: Apps tech/gaming
+
+**Neumorphic:**
+- Sombras internas y externas
+- Iconos elevados
+- Efecto táctil
+- Perfecto para: Apps de diseño
 
 ## 🔧 Características Técnicas
 
