@@ -5,6 +5,7 @@
 export const PUBLIC_AUTH_FORMS_TEMPLATE = `import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, Mail, Lock, User, ArrowRight, CheckCircle, AlertCircle, Shield } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
+import { config } from '../../lib/config';
 import { rolesService } from '../../services/rolesService';
 import { applicationService } from '../../services/applicationService';
 import { ipService } from '../../services/ipService';
@@ -241,8 +242,8 @@ function PublicAuthForms({
       const clientIp = await ipService.getClientIP();
       console.log('📍 Client IP:', clientIp);
 
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const supabaseUrl = config.supabaseUrl;
+      const supabaseAnonKey = config.supabaseAnonKey;
 
       let endpoint = '';
       let payload: any = {};

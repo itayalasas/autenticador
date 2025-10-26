@@ -30,7 +30,6 @@ export async function getReactProjectFiles(
       "react": "^18.3.1",
       "react-dom": "^18.3.1",
       "react-router-dom": "^7.9.3",
-      "@supabase/supabase-js": "^2.57.4",
       "lucide-react": "^0.344.0"
     },
     "devDependencies": {
@@ -78,11 +77,13 @@ export default defineConfig({
 }
 `;
 
-  // .env file with configuration
-  files['.env'] = `VITE_SUPABASE_URL=${supabaseUrl}
-VITE_SUPABASE_ANON_KEY=${supabaseAnonKey}
-VITE_APP_ID=${applicationId}
-VITE_API_KEY=${apiKey}
+  // .env.example - Template for local development (optional)
+  files['.env.example'] = `# These values are already embedded in the config file
+# This file is only for reference
+VITE_SUPABASE_URL=your-supabase-url
+VITE_SUPABASE_ANON_KEY=your-anon-key
+VITE_APP_ID=your-app-id
+VITE_API_KEY=your-api-key
 `;
 
   // index.html
@@ -139,13 +140,14 @@ body {
   // src/App.tsx - Router for public forms using PublicAuthRouter
   files['src/App.tsx'] = `import React from 'react';
 import { Routes, Route, Navigate, useSearchParams, useLocation } from 'react-router-dom';
+import { config } from './lib/config';
 import PublicAuthRouter from './components/auth/PublicAuthRouter';
 
 export default function App() {
   const [searchParams] = useSearchParams();
   const location = useLocation();
 
-  const appId = searchParams.get('app_id') || import.meta.env.VITE_APP_ID || '';
+  const appId = searchParams.get('app_id') || config.appId || '';
 
   // Map path to form type
   const getFormType = (): 'login' | 'register' | 'reset-password' => {
@@ -916,24 +918,22 @@ export const applicationService = {
 };
 `;
 
-  // src/lib/supabase.ts
-  files['src/lib/supabase.ts'] = `import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables');
-}
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  // src/lib/config.ts - Configuration for public auth forms
+  files['src/lib/config.ts'] = `// Public configuration for auth forms
+// These values are embedded at build time
+// Note: supabaseAnonKey is safe to expose as it only allows access to public endpoints
+export const config = {
+  supabaseUrl: '${supabaseUrl}',
+  supabaseAnonKey: '${supabaseAnonKey}',
+  appId: '${applicationId}',
+  apiKey: '${apiKey}'
+};
 `;
 
   // netlify.toml for deployment configuration
   files['netlify.toml'] = `[build]
   command = "npm install && npm run build"
   publish = "dist"
-  environment = { VITE_SUPABASE_URL = "${supabaseUrl}", VITE_SUPABASE_ANON_KEY = "${supabaseAnonKey}", VITE_APP_ID = "${applicationId}", VITE_API_KEY = "${apiKey}" }
 
 [[redirects]]
   from = "/*"
