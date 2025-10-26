@@ -102,10 +102,23 @@ if (startIndex === -1 || endIndex === -1) {
   process.exit(1);
 }
 
-edgeFunctionContent =
-  edgeFunctionContent.substring(0, startIndex) +
-  templatesSection +
-  edgeFunctionContent.substring(endIndex);
+// Find where the legitimate code starts after the markers
+// Look for the console.log that marks the end of the file generation section
+const legitimateCodeMarker = "console.log('✅ Source collection complete!');";
+const legitimateCodeIndex = edgeFunctionContent.indexOf(legitimateCodeMarker);
+
+if (legitimateCodeIndex === -1) {
+  console.error('❌ Warning: Could not find legitimate code marker. Old code might remain.');
+  console.error('   Looking for:', legitimateCodeMarker);
+}
+
+// Replace everything between MARKER_START and the legitimate code
+const beforeTemplates = edgeFunctionContent.substring(0, startIndex);
+const afterOldCode = legitimateCodeIndex !== -1
+  ? '\n\n    ' + edgeFunctionContent.substring(legitimateCodeIndex)
+  : edgeFunctionContent.substring(endIndex);
+
+edgeFunctionContent = beforeTemplates + templatesSection + afterOldCode;
 
 // Write back the Edge Function
 fs.writeFileSync(edgeFunctionPath, edgeFunctionContent, 'utf8');
