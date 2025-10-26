@@ -503,6 +503,7 @@ Deno.serve(async (req) => {
 
     console.log('✅ API Key found and active, will verify ownership after loading application');
 
+    // Check if IP is blocked
     const { data: blockedIP } = await supabase
       .from('blocked_ips')
       .select('id, reason')
@@ -513,15 +514,15 @@ Deno.serve(async (req) => {
 
     if (blockedIP) {
       console.log('🚫 IP is blocked:', ipAddress, blockedIP.reason);
-      
+
       await supabase.from('auth_logs').insert({
         application_id: null,
-        event_type: 'failed_login',
+        event_type: 'failed_register',
         ip_address: ipAddress,
         user_agent: req.headers.get('user-agent') || 'unknown',
         success: false,
         error_message: 'IP bloqueada',
-        metadata: { 
+        metadata: {
           email,
           name,
           application_id,
@@ -546,7 +547,56 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { data: application, error: appError } = await supabase
+    // Rate limiting check
+    console.log('🛡️ Checking rate limit for IP:', ipAddress);
+    const { data: rateLimitResult, error: rateLimitError } = await supabase.rpc('check_rate_limit', {
+      p_ip_address: ipAddress,
+      p_endpoint: 'auth-register',
+      p_max_attempts: 3,
+      p_window_minutes: 5
+    });
+
+    if (rateLimitError) {
+      console.error('❌ Rate limit check error:', rateLimitError);
+    } else if (rateLimitResult && !rateLimitResult.allowed) {
+      console.log('🚫 Rate limit exceeded for IP:', ipAddress);
+
+      await supabase.from('auth_logs').insert({
+        application_id: null,
+        event_type: 'failed_register',
+        ip_address: ipAddress,
+        user_agent: req.headers.get('user-agent') || 'unknown',
+        success: false,
+        error_message: 'Rate limit excedido',
+        metadata: {
+          email,
+          name,
+          application_id,
+          error_type: 'rate_limit_exceeded',
+          blocked_until: rateLimitResult.blocked_until
+        }
+      });
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'RATE_LIMIT_EXCEEDED',
+            message: 'Demasiados intentos de registro. Por favor espera antes de intentar nuevamente.',
+            blocked_until: rateLimitResult.blocked_until,
+            reason: rateLimitResult.reason
+          }
+        }),
+        {
+          status: 429,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Retry-After': '900' }
+        }
+      );
+    }
+
+    console.log('✅ Rate limit check passed:', rateLimitResult);
+
+    const { data: application, error: appError} = await supabase
       .from('applications')
       .select('*')
       .eq('application_id', application_id)

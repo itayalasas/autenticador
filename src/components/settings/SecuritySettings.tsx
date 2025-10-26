@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Lock, Key, Smartphone, Mail, Clock, Eye, EyeOff, Shield, AlertTriangle, AlertCircle } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import SecurityAlertsViewer from '../security/SecurityAlertsViewer';
 
 interface SecuritySettingsProps {
   currentUser: any;
@@ -227,6 +228,21 @@ export default function SecuritySettings({ currentUser, userEmail, onSuccess, on
             ))}
           </div>
         )}
+      </div>
+
+      {/* Security Alerts Viewer */}
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <div className="flex items-center space-x-3 mb-6">
+          <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
+            <Shield className="w-5 h-5 text-red-600" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Alertas de Seguridad</h3>
+            <p className="text-sm text-gray-600">Monitorea intentos sospechosos y amenazas de seguridad</p>
+          </div>
+        </div>
+
+        <SecurityAlertsViewer />
       </div>
 
       {/* Configuración de Email */}

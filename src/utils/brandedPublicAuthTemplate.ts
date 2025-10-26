@@ -2,7 +2,7 @@
 // Auto-generated
 
 export const BRANDED_PUBLIC_AUTH_TEMPLATE = `import React, { useState, useEffect } from 'react';
-import { Mail, Lock, User, ArrowRight } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, Shield, AlertTriangle } from 'lucide-react';
 import {
   BrandedContainer,
   BrandedCard,
@@ -13,6 +13,7 @@ import {
 } from '../ui/BrandedComponents';
 import { BrandingConfig } from '../../types';
 import { getDefaultBrandingConfig } from '../../utils/themePresets';
+import { validateAuthForm, rateLimiter, validatePassword } from '../../utils/securityValidation';
 
 interface BrandedPublicAuthProps {
   applicationId: string;
@@ -34,6 +35,9 @@ export default function BrandedPublicAuth({
   const [showPassword, setShowPassword] = useState(false);
   const [messageStatus, setMessageStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [passwordStrength, setPasswordStrength] = useState<'weak' | 'medium' | 'strong' | 'very-strong'>('weak');
+  const [rateLimitInfo, setRateLimitInfo] = useState<{ blocked: boolean; timeLeft: number }>({ blocked: false, timeLeft: 0 });
 
   const [formData, setFormData] = useState({
     name: '',
@@ -55,46 +59,60 @@ export default function BrandedPublicAuth({
   };
 
   const handleChange = (field: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData(prev => ({ ...prev, [field]: e.target.value }));
+    const value = e.target.value;
+    setFormData(prev => ({ ...prev, [field]: value }));
+
+    // Validate password strength in real-time
+    if (field === 'password' && formType !== 'reset-password') {
+      const validation = validatePassword(value);
+      setPasswordStrength(validation.strength);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage('');
 
-    // Basic validation
-    if (!formData.email || !formData.password) {
+    // 1. Rate limiting check (client-side)
+    const rateLimitKey = \`auth-\${formType}-\${applicationId}\`;
+    if (!rateLimiter.canAttempt(rateLimitKey, 5, 60000)) {
+      const timeLeft = rateLimiter.getTimeUntilReset(rateLimitKey, 60000);
+      const secondsLeft = Math.ceil(timeLeft / 1000);
+      setErrorMessage(\`Demasiados intentos. Por favor espera \${secondsLeft} segundos.\`);
       setMessageStatus('error');
+      setRateLimitInfo({ blocked: true, timeLeft });
       return;
     }
 
-    if (formType === 'register') {
-      if (!formData.name) {
-        setMessageStatus('error');
-        return;
-      }
-      if (formData.password !== formData.confirmPassword) {
-        setMessageStatus('error');
-        return;
-      }
+    // 2. Validate and sanitize form data
+    const validation = validateAuthForm(formData, formType);
+    if (!validation.valid) {
+      const errorMessages = Object.values(validation.errors);
+      setErrorMessage(errorMessages.join('. '));
+      setMessageStatus('error');
+      return;
     }
 
     try {
       setLoading(true);
       setMessageStatus('loading');
 
-      await onSubmit(formData);
+      // Use sanitized data
+      await onSubmit(validation.sanitized);
 
       setMessageStatus('success');
+      rateLimiter.reset(rateLimitKey); // Reset on success
 
       // Simulate redirect after success
       setTimeout(() => {
         if (onSuccess) {
-          onSuccess(formData);
+          onSuccess(validation.sanitized);
         }
       }, branding.redirect_delay || 2000);
 
     } catch (error: any) {
       setMessageStatus('error');
+      setErrorMessage(error.message || 'Error al procesar la solicitud');
       if (onError) {
         onError(error.message);
       }
@@ -158,6 +176,30 @@ export default function BrandedPublicAuth({
           branding={branding}
         />
 
+        {/* Security Error Message */}
+        {errorMessage && (
+          <div className="mb-4 p-4 rounded-lg bg-red-500/10 border border-red-500/20 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm text-red-200 font-medium">Error de Seguridad</p>
+              <p className="text-xs text-red-300/80 mt-1">{errorMessage}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Rate Limit Warning */}
+        {rateLimitInfo.blocked && (
+          <div className="mb-4 p-4 rounded-lg bg-orange-500/10 border border-orange-500/20 flex items-start gap-3">
+            <Shield className="w-5 h-5 text-orange-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm text-orange-200 font-medium">Límite de Intentos Alcanzado</p>
+              <p className="text-xs text-orange-300/80 mt-1">
+                Por seguridad, debes esperar antes de intentar nuevamente.
+              </p>
+            </div>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-6">
           {formType === 'register' && (
             <BrandedInput
@@ -189,19 +231,53 @@ export default function BrandedPublicAuth({
 
           {formType !== 'reset-password' && (
             <>
-              <BrandedInput
-                type={showPassword ? 'text' : 'password'}
-                id="password"
-                label={formType === 'login' ? getText('login_password_label', 'Contraseña') : getText('register_password_label', 'Contraseña')}
-                placeholder={formType === 'login' ? getText('login_password_placeholder', '••••••••') : getText('register_password_placeholder', '••••••••')}
-                value={formData.password}
-                onChange={handleChange('password')}
-                branding={branding}
-                icon={<Lock className="w-5 h-5" />}
-                showPasswordToggle
-                onPasswordToggle={() => setShowPassword(!showPassword)}
-                showPassword={showPassword}
-              />
+              <div>
+                <BrandedInput
+                  type={showPassword ? 'text' : 'password'}
+                  id="password"
+                  label={formType === 'login' ? getText('login_password_label', 'Contraseña') : getText('register_password_label', 'Contraseña')}
+                  placeholder={formType === 'login' ? getText('login_password_placeholder', '••••••••') : getText('register_password_placeholder', '••••••••')}
+                  value={formData.password}
+                  onChange={handleChange('password')}
+                  branding={branding}
+                  icon={<Lock className="w-5 h-5" />}
+                  showPasswordToggle
+                  onPasswordToggle={() => setShowPassword(!showPassword)}
+                  showPassword={showPassword}
+                />
+
+                {/* Password Strength Indicator (only for register) */}
+                {formType === 'register' && formData.password && (
+                  <div className="mt-2">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                        <div
+                          className={\\\`h-full transition-all duration-300 \${
+                            passwordStrength === 'weak' ? 'w-1/4 bg-red-500' :
+                            passwordStrength === 'medium' ? 'w-2/4 bg-orange-500' :
+                            passwordStrength === 'strong' ? 'w-3/4 bg-yellow-500' :
+                            'w-full bg-green-500'
+                          }\\\`}
+                        />
+                      </div>
+                      <span className={\\\`text-xs font-medium \${
+                        passwordStrength === 'weak' ? 'text-red-400' :
+                        passwordStrength === 'medium' ? 'text-orange-400' :
+                        passwordStrength === 'strong' ? 'text-yellow-400' :
+                        'text-green-400'
+                      }\\\`}>
+                        {passwordStrength === 'weak' ? 'Débil' :
+                         passwordStrength === 'medium' ? 'Media' :
+                         passwordStrength === 'strong' ? 'Fuerte' :
+                         'Muy Fuerte'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-400">
+                      Usa al menos 8 caracteres con mayúsculas, minúsculas, números y símbolos
+                    </p>
+                  </div>
+                )}
+              </div>
 
               {formType === 'register' && (
                 <BrandedInput
