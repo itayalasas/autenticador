@@ -45,6 +45,12 @@ export default function BrandedPublicAuth({
     ...customBranding
   };
 
+  // Helper function to get custom text or fallback to default
+  const getText = (key: string, defaultText: string): string => {
+    const customTexts = (branding as any).custom_texts || {};
+    return customTexts[key] || defaultText;
+  };
+
   const handleChange = (field: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData(prev => ({ ...prev, [field]: e.target.value }));
   };
@@ -97,11 +103,11 @@ export default function BrandedPublicAuth({
   const getFormTitle = () => {
     switch (formType) {
       case 'login':
-        return 'Welcome Back';
+        return getText('login_title', 'Iniciar Sesión');
       case 'register':
-        return 'Create Account';
+        return getText('register_title', 'Crear Cuenta');
       case 'reset-password':
-        return 'Reset Password';
+        return getText('reset_title', 'Recuperar Contraseña');
       default:
         return 'Authentication';
     }
@@ -110,27 +116,27 @@ export default function BrandedPublicAuth({
   const getFormSubtitle = () => {
     switch (formType) {
       case 'login':
-        return 'Sign in to continue';
+        return getText('login_subtitle', 'Ingresa tus credenciales');
       case 'register':
-        return 'Sign up to get started';
+        return getText('register_subtitle', 'Regístrate para comenzar');
       case 'reset-password':
-        return 'Enter your email to reset your password';
+        return getText('reset_subtitle', 'Te enviaremos un email para recuperar tu contraseña');
       default:
         return '';
     }
   };
 
   const getButtonText = () => {
-    if (loading) return 'Processing...';
+    if (loading) return 'Procesando...';
     switch (formType) {
       case 'login':
-        return 'Sign In';
+        return getText('login_button_text', 'Iniciar Sesión');
       case 'register':
-        return 'Create Account';
+        return getText('register_button_text', 'Crear Cuenta');
       case 'reset-password':
-        return 'Send Reset Link';
+        return getText('reset_button_text', 'Enviar Email de Recuperación');
       default:
-        return 'Submit';
+        return 'Enviar';
     }
   };
 
@@ -154,8 +160,8 @@ export default function BrandedPublicAuth({
             <BrandedInput
               type="text"
               id="name"
-              label="Full Name"
-              placeholder="John Doe"
+              label={getText('register_name_label', 'Nombre Completo')}
+              placeholder={getText('register_name_placeholder', 'Tu nombre completo')}
               value={formData.name}
               onChange={handleChange('name')}
               branding={branding}
@@ -166,8 +172,12 @@ export default function BrandedPublicAuth({
           <BrandedInput
             type="email"
             id="email"
-            label="Email Address"
-            placeholder="you@example.com"
+            label={formType === 'login' ? getText('login_email_label', 'Email') :
+                   formType === 'register' ? getText('register_email_label', 'Email') :
+                   getText('reset_email_label', 'Email')}
+            placeholder={formType === 'login' ? getText('login_email_placeholder', 'tu@email.com') :
+                         formType === 'register' ? getText('register_email_placeholder', 'tu@email.com') :
+                         getText('reset_email_placeholder', 'tu@email.com')}
             value={formData.email}
             onChange={handleChange('email')}
             branding={branding}
@@ -179,8 +189,8 @@ export default function BrandedPublicAuth({
               <BrandedInput
                 type={showPassword ? 'text' : 'password'}
                 id="password"
-                label="Password"
-                placeholder="••••••••"
+                label={formType === 'login' ? getText('login_password_label', 'Contraseña') : getText('register_password_label', 'Contraseña')}
+                placeholder={formType === 'login' ? getText('login_password_placeholder', '••••••••') : getText('register_password_placeholder', '••••••••')}
                 value={formData.password}
                 onChange={handleChange('password')}
                 branding={branding}
@@ -194,8 +204,8 @@ export default function BrandedPublicAuth({
                 <BrandedInput
                   type={showPassword ? 'text' : 'password'}
                   id="confirmPassword"
-                  label="Confirm Password"
-                  placeholder="••••••••"
+                  label={getText('register_confirm_password_label', 'Confirmar Contraseña')}
+                  placeholder={getText('register_confirm_password_placeholder', '••••••••')}
                   value={formData.confirmPassword}
                   onChange={handleChange('confirmPassword')}
                   branding={branding}
@@ -224,12 +234,12 @@ export default function BrandedPublicAuth({
                 <a href={`/reset-password?app_id=${applicationId}`}
                    className="transition-colors hover:opacity-80"
                    style={{ color: branding.primary_color }}>
-                  Forgot password?
+                  {getText('login_forgot_password_text', '¿Olvidaste tu contraseña?')}
                 </a>
                 <a href={`/register?app_id=${applicationId}`}
                    className="transition-colors hover:opacity-80"
                    style={{ color: branding.primary_color }}>
-                  Create account
+                  {getText('login_register_link_text', '¿No tienes cuenta? Regístrate aquí').split('? ')[1] || 'Regístrate aquí'}
                 </a>
               </>
             )}
@@ -237,14 +247,14 @@ export default function BrandedPublicAuth({
               <a href={`/login?app_id=${applicationId}`}
                  className="transition-colors hover:opacity-80 mx-auto"
                  style={{ color: branding.primary_color }}>
-                Already have an account? Sign in
+                {getText('register_login_link_text', '¿Ya tienes cuenta? Inicia sesión')}
               </a>
             )}
             {formType === 'reset-password' && (
               <a href={`/login?app_id=${applicationId}`}
                  className="transition-colors hover:opacity-80 mx-auto"
                  style={{ color: branding.primary_color }}>
-                Back to sign in
+                {getText('reset_login_link_text', '¿Recordaste tu contraseña? Inicia sesión')}
               </a>
             )}
           </div>
