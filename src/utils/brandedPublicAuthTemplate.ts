@@ -252,20 +252,20 @@ export default function BrandedPublicAuth({
                     <div className="flex items-center gap-2 mb-1">
                       <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
                         <div
-                          className={\\\`h-full transition-all duration-300 \${
+                          className={\`h-full transition-all duration-300 \${
                             passwordStrength === 'weak' ? 'w-1/4 bg-red-500' :
                             passwordStrength === 'medium' ? 'w-2/4 bg-orange-500' :
                             passwordStrength === 'strong' ? 'w-3/4 bg-yellow-500' :
                             'w-full bg-green-500'
-                          }\\\`}
+                          }\`}
                         />
                       </div>
-                      <span className={\\\`text-xs font-medium \${
+                      <span className={\`text-xs font-medium \${
                         passwordStrength === 'weak' ? 'text-red-400' :
                         passwordStrength === 'medium' ? 'text-orange-400' :
                         passwordStrength === 'strong' ? 'text-yellow-400' :
                         'text-green-400'
-                      }\\\`}>
+                      }\`}>
                         {passwordStrength === 'weak' ? 'Débil' :
                          passwordStrength === 'medium' ? 'Media' :
                          passwordStrength === 'strong' ? 'Fuerte' :
