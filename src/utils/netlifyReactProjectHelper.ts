@@ -25,6 +25,7 @@ export async function getReactProjectFiles(
       "preview": "vite preview"
     },
     "dependencies": {
+      "@supabase/supabase-js": "^2.57.4",
       "react": "^18.3.1",
       "react-dom": "^18.3.1",
       "react-router-dom": "^7.9.3",
@@ -32,6 +33,8 @@ export async function getReactProjectFiles(
     },
     "devDependencies": {
       "@vitejs/plugin-react": "^4.3.1",
+      "@types/react": "^18.3.5",
+      "@types/react-dom": "^18.3.0",
       "vite": "^5.4.2",
       "typescript": "^5.5.3",
       "autoprefixer": "^10.4.18",
@@ -74,6 +77,41 @@ export default defineConfig({
   },
 }
 `;
+
+  // tsconfig.json for TypeScript configuration
+  files['tsconfig.json'] = JSON.stringify({
+    "compilerOptions": {
+      "target": "ES2020",
+      "useDefineForClassFields": true,
+      "lib": ["ES2020", "DOM", "DOM.Iterable"],
+      "module": "ESNext",
+      "skipLibCheck": true,
+      "moduleResolution": "bundler",
+      "allowImportingTsExtensions": true,
+      "resolveJsonModule": true,
+      "isolatedModules": true,
+      "noEmit": true,
+      "jsx": "react-jsx",
+      "strict": true,
+      "noUnusedLocals": true,
+      "noUnusedParameters": true,
+      "noFallthroughCasesInSwitch": true
+    },
+    "include": ["src"],
+    "references": [{ "path": "./tsconfig.node.json" }]
+  }, null, 2);
+
+  // tsconfig.node.json for Vite configuration
+  files['tsconfig.node.json'] = JSON.stringify({
+    "compilerOptions": {
+      "composite": true,
+      "skipLibCheck": true,
+      "module": "ESNext",
+      "moduleResolution": "bundler",
+      "allowSyntheticDefaultImports": true
+    },
+    "include": ["vite.config.ts"]
+  }, null, 2);
 
   // .env.example - Template for local development (optional)
   files['.env.example'] = `# These values are already embedded in the config file
@@ -883,6 +921,16 @@ export const config = {
 };
 `;
 
+  // src/lib/supabase.ts - Supabase client for loading branding data
+  files['src/lib/supabase.ts'] = `import { createClient } from '@supabase/supabase-js';
+
+// Supabase client for public read-only access to branding data
+const supabaseUrl = 'https://wqrfqrzhgfzpxgvxvyto.supabase.co';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndxcmZxcnpoZ2Z6cHhndnh2eXRvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzAzNTI0OTEsImV4cCI6MjA0NTkyODQ5MX0.xfkRXhDxMBiK9QTm1m1CQFJ_a4K1YCUh_wlG1eT0vVw';
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+`;
+
   // netlify.toml for deployment configuration
   files['netlify.toml'] = `[build]
   command = "npm install && npm run build"
@@ -924,12 +972,15 @@ Todas las rutas requieren los parámetros \`app_id\` y \`api_key\` en la URL.
 `;
 
   // ============================================
-  // ALL FILES READY - Now includes branded components
+  // ALL FILES READY - Complete React application
   // ============================================
-  console.log('✅ Generated files with branding support');
-  console.log(`   - BrandedPublicAuth.tsx (main auth component)`);
-  console.log(`   - BrandedComponents.tsx (UI components)`);
-  console.log(`   - themePresets.ts (default config)`);
+  console.log(`✅ Generated ${Object.keys(files).length} files for complete React app`);
+  console.log(`   - React components with branding support`);
+  console.log(`   - Service layer for API calls`);
+  console.log(`   - Supabase client configuration`);
+  console.log(`   - TypeScript configuration`);
+  console.log(`   - Vite build configuration`);
+  console.log(`   - Netlify deployment configuration`);
 
   return files;
 }
