@@ -134,19 +134,46 @@ Deno.serve(async (req: Request) => {
 
     const newCommitData = await newCommitResponse.json();
 
-    const updateRefResponse = await fetch(
+    // Try to update reference without force first
+    let updateRefResponse = await fetch(
       `https://api.github.com/repos/${repoFullName}/git/refs/heads/${branch}`,
       {
         method: "PATCH",
         headers,
         body: JSON.stringify({
           sha: newCommitData.sha,
+          force: false,
         }),
       }
     );
 
+    // If non-fast-forward, try with force (for automated deployments)
     if (!updateRefResponse.ok) {
-      throw new Error(`Failed to update reference: ${await updateRefResponse.text()}`);
+      const errorData = await updateRefResponse.json();
+
+      if (errorData.message?.includes("not a fast forward") || errorData.message?.includes("Update is not a fast forward")) {
+        console.log("⚠️ Non-fast-forward detected, attempting force push for deployment...");
+
+        updateRefResponse = await fetch(
+          `https://api.github.com/repos/${repoFullName}/git/refs/heads/${branch}`,
+          {
+            method: "PATCH",
+            headers,
+            body: JSON.stringify({
+              sha: newCommitData.sha,
+              force: true,
+            }),
+          }
+        );
+
+        if (!updateRefResponse.ok) {
+          throw new Error(`Failed to force update reference: ${await updateRefResponse.text()}`);
+        }
+
+        console.log("✅ Force push successful");
+      } else {
+        throw new Error(`Failed to update reference: ${JSON.stringify(errorData)}`);
+      }
     }
 
     // Create deployment snapshot if applicationId is provided
