@@ -933,6 +933,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
   files['netlify.toml'] = `[build]
   command = "npm install && npm run build"
   publish = "dist"
+  environment = { VITE_SUPABASE_URL = "${supabaseUrl}", VITE_SUPABASE_ANON_KEY = "${supabaseAnonKey}", VITE_APP_ID = "${applicationId}", VITE_API_KEY = "${apiKey}" }
 
 [[redirects]]
   from = "/*"
