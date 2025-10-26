@@ -21,6 +21,7 @@ import LogsViewer from './components/activity/LogsViewer';
 import ConnectorsPage from './components/connectors/ConnectorsPage';
 import GitHubCallback from './components/github/GitHubCallback';
 import DeploymentManager from './components/deployments/DeploymentManager';
+import FormStylesPrototype from './components/auth/FormStylesPrototype';
 
 // Component for handling public auth routes
 function PublicAuthRoute() {
@@ -218,6 +219,7 @@ function App() {
   return (
     <Router>
       <Routes>
+        <Route path="/prototype" element={<FormStylesPrototype />} />
         <Route path="/reset-password" element={<ResetPasswordForm />} />
         <Route path="/github/callback" element={<GitHubCallback />} />
         <Route path="/:action" element={<PublicAuthRoute />} />
