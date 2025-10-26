@@ -357,8 +357,8 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
       const clientIp = ipData.ip;
 
       // Determine endpoint and payload
-      // Use relative URL to avoid CORS issues
-      const apiBaseUrl = '/.netlify/functions/api';
+      // Use /api path (configured in netlify.toml redirects)
+      const apiBaseUrl = '/api';
       let endpoint = '';
       let payload: any = {};
 
@@ -916,7 +916,7 @@ export const applicationService = {
 // These values are embedded at build time
 // The forms call the public API (Netlify Functions), not Supabase directly
 export const config = {
-  apiBaseUrl: '/.netlify/functions/api', // Relative URL to avoid CORS issues
+  apiBaseUrl: '/api', // Uses Netlify redirect from netlify.toml
   appId: '${applicationId}',
   apiKey: '${apiKey}'
 };

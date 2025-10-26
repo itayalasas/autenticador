@@ -237,8 +237,8 @@ function PublicAuthForms({
       const clientIp = await ipService.getClientIP();
       console.log('📍 Client IP:', clientIp);
 
-      // Use relative URL to avoid CORS issues - this will use the same domain as the current page
-      const apiBaseUrl = '/.netlify/functions/api';
+      // Use /api path (configured in netlify.toml redirects)
+      const apiBaseUrl = '/api';
 
       let endpoint = '';
       let payload: any = {};
