@@ -9,8 +9,6 @@ import { THEME_PRESETS_TEMPLATE } from './themePresetsTemplate';
 export async function getReactProjectFiles(
   applicationId: string,
   apiKey: string,
-  supabaseUrl: string,
-  supabaseAnonKey: string,
   branding?: any
 ): Promise<Record<string, string>> {
   const files: Record<string, string> = {};
@@ -80,8 +78,6 @@ export default defineConfig({
   // .env.example - Template for local development (optional)
   files['.env.example'] = `# These values are already embedded in the config file
 # This file is only for reference
-VITE_SUPABASE_URL=your-supabase-url
-VITE_SUPABASE_ANON_KEY=your-anon-key
 VITE_APP_ID=your-app-id
 VITE_API_KEY=your-api-key
 `;
@@ -323,12 +319,13 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
       const clientIp = ipData.ip;
 
       // Determine endpoint and payload
+      const apiBaseUrl = 'https://authsystem-dashboard.netlify.app/.netlify/functions/api';
       let endpoint = '';
       let payload: any = {};
 
       switch (validFormType) {
         case 'login':
-          endpoint = \`\${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auth-login\`;
+          endpoint = \`\${apiBaseUrl}/auth/login\`;
           payload = {
             email: formData.email,
             password: formData.password,
@@ -342,7 +339,7 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
           if (formData.password !== formData.confirmPassword) {
             throw new Error('Las contraseñas no coinciden');
           }
-          endpoint = \`\${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auth-register\`;
+          endpoint = \`\${apiBaseUrl}/auth/register\`;
           payload = {
             email: formData.email,
             password: formData.password,
@@ -354,7 +351,7 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
           };
           break;
         case 'reset-password':
-          endpoint = \`\${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auth-reset-password\`;
+          endpoint = \`\${apiBaseUrl}/auth/reset-password\`;
           payload = {
             email: formData.email,
             application_id: appId,
@@ -370,8 +367,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': \`Bearer \${import.meta.env.VITE_SUPABASE_ANON_KEY}\`,
-          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
           'X-Client-Info': 'authsystem-public-form/1.0'
         },
         body: JSON.stringify(payload)
@@ -866,54 +861,6 @@ export const applicationService = {
       console.error('Error getting client IP:', error);
       return '0.0.0.0';
     }
-  },
-
-  async checkIPStatus(clientIp) {
-    try {
-      const ipToCheck = clientIp || await this.getClientIP();
-
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      const apiUrl = \`\${supabaseUrl}/functions/v1/check-ip-status\`;
-
-      console.log('🔍 Checking IP status for:', ipToCheck);
-
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': \`Bearer \${supabaseAnonKey}\`,
-          'apikey': supabaseAnonKey
-        },
-        body: JSON.stringify({ client_ip: ipToCheck })
-      });
-
-      console.log('📡 Response status:', response.status);
-
-      const result = await response.json();
-      console.log('📦 Response data:', result);
-
-      if (result.success) {
-        return {
-          is_blocked: result.data.is_blocked,
-          blocked_info: result.data.blocked_info,
-          ip_address: result.data.ip_address
-        };
-      }
-
-      return {
-        is_blocked: false,
-        blocked_info: null,
-        ip_address: ipToCheck
-      };
-    } catch (error) {
-      console.error('❌ Error checking IP status:', error);
-      return {
-        is_blocked: false,
-        blocked_info: null,
-        ip_address: '0.0.0.0'
-      };
-    }
   }
 };
 `;
@@ -952,14 +899,13 @@ Este es un proyecto standalone de formularios públicos para AuthSystem.
 
 Este proyecto está configurado para deployarse automáticamente en Netlify.
 
-## Variables de Entorno
+## Configuración
 
-Las siguientes variables están pre-configuradas en el archivo .env:
+La configuración de la aplicación está embebida en el archivo \`src/lib/config.ts\`:
 
-- VITE_SUPABASE_URL: URL de tu proyecto Supabase
-- VITE_SUPABASE_ANON_KEY: Anon key de Supabase
-- VITE_APP_ID: ID de la aplicación
-- VITE_API_KEY: API key de la aplicación
+- apiBaseUrl: URL de la API pública de AuthSystem
+- appId: ID de la aplicación
+- apiKey: API key de la aplicación
 
 ## Rutas
 

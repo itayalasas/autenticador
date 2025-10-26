@@ -686,9 +686,6 @@ export default function EnvironmentsManager() {
       const deployApiKey = apiKey; // Reusar la misma API Key
       addLog(`   ✓ Usando API Key del ambiente: ${deployApiKey.substring(0, 20)}...`, 'success');
 
-      // Obtener configuración de Supabase (supabaseUrl ya declarado en línea 448)
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
       // Generar TODOS los archivos de la aplicación React completa
       addLog('📦 Generando aplicación React completa...', 'info');
       addLog('   Preparando componentes, servicios, y configuración', 'info');
@@ -696,8 +693,6 @@ export default function EnvironmentsManager() {
       const files = await getReactProjectFiles(
         app.application_id,
         deployApiKey,
-        supabaseUrl,
-        supabaseAnonKey,
         brandingData || {}
       );
 

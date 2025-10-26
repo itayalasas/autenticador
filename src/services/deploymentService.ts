@@ -41,8 +41,6 @@ export async function collectReactSourceFiles(
     const files = await getReactProjectFiles(
       applicationId,
       apiKey,
-      supabaseUrl,
-      supabaseAnonKey,
       branding
     );
 
