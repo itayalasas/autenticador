@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,7 +10,8 @@ const corsHeaders = {
 interface DeployRequest {
   siteId: string;
   accessToken: string;
-  projectFiles: Record<string, string>;
+  environmentId: string;
+  environmentName: string;
 }
 
 Deno.serve(async (req: Request) => {
@@ -21,11 +23,87 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const { siteId, accessToken, projectFiles }: DeployRequest = await req.json();
+    const { siteId, accessToken, environmentId, environmentName }: DeployRequest = await req.json();
 
-    if (!siteId || !accessToken) {
-      throw new Error("Missing siteId or accessToken");
+    if (!siteId || !accessToken || !environmentId) {
+      throw new Error("Missing required parameters");
     }
+
+    console.log('=� Starting deploy for environment:', environmentId);
+
+    // Initialize Supabase client
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+    // Get environment data from database
+    const { data: environment, error: envError } = await supabase
+      .from('deployment_environments')
+      .select('*, applications(*)')
+      .eq('id', environmentId)
+      .maybeSingle();
+
+    if (envError || !environment) {
+      throw new Error('Environment not found');
+    }
+
+    console.log(' Environment loaded:', environment.name);
+
+    // Get API key for the application
+    const { data: apiKeys } = await supabase
+      .from('api_keys')
+      .select('*')
+      .eq('application_id', environment.application_id)
+      .eq('environment', environmentName || 'production')
+      .eq('is_active', true)
+      .limit(1);
+
+    const apiKey = apiKeys && apiKeys.length > 0 ? apiKeys[0].key : null;
+
+    if (!apiKey) {
+      throw new Error('No active API key found for this environment');
+    }
+
+    console.log(' API key found');
+
+    // Get branding
+    const { data: branding } = await supabase
+      .from('branding_configs')
+      .select('*')
+      .eq('application_id', environment.application_id)
+      .maybeSingle();
+
+    console.log('=� Generating project files...');
+
+    // Call collect-source-files-complete to generate project files
+    const collectResponse = await fetch(`${supabaseUrl}/functions/v1/collect-source-files-complete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({
+        applicationId: environment.applications.application_id,
+        apiKey: apiKey,
+        supabaseUrl: supabaseUrl,
+        supabaseAnonKey: supabaseAnonKey,
+        branding: branding,
+        internalApplicationId: environment.application_id
+      })
+    });
+
+    if (!collectResponse.ok) {
+      throw new Error('Failed to generate project files');
+    }
+
+    const collectResult = await collectResponse.json();
+
+    if (!collectResult.success || !collectResult.files) {
+      throw new Error('Failed to collect source files');
+    }
+
+    const projectFiles = collectResult.files;
+    console.log(` Generated ${Object.keys(projectFiles).length} files`);
 
     const files: Record<string, string> = {};
     const fileContents: Record<string, string> = {};
