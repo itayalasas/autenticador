@@ -207,7 +207,7 @@ export default function App() {
 
   // src/components/auth/PublicAuthRouter.tsx - Component that loads branding from DB
   files['src/components/auth/PublicAuthRouter.tsx'] = `import React, { useEffect, useState } from 'react';
-import PublicAuthForms from './PublicAuthForms';
+import BrandedPublicAuth from './BrandedPublicAuth';
 import { applicationService } from '../../services/applicationService';
 import { supabase } from '../../lib/supabase';
 import { useSearchParams } from 'react-router-dom';
@@ -308,13 +308,14 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
   }
 
   return (
-    <PublicAuthForms
+    <BrandedPublicAuth
       applicationId={appId}
-      internalApplicationId={appData?.id}
       formType={validFormType}
-      apiKey={apiKey}
       branding={appData?.branding}
-      appInfo={appData}
+      onSubmit={async (data) => {
+        // Handle auth submission
+        console.log('Auth submit:', data);
+      }}
       onSuccess={(data) => console.log('Auth success:', data)}
       onError={(error) => console.error('Auth error:', error)}
     />
@@ -322,7 +323,7 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
 }
 `;
 
-  // src/components/auth/PublicAuthForms.tsx - Using the template
+  // src/components/auth/PublicAuthForms.tsx - DEPRECATED, keeping for compatibility
   files['src/components/auth/PublicAuthForms.tsx'] = PUBLIC_AUTH_FORMS_TEMPLATE;
 
   // ============================================
@@ -582,6 +583,34 @@ Las siguientes variables están pre-configuradas en el archivo .env:
 
 Todas las rutas requieren los parámetros \`app_id\` y \`api_key\` en la URL.
 `;
+
+  // ============================================
+  // BRANDED AUTH COMPONENTS - Required for styled forms
+  // ============================================
+
+  // Read actual component files from the project
+  try {
+    // BrandedPublicAuth.tsx - Main auth component with branding support
+    const brandedAuthResponse = await fetch('/src/components/auth/BrandedPublicAuth.tsx');
+    if (brandedAuthResponse.ok) {
+      files['src/components/auth/BrandedPublicAuth.tsx'] = await brandedAuthResponse.text();
+    }
+
+    // BrandedComponents.tsx - UI components with neumorphic/glass effects
+    const brandedComponentsResponse = await fetch('/src/components/ui/BrandedComponents.tsx');
+    if (brandedComponentsResponse.ok) {
+      files['src/components/ui/BrandedComponents.tsx'] = await brandedComponentsResponse.text();
+    }
+
+    // themePresets.ts - Default branding configuration
+    const themePresetsResponse = await fetch('/src/utils/themePresets.ts');
+    if (themePresetsResponse.ok) {
+      files['src/utils/themePresets.ts'] = await themePresetsResponse.text();
+    }
+  } catch (error) {
+    console.warn('Could not load branded component files:', error);
+    // Continue without these files - will fall back to PublicAuthForms
+  }
 
   return files;
 }
