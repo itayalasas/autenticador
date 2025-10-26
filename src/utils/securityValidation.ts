@@ -178,11 +178,18 @@ export function validateAuthForm(
   // Password validation (required for login and register)
   if (formType !== 'reset-password') {
     if (data.password) {
-      const passwordValidation = validatePassword(data.password);
-      if (!passwordValidation.valid) {
-        errors.password = passwordValidation.errors.join(', ');
+      // Only validate password strength for registration
+      // For login, just check it's not empty
+      if (formType === 'register') {
+        const passwordValidation = validatePassword(data.password);
+        if (!passwordValidation.valid) {
+          errors.password = passwordValidation.errors.join(', ');
+        } else {
+          // Don't sanitize password - use as-is
+          sanitized.password = data.password;
+        }
       } else {
-        // Don't sanitize password - use as-is
+        // Login: accept any password, server will verify
         sanitized.password = data.password;
       }
     } else {
