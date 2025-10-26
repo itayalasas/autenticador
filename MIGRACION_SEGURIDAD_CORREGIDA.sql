@@ -1,5 +1,5 @@
 /*
-  # Crear Sistema de Seguridad Avanzado
+  # Crear Sistema de Seguridad Avanzado (CORREGIDO)
 
   1. Nuevas Tablas
     - `rate_limits` - Control de rate limiting por IP y endpoint
@@ -8,7 +8,7 @@
     
   2. Seguridad
     - Enable RLS en todas las tablas
-    - Solo admin puede leer/escribir
+    - Solo service role puede acceder (sin políticas de usuario)
     
   3. Índices
     - Para búsquedas rápidas por IP y email
@@ -66,7 +66,7 @@ CREATE POLICY "Service role can manage failed attempts"
 -- Tabla de Alertas de Seguridad
 CREATE TABLE IF NOT EXISTS security_alerts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  alert_type text NOT NULL, -- 'brute_force', 'rate_limit_exceeded', 'suspicious_activity', etc.
+  alert_type text NOT NULL,
   severity text NOT NULL CHECK (severity IN ('low', 'medium', 'high', 'critical')),
   ip_address text,
   email text,
