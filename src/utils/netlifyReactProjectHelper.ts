@@ -359,15 +359,25 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
       const ipData = await ipResponse.json();
       const clientIp = ipData.ip;
 
-      // Determine endpoint and payload
-      // Use /api path (configured in netlify.toml redirects)
-      const apiBaseUrl = '/api';
+      // Use Supabase Edge Functions directly (hardcoded for production)
+      const supabaseUrl = 'https://sfqtmnncgiqkveaoqckt.supabase.co';
+      const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNmcXRtbm5jZ2lxa3ZlYW9xY2t0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4MDEyNDMsImV4cCI6MjA3NTM3NzI0M30.n2yaYrfHDLAFePP1tA3-250P6bgKmf696fYJFHfRZaQ';
+      const apiBaseUrl = \`\${supabaseUrl}/functions/v1\`;
+
+      console.log('🔧 Configuration:', {
+        supabaseUrl,
+        apiBaseUrl,
+        applicationId: appId,
+        apiKey: apiKey?.substring(0, 20) + '...',
+        callbackUrl
+      });
+
       let endpoint = '';
       let payload: any = {};
 
       switch (validFormType) {
         case 'login':
-          endpoint = \`\${apiBaseUrl}/auth/login\`;
+          endpoint = \`\${apiBaseUrl}/auth-login\`;
           payload = {
             email: formData.email,
             password: formData.password,
@@ -381,7 +391,7 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
           if (formData.password !== formData.confirmPassword) {
             throw new Error('Las contraseñas no coinciden');
           }
-          endpoint = \`\${apiBaseUrl}/auth/register\`;
+          endpoint = \`\${apiBaseUrl}/auth-register\`;
           payload = {
             email: formData.email,
             password: formData.password,
@@ -393,7 +403,7 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
           };
           break;
         case 'reset-password':
-          endpoint = \`\${apiBaseUrl}/auth/reset-password\`;
+          endpoint = \`\${apiBaseUrl}/auth-reset-password\`;
           payload = {
             email: formData.email,
             application_id: appId,
@@ -404,14 +414,34 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
           break;
       }
 
-      // Make API request
+      console.log('🚀 Making API request:', {
+        endpoint,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + supabaseAnonKey.substring(0, 30) + '...',
+          'apikey': supabaseAnonKey.substring(0, 30) + '...',
+          'X-Client-Info': 'authsystem-public-form/1.0'
+        },
+        payload: { ...payload, password: '***' }
+      });
+
+      // Make API request to Supabase Edge Functions
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': \`Bearer \${supabaseAnonKey}\`,
+          'apikey': supabaseAnonKey,
           'X-Client-Info': 'authsystem-public-form/1.0'
         },
         body: JSON.stringify(payload)
+      });
+
+      console.log('📡 Response received:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
       });
 
       const result = await response.json();
@@ -914,16 +944,8 @@ export const applicationService = {
 };
 `;
 
-  // src/lib/config.ts - Configuration for public auth forms
-  files['src/lib/config.ts'] = `${deployTimestamp}// Public configuration for auth forms
-// These values are embedded at build time
-// The forms call the public API (Netlify Functions), not Supabase directly
-export const config = {
-  apiBaseUrl: '/api', // Uses Netlify redirect from netlify.toml
-  appId: '${applicationId}',
-  apiKey: '${apiKey}'
-};
-`;
+  // src/lib/config.ts - Configuration for public auth forms (not used anymore)
+  // We now use Supabase Edge Functions directly, hardcoded in the components
 
   // src/lib/supabase.ts - Supabase client for loading branding data
   files['src/lib/supabase.ts'] = `${deployTimestamp}import { createClient } from '@supabase/supabase-js';
