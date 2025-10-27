@@ -38,6 +38,8 @@ export default function BrandedPublicAuth({
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [passwordStrength, setPasswordStrength] = useState<'weak' | 'medium' | 'strong' | 'very-strong'>('weak');
   const [rateLimitInfo, setRateLimitInfo] = useState<{ blocked: boolean; timeLeft: number }>({ blocked: false, timeLeft: 0 });
+  const [availableRoles, setAvailableRoles] = useState<any[]>([]);
+  const [selectedRole, setSelectedRole] = useState('');
 
   const [formData, setFormData] = useState({
     name: '',
@@ -45,6 +47,65 @@ export default function BrandedPublicAuth({
     password: '',
     confirmPassword: ''
   });
+
+  // Load available roles for registration
+  useEffect(() => {
+    const loadRoles = async () => {
+      if (formType === 'register' && applicationId) {
+        try {
+          console.log('📋 Loading roles for application:', applicationId);
+
+          // Get internal app ID first
+          const { createClient } = await import('@supabase/supabase-js');
+          const supabase = createClient(
+            'https://sfqtmnncgiqkveaoqckt.supabase.co',
+            'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNmcXRtbm5jZ2lxa3ZlYW9xY2t0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4MDEyNDMsImV4cCI6MjA3NTM3NzI0M30.n2yaYrfHDLAFePP1tA3-250P6bgKmf696fYJFHfRZaQ'
+          );
+
+          // Get internal ID from application_id
+          const { data: app, error: appError } = await supabase
+            .from('applications')
+            .select('id')
+            .eq('application_id', applicationId)
+            .maybeSingle();
+
+          if (appError || !app) {
+            console.warn('⚠️ Could not find application:', applicationId);
+            return;
+          }
+
+          const internalAppId = app.id;
+          console.log('📋 Internal app ID:', internalAppId);
+
+          // Load roles
+          const { data: roles, error: rolesError } = await supabase
+            .from('application_roles')
+            .select('*')
+            .eq('application_id', internalAppId)
+            .order('display_name');
+
+          if (rolesError) {
+            console.error('❌ Error loading roles:', rolesError);
+            return;
+          }
+
+          console.log('✅ Roles loaded:', roles);
+          setAvailableRoles(roles || []);
+
+          // Set default role if exists
+          const defaultRole = roles?.find((r: any) => r.is_default);
+          if (defaultRole) {
+            setSelectedRole(defaultRole.name);
+            console.log('✅ Default role set:', defaultRole.name);
+          }
+        } catch (error) {
+          console.error('❌ Error in loadRoles:', error);
+        }
+      }
+    };
+
+    loadRoles();
+  }, [formType, applicationId]);
 
   // Merge custom branding with defaults
   const branding: BrandingConfig = {
@@ -97,8 +158,12 @@ export default function BrandedPublicAuth({
       setLoading(true);
       setMessageStatus('loading');
 
-      // Use sanitized data
-      await onSubmit(validation.sanitized);
+      // Use sanitized data and add role if selected
+      const dataToSubmit = {
+        ...validation.sanitized,
+        ...(selectedRole && { role: selectedRole })
+      };
+      await onSubmit(dataToSubmit);
 
       setMessageStatus('success');
       rateLimiter.reset(rateLimitKey); // Reset on success
@@ -292,6 +357,42 @@ export default function BrandedPublicAuth({
                 />
               )}
             </>
+          )}
+
+          {/* Role Selection (only for register) */}
+          {formType === 'register' && availableRoles.length > 0 && (
+            <div>
+              <label
+                htmlFor="role"
+                className="block text-sm font-medium mb-2"
+                style={{ color: branding.text_color }}
+              >
+                {getText('role_selection_label', 'Tipo de Usuario')}
+              </label>
+              <select
+                id="role"
+                value={selectedRole}
+                onChange={(e) => setSelectedRole(e.target.value)}
+                className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:outline-none transition-all"
+                style={{
+                  borderColor: branding.input_border_color,
+                  backgroundColor: branding.input_background,
+                  color: branding.text_color,
+                  borderRadius: \`\${branding.border_radius}px\`
+                }}
+              >
+                <option value="">{getText('role_selection_placeholder', 'Selecciona un rol')}</option>
+                {availableRoles.map((role) => (
+                  <option key={role.id} value={role.name}>
+                    {role.display_name}
+                    {role.description ? \` - \${role.description}\` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                {getText('role_selection_description', 'Selecciona el tipo de acceso que necesitas en la aplicación')}
+              </p>
+            </div>
           )}
 
           <BrandedButton

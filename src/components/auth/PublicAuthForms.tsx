@@ -167,19 +167,36 @@ function PublicAuthForms({
       }
 
       // Load roles for register form
+      console.log('🔍 Checking roles loading:', {
+        formType,
+        internalApplicationId,
+        shouldLoadRoles: formType === 'register' && !!internalApplicationId
+      });
+
       if (formType === 'register' && internalApplicationId && isMounted) {
         try {
+          console.log('📋 Loading roles for application:', internalApplicationId);
           const roles = await rolesService.getAvailableRolesForRegistration(internalApplicationId);
+          console.log('✅ Roles loaded:', roles);
+
           if (isMounted) {
             setAvailableRoles(roles);
             const defaultRole = roles.find(role => role.is_default);
             if (defaultRole) {
+              console.log('✅ Default role set:', defaultRole.name);
               setSelectedRole(defaultRole.name);
+            } else {
+              console.log('⚠️ No default role found');
             }
           }
         } catch (error) {
-          console.error('Error loading available roles:', error);
+          console.error('❌ Error loading available roles:', error);
         }
+      } else {
+        console.log('⚠️ Not loading roles because:', {
+          isRegisterForm: formType === 'register',
+          hasInternalAppId: !!internalApplicationId
+        });
       }
     };
 

@@ -156,18 +156,31 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
 
         try {
           const branding = await applicationService.getBranding(app.id);
-          setAppData({
+          const finalAppData = {
             ...app,
             branding: branding || {}
+          };
+          setAppData(finalAppData);
+          console.log('✅ Application data set:', {
+            id: finalAppData.id,
+            application_id: finalAppData.application_id,
+            name: finalAppData.name,
+            hasBranding: !!branding
           });
         } catch (brandingError) {
           console.warn('Could not load branding, using defaults:', brandingError);
-          setAppData({
+          const finalAppData = {
             ...app,
             branding: {}
+          };
+          setAppData(finalAppData);
+          console.log('✅ Application data set (no branding):', {
+            id: finalAppData.id,
+            application_id: finalAppData.application_id,
+            name: finalAppData.name
           });
         }
-        
+
         console.log('Application loaded:', app);
         
       } catch (supabaseError) {
@@ -204,6 +217,15 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
       </div>
     );
   }
+
+  console.log('🎨 Rendering PublicAuthForms with:', {
+    applicationId: appId,
+    internalApplicationId: appData?.id,
+    formType: validFormType,
+    hasApiKey: !!apiKey,
+    hasBranding: !!appData?.branding,
+    appInfo: appData
+  });
 
   return (
     <PublicAuthForms

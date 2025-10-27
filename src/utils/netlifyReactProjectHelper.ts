@@ -399,6 +399,7 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
             application_id: appId,
             api_key: apiKey,
             callback_url: callbackUrl,
+            role: formData.role || undefined,
             client_ip: clientIp
           };
           break;
