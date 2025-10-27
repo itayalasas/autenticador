@@ -237,8 +237,8 @@ function PublicAuthForms({
       const clientIp = await ipService.getClientIP();
       console.log('📍 Client IP:', clientIp);
 
-      // Use Supabase Edge Functions URL
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      // Use Supabase Edge Functions URL (hardcoded for production)
+      const supabaseUrl = 'https://sfqtmnncgiqkveaoqckt.supabase.co';
       const apiBaseUrl = `${supabaseUrl}/functions/v1`;
 
       let endpoint = '';
