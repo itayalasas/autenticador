@@ -298,8 +298,6 @@ export default function BrandingManager() {
       message_success_bg: preset.message_success_bg || '#DCFCE7',
       message_error_bg: preset.message_error_bg || '#FEE2E2'
     });
-
-    showSuccess('Tema aplicado', 'El tema ha sido aplicado exitosamente');
   };
 
   const resetToDefaults = () => {
