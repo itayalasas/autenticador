@@ -1,6 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
-import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -23,373 +22,51 @@ function generateResetToken(): string {
   return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-interface EmailConfig {
-  email_provider: 'system' | 'smtp' | 'resend' | 'sendgrid';
-  from_name: string;
-  from_email: string;
-  smtp_host?: string;
-  smtp_port?: number;
-  smtp_secure?: boolean;
-  smtp_user?: string;
-  smtp_password?: string;
-  api_key?: string;
-}
-
-async function sendWithSMTP(config: EmailConfig, to: string, subject: string, html: string): Promise<boolean> {
-  try {
-    const port = config.smtp_port || 587;
-    const useTLS = config.smtp_secure ?? (port === 465);
-
-    console.log('📧 SMTP Connection Details:', {
-      host: config.smtp_host,
-      port: port,
-      useTLS: useTLS,
-      user: config.smtp_user,
-      from: config.from_email
-    });
-
-    const client = new SMTPClient({
-      connection: {
-        hostname: config.smtp_host || '',
-        port: port,
-        tls: useTLS,
-        auth: {
-          username: config.smtp_user || '',
-          password: config.smtp_password || '',
-        },
-      },
-    });
-
-    console.log('📤 Sending email to:', to);
-
-    const result = await client.send({
-      from: `${config.from_name} <${config.from_email}>`,
-      to,
-      subject,
-      content: html,
-      html,
-    });
-
-    console.log('📬 SMTP Send Result:', result);
-
-    await client.close();
-    console.log('✅ Email sent successfully via SMTP');
-    return true;
-  } catch (error: any) {
-    console.error('❌ SMTP Error Details:', {
-      message: error.message,
-      name: error.name,
-      stack: error.stack
-    });
-    throw error;
-  }
-}
-
-async function sendWithResend(apiKey: string, config: EmailConfig, to: string, subject: string, html: string): Promise<boolean> {
-  try {
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        from: `${config.from_name} <${config.from_email}>`,
-        to: [to],
-        subject,
-        html,
-      }),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Resend API error: ${error}`);
-    }
-
-    console.log('✅ Email sent successfully via Resend');
-    return true;
-  } catch (error) {
-    console.error('❌ Resend Error:', error);
-    throw error;
-  }
-}
-
-async function sendWithSendGrid(apiKey: string, config: EmailConfig, to: string, subject: string, html: string): Promise<boolean> {
-  try {
-    const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        personalizations: [{
-          to: [{ email: to }],
-        }],
-        from: {
-          email: config.from_email,
-          name: config.from_name,
-        },
-        subject,
-        content: [{
-          type: 'text/html',
-          value: html,
-        }],
-      }),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`SendGrid API error: ${error}`);
-    }
-
-    console.log('✅ Email sent successfully via SendGrid');
-    return true;
-  } catch (error) {
-    console.error('❌ SendGrid Error:', error);
-    throw error;
-  }
-}
-
-function getResetPasswordEmailHTML(
-  name: string,
-  resetUrl: string,
-  appName: string,
-  logoUrl?: string,
-  primaryColor: string = '#3B82F6'
-): string {
-  const darkerColor = adjustColor(primaryColor, -20);
-
-  return `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Recuperar Contraseña</title>
-    </head>
-    <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f5f7fa;">
-      <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f7fa; padding: 40px 20px;">
-        <tr>
-          <td align="center">
-            <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07); overflow: hidden;">
-
-              <!-- Header with Logo -->
-              <tr>
-                <td style="background-color: ${primaryColor}; padding: 48px 40px; text-align: center;">
-                  ${logoUrl ? `<img src="${logoUrl}" alt="${appName}" style="max-width: 180px; height: auto; margin-bottom: 20px;">` : ''}
-                  <h1 style="margin: 0; color: #ffffff; font-size: 32px; font-weight: 700; letter-spacing: -0.5px;">Recupera tu contraseña</h1>
-                </td>
-              </tr>
-
-              <!-- Content -->
-              <tr>
-                <td style="padding: 48px 40px;">
-                  <p style="margin: 0 0 24px; color: #1f2937; font-size: 18px; font-weight: 600;">
-                    Hola ${name},
-                  </p>
-                  <p style="margin: 0 0 16px; color: #4b5563; font-size: 16px; line-height: 1.6;">
-                    Recibimos una solicitud para restablecer la contraseña de tu cuenta en <strong style="color: #1f2937;">${appName}</strong>.
-                  </p>
-                  <p style="margin: 0 0 32px; color: #4b5563; font-size: 16px; line-height: 1.6;">
-                    Haz clic en el botón de abajo para crear una nueva contraseña:
-                  </p>
-
-                  <!-- Button -->
-                  <table width="100%" cellpadding="0" cellspacing="0">
-                    <tr>
-                      <td align="center" style="padding: 0 0 32px 0;">
-                        <a href="${resetUrl}" style="display: inline-block; padding: 16px 48px; background-color: ${primaryColor}; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; border-radius: 8px; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); transition: all 0.3s;">
-                          Restablecer Contraseña
-                        </a>
-                      </td>
-                    </tr>
-                  </table>
-
-                  <!-- Security Note -->
-                  <table width="100%" cellpadding="0" cellspacing="0">
-                    <tr>
-                      <td style="padding: 20px; background-color: #fef3c7; border-radius: 8px; border-left: 4px solid #f59e0b;">
-                        <p style="margin: 0; color: #92400e; font-size: 14px; line-height: 1.6;">
-                          <strong>🔒 Nota de seguridad:</strong> Si no solicitaste este cambio, ignora este email y tu contraseña permanecerá sin cambios. El enlace expirará en 24 horas.
-                        </p>
-                      </td>
-                    </tr>
-                  </table>
-
-                  <!-- Alternative Link -->
-                  <p style="margin: 32px 0 0; padding-top: 24px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 13px; line-height: 1.6;">
-                    Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
-                    <a href="${resetUrl}" style="color: ${primaryColor}; word-break: break-all; text-decoration: underline;">${resetUrl}</a>
-                  </p>
-                </td>
-              </tr>
-
-              <!-- Footer -->
-              <tr>
-                <td style="background-color: #f9fafb; padding: 32px 40px; text-align: center; border-top: 1px solid #e5e7eb;">
-                  <p style="margin: 0 0 8px; color: #6b7280; font-size: 14px;">
-                    Este email fue enviado por <strong style="color: #1f2937;">${appName}</strong>
-                  </p>
-                  <p style="margin: 0; color: #9ca3af; font-size: 12px;">
-                    Powered by AuthSystem
-                  </p>
-                </td>
-              </tr>
-            </table>
-
-            <!-- Footer Text -->
-            <p style="margin: 24px 0 0; color: #9ca3af; font-size: 12px; text-align: center;">
-              © ${new Date().getFullYear()} ${appName}. Todos los derechos reservados.
-            </p>
-          </td>
-        </tr>
-      </table>
-    </body>
-    </html>
-  `;
-}
-
-function adjustColor(color: string, amount: number): string {
-  const hex = color.replace('#', '');
-  const r = Math.max(0, Math.min(255, parseInt(hex.substring(0, 2), 16) + amount));
-  const g = Math.max(0, Math.min(255, parseInt(hex.substring(2, 4), 16) + amount));
-  const b = Math.max(0, Math.min(255, parseInt(hex.substring(4, 6), 16) + amount));
-  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-}
-
-async function sendResetPasswordEmail(
-  supabase: any,
+async function sendResetPasswordEmailViaAPI(
   email: string,
   name: string,
-  resetUrl: string,
-  appName: string,
-  applicationId: string,
-  userId: string,
-  emailConfig: EmailConfig
-) {
-  console.log('📧 Starting sendResetPasswordEmail function...');
-  console.log('📧 Email Config:', {
-    provider: emailConfig.email_provider,
-    from_email: emailConfig.from_email,
-    from_name: emailConfig.from_name
-  });
-
-  // Get branding config
-  const { data: branding } = await supabase
-    .from('branding_configs')
-    .select('primary_color, secondary_color, logo_url')
-    .eq('application_id', applicationId)
-    .maybeSingle();
-
-  const primaryColor = branding?.primary_color || '#3B82F6';
-  const logoUrl = branding?.logo_url;
-
-  console.log('🎨 Branding config:', { primaryColor, hasLogo: !!logoUrl });
-
-  const rawHtml = getResetPasswordEmailHTML(name, resetUrl, appName, logoUrl, primaryColor);
-  const html = rawHtml.replace(/\r?\n/g, '\r\n');
-  const subject = `Recupera tu contraseña - ${appName}`;
-
-  let status = 'sent';
-  let errorMessage = null;
-  let actuallySent = false;
-
+  resetUrl: string
+): Promise<boolean> {
   try {
-    // Send email based on provider
-    console.log('📤 Attempting to send email using provider:', emailConfig.email_provider);
+    const EMAIL_API_URL = Deno.env.get('EMAIL_API_URL') || 'https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email';
+    const EMAIL_API_KEY = Deno.env.get('EMAIL_API_KEY') || 'sk_bcaca188c1b16345e4d10adf403eb4e9e98d3fa9ff04ba053d7416fe302b7dee';
 
-    switch (emailConfig.email_provider) {
-      case 'smtp':
-        console.log('🔧 Using SMTP provider');
-        if (emailConfig.smtp_host && emailConfig.smtp_user && emailConfig.smtp_password) {
-          console.log('✅ SMTP configuration complete, sending email...');
-          console.log('🔧 SMTP Config:', {
-            host: emailConfig.smtp_host,
-            port: emailConfig.smtp_port,
-            user: emailConfig.smtp_user,
-            secure: emailConfig.smtp_secure
-          });
-          await sendWithSMTP(emailConfig, email, subject, html);
-          actuallySent = true;
-        } else {
-          console.error('❌ SMTP configuration incomplete');
-          throw new Error('SMTP configuration incomplete');
+    console.log('📧 Sending reset password email via external API...');
+    console.log('📧 API URL:', EMAIL_API_URL);
+    console.log('📧 Recipient:', email);
+
+    const response = await fetch(EMAIL_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': EMAIL_API_KEY
+      },
+      body: JSON.stringify({
+        template_name: 'reset-password',
+        recipient_email: email,
+        data: {
+          client_name: name,
+          reset_url: resetUrl
         }
-        break;
+      })
+    });
 
-      case 'resend':
-        console.log('🔧 Using Resend provider');
-        if (emailConfig.api_key) {
-          console.log('✅ Resend API key found, sending email...');
-          await sendWithResend(emailConfig.api_key, emailConfig, email, subject, html);
-          actuallySent = true;
-        } else {
-          console.error('❌ Resend API key not configured');
-          throw new Error('Resend API key not configured');
-        }
-        break;
-
-      case 'sendgrid':
-        console.log('🔧 Using SendGrid provider');
-        if (emailConfig.api_key) {
-          console.log('✅ SendGrid API key found, sending email...');
-          await sendWithSendGrid(emailConfig.api_key, emailConfig, email, subject, html);
-          actuallySent = true;
-        } else {
-          console.error('❌ SendGrid API key not configured');
-          throw new Error('SendGrid API key not configured');
-        }
-        break;
-
-      case 'system':
-      default:
-        console.log('⚠️ Using SYSTEM mode - Email will be logged but NOT sent physically');
-        console.log('📧 Email logged (system mode):', {
-          to: email,
-          from: `${emailConfig.from_name} <${emailConfig.from_email}>`,
-          subject,
-        });
-        break;
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Email API Error:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText
+      });
+      throw new Error(`Email API error: ${response.status} - ${errorText}`);
     }
+
+    const result = await response.json();
+    console.log('✅ Email sent successfully via external API:', result);
+    return true;
   } catch (error: any) {
-    status = 'failed';
-    errorMessage = error.message;
-    console.error('❌ Email sending failed:', error);
-  }
-
-  // Store email in database for tracking
-  console.log('💾 Saving email log to database...');
-  const emailLogData = {
-    to_email: email,
-    from_email: emailConfig.from_email,
-    from_name: emailConfig.from_name,
-    subject,
-    html_content: html,
-    status,
-    error_message: errorMessage,
-    application_id: applicationId || null,
-    app_user_id: userId || null,
-    sent_at: actuallySent ? new Date().toISOString() : null
-  };
-
-  const { data: insertedData, error: dbError } = await supabase
-    .from('email_logs')
-    .insert(emailLogData)
-    .select();
-
-  if (dbError) {
-    console.error('❌ ERROR logging email to database:', dbError);
-  } else {
-    console.log('✅ Email log saved successfully to database');
-  }
-
-  if (status === 'failed') {
-    console.error('⚠️ Email sending failed, but continuing with reset flow. Error:', errorMessage);
-    // Don't throw - we still want the reset password flow to succeed even if email fails
-    // The user can still recover using the token that was created
-  } else {
-    console.log('✅ Reset password email processed successfully');
+    console.error('❌ Error calling email API:', error);
+    throw error;
   }
 }
 
@@ -655,26 +332,13 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Load email config from application
-    console.log('📧 Raw application.email_config:', application.email_config);
+    // Check if password reset emails are enabled
+    const emailConfig = application.email_config || {};
+    const shouldSendPasswordResetEmail = emailConfig.send_password_reset_email !== false; // Default to true
 
-    const emailConfig: EmailConfig = {
-      email_provider: 'system',
-      from_name: 'AuthSystem',
-      from_email: 'noreply@authsystem.com',
-      ...(application.email_config || {})
-    }
-
-    console.log('📧 Final emailConfig:', {
-      provider: emailConfig.email_provider,
-      from_name: emailConfig.from_name,
-      from_email: emailConfig.from_email,
-      has_smtp_host: !!emailConfig.smtp_host,
-      has_smtp_user: !!emailConfig.smtp_user,
-      has_smtp_password: !!emailConfig.smtp_password
+    console.log('📧 Email config:', {
+      send_password_reset_email: shouldSendPasswordResetEmail
     });
-
-    const shouldSendPasswordResetEmail = emailConfig.send_password_reset_email !== false // Default to true
 
     // Generate reset token
     const resetToken = generateResetToken()
@@ -736,22 +400,27 @@ Deno.serve(async (req) => {
 
     console.log('✅ Reset password successful for user:', appUser.email);
     
-    // Build reset URL
+    // Build reset URL - usando /reset-password-confirm para el nuevo formulario
     const baseUrl = callback_url ? callback_url.split('/callback')[0] : `https://${application.domain}`
-    const resetUrl = `${baseUrl}/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`
+    const resetUrl = `${baseUrl}/reset-password-confirm?token=${resetToken}&email=${encodeURIComponent(email)}`
 
-    // Send reset email if enabled
+    console.log('🔗 Reset URL generated:', resetUrl);
+
+    // Send reset email via external API
     if (shouldSendPasswordResetEmail) {
-      await sendResetPasswordEmail(
-        supabase,
-        email,
-        appUser.name,
-        resetUrl,
-        application.name,
-        application.id,
-        appUser.id,
-        emailConfig
-      )
+      try {
+        await sendResetPasswordEmailViaAPI(
+          email,
+          appUser.name,
+          resetUrl
+        );
+        console.log('✅ Reset email sent successfully');
+      } catch (emailError: any) {
+        console.error('⚠️ Email sending failed, but continuing with reset flow:', emailError.message);
+        // Don't throw - we still want the reset password flow to succeed even if email fails
+      }
+    } else {
+      console.log('📧 Email sending disabled for this application');
     }
 
     // Log successful event

@@ -46,15 +46,16 @@ function PublicAuthRoute() {
     'login': 'login',
     'register': 'register',
     'reset-password': 'reset-password',
+    'reset-password-confirm': 'reset-password-confirm',
     'verify-email': 'verify-email'
   };
   
   const formType = actionTypeMap[action || 'login'] || 'login';
   
   return (
-    <PublicAuthRouter 
+    <PublicAuthRouter
       appId={appId}
-      formType={formType as 'login' | 'register' | 'reset-password'}
+      formType={formType as 'login' | 'register' | 'reset-password' | 'reset-password-confirm'}
     />
   );
 }
@@ -102,9 +103,9 @@ function MainApp() {
   // Show public auth forms if app_id parameter is present
   if (isPublicAuth) {
     return (
-      <PublicAuthRouter 
+      <PublicAuthRouter
         appId={appId}
-        formType={formType as 'login' | 'register' | 'reset-password'}
+        formType={formType as 'login' | 'register' | 'reset-password' | 'reset-password-confirm'}
       />
     );
   }

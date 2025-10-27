@@ -16,8 +16,8 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
   const [error, setError] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
 
-  const validFormType = ['login', 'register', 'reset-password'].includes(formType)
-    ? formType as 'login' | 'register' | 'reset-password'
+  const validFormType = ['login', 'register', 'reset-password', 'reset-password-confirm'].includes(formType)
+    ? formType as 'login' | 'register' | 'reset-password' | 'reset-password-confirm'
     : 'login';
 
   useEffect(() => {

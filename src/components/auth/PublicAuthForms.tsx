@@ -8,7 +8,7 @@ import { ipService } from '../../services/ipService';
 interface PublicAuthFormsProps {
   applicationId: string;
   internalApplicationId?: string;
-  formType: 'login' | 'register' | 'reset-password';
+  formType: 'login' | 'register' | 'reset-password' | 'reset-password-confirm';
   apiKey: string | null;
   appInfo?: any;
   branding?: {
