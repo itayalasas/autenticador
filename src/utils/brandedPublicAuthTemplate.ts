@@ -119,6 +119,26 @@ export default function BrandedPublicAuth({
     return customTexts[key] || defaultText;
   };
 
+  // Helper function to build navigation URLs with all required params
+  const buildNavUrl = (path: string): string => {
+    const params = new URLSearchParams(window.location.search);
+    const redirectUri = params.get('redirect_uri');
+    const apiKey = params.get('api_key');
+
+    const newParams = new URLSearchParams();
+    newParams.set('app_id', applicationId);
+
+    if (redirectUri) {
+      newParams.set('redirect_uri', redirectUri);
+    }
+
+    if (apiKey) {
+      newParams.set('api_key', apiKey);
+    }
+
+    return \`\${path}?\${newParams.toString()}\`;
+  };
+
   const handleChange = (field: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -411,12 +431,12 @@ export default function BrandedPublicAuth({
           <div className="flex items-center justify-between text-sm">
             {formType === 'login' && (
               <>
-                <a href={\`/reset-password?app_id=\${applicationId}\`}
+                <a href={buildNavUrl('/reset-password')}
                    className="transition-colors hover:opacity-80"
                    style={{ color: branding.primary_color }}>
                   {getText('login_forgot_password_text', '¿Olvidaste tu contraseña?')}
                 </a>
-                <a href={\`/register?app_id=\${applicationId}\`}
+                <a href={buildNavUrl('/register')}
                    className="transition-colors hover:opacity-80"
                    style={{ color: branding.primary_color }}>
                   {getText('login_register_link_text', '¿No tienes cuenta? Regístrate aquí').split('? ')[1] || 'Regístrate aquí'}
@@ -424,14 +444,14 @@ export default function BrandedPublicAuth({
               </>
             )}
             {formType === 'register' && (
-              <a href={\`/login?app_id=\${applicationId}\`}
+              <a href={buildNavUrl('/login')}
                  className="transition-colors hover:opacity-80 mx-auto"
                  style={{ color: branding.primary_color }}>
                 {getText('register_login_link_text', '¿Ya tienes cuenta? Inicia sesión')}
               </a>
             )}
             {formType === 'reset-password' && (
-              <a href={\`/login?app_id=\${applicationId}\`}
+              <a href={buildNavUrl('/login')}
                  className="transition-colors hover:opacity-80 mx-auto"
                  style={{ color: branding.primary_color }}>
                 {getText('reset_login_link_text', '¿Recordaste tu contraseña? Inicia sesión')}
