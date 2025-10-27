@@ -29,7 +29,7 @@ async function sendResetPasswordEmailViaAPI(
 ): Promise<boolean> {
   try {
     const EMAIL_API_URL = Deno.env.get('EMAIL_API_URL') || 'https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email';
-    const EMAIL_API_KEY = Deno.env.get('EMAIL_API_KEY') || 'sk_bcaca188c1b16345e4d10adf403eb4e9e98d3fa9ff04ba053d7416fe302b7dee';
+    const EMAIL_API_KEY = Deno.env.get('EMAIL_API_KEY') || 'sk_05f7d2638a2f33e2b730df9d0fb628d7e9230c7ee31a71df5d4f5cde01305e7f';
 
     console.log('📧 Sending reset password email via external API...');
     console.log('📧 API URL:', EMAIL_API_URL);
@@ -42,7 +42,7 @@ async function sendResetPasswordEmailViaAPI(
         'x-api-key': EMAIL_API_KEY
       },
       body: JSON.stringify({
-        template_name: 'reset-password',
+        template_name: 'reset-password-authsystem',
         recipient_email: email,
         data: {
           client_name: name,

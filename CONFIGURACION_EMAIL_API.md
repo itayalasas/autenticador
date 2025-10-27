@@ -20,7 +20,7 @@ Para que el sistema de recuperación de contraseña funcione con la API externa 
 
 #### `EMAIL_API_KEY`
 - **Descripción**: API Key para autenticación con la API externa
-- **Valor**: `sk_bcaca188c1b16345e4d10adf403eb4e9e98d3fa9ff04ba053d7416fe302b7dee`
+- **Valor**: `sk_05f7d2638a2f33e2b730df9d0fb628d7e9230c7ee31a71df5d4f5cde01305e7f`
 - **Tipo**: String (Secret Key)
 - **⚠️ Importante**: Esta key se envía en el header `x-api-key`
 
@@ -35,7 +35,7 @@ Para que el sistema de recuperación de contraseña funcione con la API externa 
 3. Haz clic en **Save**
 4. Repite para la segunda variable:
    - **Name**: `EMAIL_API_KEY`
-   - **Value**: `sk_bcaca188c1b16345e4d10adf403eb4e9e98d3fa9ff04ba053d7416fe302b7dee`
+   - **Value**: `sk_05f7d2638a2f33e2b730df9d0fb628d7e9230c7ee31a71df5d4f5cde01305e7f`
 
 #### Opción B: Usando Supabase CLI
 
@@ -44,7 +44,7 @@ Para que el sistema de recuperación de contraseña funcione con la API externa 
 supabase secrets set EMAIL_API_URL=https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email
 
 # Configurar EMAIL_API_KEY
-supabase secrets set EMAIL_API_KEY=sk_bcaca188c1b16345e4d10adf403eb4e9e98d3fa9ff04ba053d7416fe302b7dee
+supabase secrets set EMAIL_API_KEY=sk_05f7d2638a2f33e2b730df9d0fb628d7e9230c7ee31a71df5d4f5cde01305e7f
 ```
 
 ### 4. Verificar la Configuración
@@ -70,7 +70,7 @@ La edge function `auth-reset-password` envía el siguiente payload a la API exte
 
 ```json
 {
-  "template_name": "reset-password",
+  "template_name": "reset-password-authsystem",
   "recipient_email": "usuario@ejemplo.com",
   "data": {
     "client_name": "Nombre del Usuario",
@@ -83,7 +83,7 @@ La edge function `auth-reset-password` envía el siguiente payload a la API exte
 
 ```
 Content-Type: application/json
-x-api-key: sk_bcaca188c1b16345e4d10adf403eb4e9e98d3fa9ff04ba053d7416fe302b7dee
+x-api-key: sk_05f7d2638a2f33e2b730df9d0fb628d7e9230c7ee31a71df5d4f5cde01305e7f
 ```
 
 ---
@@ -116,7 +116,7 @@ x-api-key: sk_bcaca188c1b16345e4d10adf403eb4e9e98d3fa9ff04ba053d7416fe302b7dee
 ### 1. Valores por Defecto
 Si no configuras las variables, se usarán estos valores por defecto (definidos en el código):
 - `EMAIL_API_URL`: `https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email`
-- `EMAIL_API_KEY`: `sk_bcaca188c1b16345e4d10adf403eb4e9e98d3fa9ff04ba053d7416fe302b7dee`
+- `EMAIL_API_KEY`: `sk_05f7d2638a2f33e2b730df9d0fb628d7e9230c7ee31a71df5d4f5cde01305e7f`
 
 ### 2. Seguridad
 - **NUNCA** expongas el `EMAIL_API_KEY` en el código del frontend
