@@ -2,7 +2,7 @@
 // Auto-generated
 
 export const BRANDED_PUBLIC_AUTH_TEMPLATE = `import React, { useState, useEffect } from 'react';
-import { Mail, Lock, User, ArrowRight, Shield, AlertTriangle } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, ArrowLeft, Shield, AlertTriangle, CheckCircle } from 'lucide-react';
 import {
   BrandedContainer,
   BrandedCard,
@@ -285,7 +285,29 @@ export default function BrandedPublicAuth({
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Reset Password Success Message */}
+        {messageStatus === 'success' && formType === 'reset-password' && (
+          <div className="mb-6 p-6 rounded-xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700/30">
+            <div className="flex items-start gap-3 mb-4">
+              <CheckCircle className="w-6 h-6 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-green-800 dark:text-green-200">
+                  {getText('reset_success_message', 'Si el email existe en nuestro sistema, recibirás un enlace de recuperación.')}
+                </p>
+              </div>
+            </div>
+            <a
+              href={buildNavUrl('/login')}
+              className="inline-flex items-center gap-2 text-sm font-medium transition-colors hover:opacity-80"
+              style={{ color: branding.primary_color }}
+            >
+              <ArrowLeft className="w-4 h-4" />
+              {getText('reset_back_to_login', 'Volver al inicio de sesión')}
+            </a>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-6" style={{ display: messageStatus === 'success' && formType === 'reset-password' ? 'none' : 'block' }}>
           {formType === 'register' && (
             <BrandedInput
               type="text"

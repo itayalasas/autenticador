@@ -404,10 +404,10 @@ function PublicAuthForms({
         let successMessage = '¡Bienvenido!';
 
         if (formType === 'register') {
-          successMessage = 'Cuenta creada exitosamente';
+          successMessage = getText('register_success_message', 'Cuenta creada exitosamente');
         } else if (formType === 'reset-password') {
-          // Usar el mensaje que viene del servidor o uno genérico
-          successMessage = result.data?.message || 'Si el usuario está registrado, recibirá un correo electrónico con las instrucciones para restablecer su contraseña.';
+          // Usar el mensaje que viene del servidor o uno genérico personalizable
+          successMessage = result.data?.message || getText('reset_success_message', 'Si el email existe en nuestro sistema, recibirás un enlace de recuperación.');
         }
 
         setMessage({
@@ -719,7 +719,7 @@ function PublicAuthForms({
                         style={{ color: defaultBranding.primary_color }}
                       >
                         <ArrowRight className="w-4 h-4 mr-1 rotate-180" />
-                        Volver al inicio de sesión
+                        {getText('reset_back_to_login', 'Volver al inicio de sesión')}
                       </a>
                     </div>
                   )}

@@ -61,6 +61,16 @@ Los textos disponibles son:
 - `reset_email_placeholder`: "tu@email.com"
 - `reset_button_text`: "Enviar Email de Recuperación"
 - `reset_login_link_text`: "¿Recordaste tu contraseña? Inicia sesión"
+- `reset_success_message`: "Si el email existe en nuestro sistema, recibirás un enlace de recuperación."
+- `reset_back_to_login`: "Volver al inicio de sesión"
+
+#### Role Selection (Register):
+- `role_selection_label`: "Tipo de Usuario"
+- `role_selection_description`: "Selecciona tu tipo de cuenta"
+- `role_selection_placeholder`: "Selecciona un rol"
+
+#### Success Messages:
+- `register_success_message`: "Cuenta creada exitosamente"
 
 ---
 
