@@ -945,8 +945,18 @@ export const applicationService = {
 };
 `;
 
-  // src/lib/config.ts - Configuration for public auth forms (not used anymore)
-  // We now use Supabase Edge Functions directly, hardcoded in the components
+  // src/lib/config.ts - Configuration for public auth forms
+  // This file is auto-generated with the application's API credentials
+  files['src/lib/config.ts'] = `${deployTimestamp}// Public configuration for auth forms
+// These values are embedded at build time
+// The forms call the public API (Netlify Functions), not Supabase directly
+
+export const config = {
+  apiBaseUrl: '/api', // Uses Netlify redirect from netlify.toml
+  appId: '${applicationId}',
+  apiKey: '${apiKey}'
+};
+`;
 
   // src/lib/supabase.ts - Supabase client for loading branding data
   files['src/lib/supabase.ts'] = `${deployTimestamp}import { createClient } from '@supabase/supabase-js';
