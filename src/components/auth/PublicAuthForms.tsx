@@ -239,7 +239,16 @@ function PublicAuthForms({
 
       // Use Supabase Edge Functions URL (hardcoded for production)
       const supabaseUrl = 'https://sfqtmnncgiqkveaoqckt.supabase.co';
+      const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNmcXRtbm5jZ2lxa3ZlYW9xY2t0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4MDEyNDMsImV4cCI6MjA3NTM3NzI0M30.n2yaYrfHDLAFePP1tA3-250P6bgKmf696fYJFHfRZaQ';
       const apiBaseUrl = `${supabaseUrl}/functions/v1`;
+
+      console.log('🔧 Configuration:', {
+        supabaseUrl,
+        apiBaseUrl,
+        applicationId,
+        apiKey: apiKey.substring(0, 20) + '...',
+        callbackUrl
+      });
 
       let endpoint = '';
       let payload: any = {};
@@ -286,12 +295,17 @@ function PublicAuthForms({
 
       console.log('🚀 Making API request:', {
         endpoint,
-        apiKey: apiKey.substring(0, 20) + '...',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + supabaseAnonKey.substring(0, 30) + '...',
+          'apikey': supabaseAnonKey.substring(0, 30) + '...',
+          'X-Client-Info': 'authsystem-public-form/1.0'
+        },
         payload: { ...payload, password: '***' }
       });
 
       // Llamar a la Edge Function de Supabase
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -301,6 +315,13 @@ function PublicAuthForms({
           'X-Client-Info': 'authsystem-public-form/1.0'
         },
         body: JSON.stringify(payload)
+      });
+
+      console.log('📡 Response received:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        headers: Object.fromEntries(response.headers.entries())
       });
 
       const result = await response.json();
