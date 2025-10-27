@@ -13,7 +13,7 @@ import { getDefaultBrandingConfig } from '../../utils/themePresets';
 
 interface BrandedPublicAuthProps {
   applicationId: string;
-  formType: 'login' | 'register' | 'reset-password';
+  formType: 'login' | 'register' | 'reset-password' | 'reset-password-confirm';
   branding?: Partial<BrandingConfig>;
   onSubmit: (data: any) => Promise<void>;
   onSuccess?: (data: any) => void;
@@ -108,6 +108,8 @@ export default function BrandedPublicAuth({
         return getText('register_title', 'Crear Cuenta');
       case 'reset-password':
         return getText('reset_title', 'Recuperar Contraseña');
+      case 'reset-password-confirm':
+        return getText('confirm_reset_title', 'Nueva Contraseña');
       default:
         return 'Authentication';
     }
@@ -121,6 +123,8 @@ export default function BrandedPublicAuth({
         return getText('register_subtitle', 'Regístrate para comenzar');
       case 'reset-password':
         return getText('reset_subtitle', 'Te enviaremos un email para recuperar tu contraseña');
+      case 'reset-password-confirm':
+        return getText('confirm_reset_subtitle', 'Ingresa tu nueva contraseña');
       default:
         return '';
     }
@@ -135,6 +139,8 @@ export default function BrandedPublicAuth({
         return getText('register_button_text', 'Crear Cuenta');
       case 'reset-password':
         return getText('reset_button_text', 'Enviar Email de Recuperación');
+      case 'reset-password-confirm':
+        return getText('confirm_reset_button_text', 'Cambiar Contraseña');
       default:
         return 'Enviar';
     }
@@ -169,28 +175,38 @@ export default function BrandedPublicAuth({
             />
           )}
 
-          <BrandedInput
-            type="email"
-            id="email"
-            label={formType === 'login' ? getText('login_email_label', 'Email') :
-                   formType === 'register' ? getText('register_email_label', 'Email') :
-                   getText('reset_email_label', 'Email')}
-            placeholder={formType === 'login' ? getText('login_email_placeholder', 'tu@email.com') :
-                         formType === 'register' ? getText('register_email_placeholder', 'tu@email.com') :
-                         getText('reset_email_placeholder', 'tu@email.com')}
-            value={formData.email}
-            onChange={handleChange('email')}
-            branding={branding}
-            icon={<Mail className="w-5 h-5" />}
-          />
+          {formType !== 'reset-password-confirm' && (
+            <BrandedInput
+              type="email"
+              id="email"
+              label={formType === 'login' ? getText('login_email_label', 'Email') :
+                     formType === 'register' ? getText('register_email_label', 'Email') :
+                     getText('reset_email_label', 'Email')}
+              placeholder={formType === 'login' ? getText('login_email_placeholder', 'tu@email.com') :
+                           formType === 'register' ? getText('register_email_placeholder', 'tu@email.com') :
+                           getText('reset_email_placeholder', 'tu@email.com')}
+              value={formData.email}
+              onChange={handleChange('email')}
+              branding={branding}
+              icon={<Mail className="w-5 h-5" />}
+            />
+          )}
 
-          {formType !== 'reset-password' && (
+          {(formType === 'login' || formType === 'register' || formType === 'reset-password-confirm') && (
             <>
               <BrandedInput
                 type={showPassword ? 'text' : 'password'}
                 id="password"
-                label={formType === 'login' ? getText('login_password_label', 'Contraseña') : getText('register_password_label', 'Contraseña')}
-                placeholder={formType === 'login' ? getText('login_password_placeholder', '••••••••') : getText('register_password_placeholder', '••••••••')}
+                label={
+                  formType === 'login' ? getText('login_password_label', 'Contraseña') :
+                  formType === 'register' ? getText('register_password_label', 'Contraseña') :
+                  getText('confirm_reset_password_label', 'Nueva Contraseña')
+                }
+                placeholder={
+                  formType === 'login' ? getText('login_password_placeholder', '••••••••') :
+                  formType === 'register' ? getText('register_password_placeholder', '••••••••') :
+                  getText('confirm_reset_password_placeholder', '••••••••')
+                }
                 value={formData.password}
                 onChange={handleChange('password')}
                 branding={branding}
@@ -200,12 +216,20 @@ export default function BrandedPublicAuth({
                 showPassword={showPassword}
               />
 
-              {formType === 'register' && (
+              {(formType === 'register' || formType === 'reset-password-confirm') && (
                 <BrandedInput
                   type={showPassword ? 'text' : 'password'}
                   id="confirmPassword"
-                  label={getText('register_confirm_password_label', 'Confirmar Contraseña')}
-                  placeholder={getText('register_confirm_password_placeholder', '••••••••')}
+                  label={
+                    formType === 'register' ?
+                    getText('register_confirm_password_label', 'Confirmar Contraseña') :
+                    getText('confirm_reset_confirm_password_label', 'Confirmar Nueva Contraseña')
+                  }
+                  placeholder={
+                    formType === 'register' ?
+                    getText('register_confirm_password_placeholder', '••••••••') :
+                    getText('confirm_reset_confirm_password_placeholder', '••••••••')
+                  }
                   value={formData.confirmPassword}
                   onChange={handleChange('confirmPassword')}
                   branding={branding}

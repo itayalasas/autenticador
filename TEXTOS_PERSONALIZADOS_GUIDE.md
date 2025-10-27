@@ -72,6 +72,15 @@ Los textos disponibles son:
 #### Success Messages:
 - `register_success_message`: "Cuenta creada exitosamente"
 
+#### Reset Password Confirm (Nueva Contraseña):
+- `confirm_reset_title`: "Nueva Contraseña"
+- `confirm_reset_subtitle`: "Ingresa tu nueva contraseña"
+- `confirm_reset_password_label`: "Nueva Contraseña"
+- `confirm_reset_password_placeholder`: "••••••••"
+- `confirm_reset_confirm_password_label`: "Confirmar Nueva Contraseña"
+- `confirm_reset_confirm_password_placeholder`: "••••••••"
+- `confirm_reset_button_text`: "Cambiar Contraseña"
+
 ---
 
 ## 🔧 IMPLEMENTACIÓN

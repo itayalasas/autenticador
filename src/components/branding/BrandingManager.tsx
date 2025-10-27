@@ -1578,7 +1578,7 @@ export default function BrandingManager() {
             <div className="border-2 border-gray-200 rounded-lg overflow-hidden">
               <BrandedPublicAuth
                 applicationId={selectedApp || 'preview'}
-                formType={previewMode as 'login' | 'register' | 'reset-password'}
+                formType={previewMode === 'confirm-reset' ? 'reset-password-confirm' : previewMode as 'login' | 'register' | 'reset-password' | 'reset-password-confirm'}
                 branding={{
                   ...branding,
                   ...extendedBranding,
