@@ -371,10 +371,7 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
 
       {/* Notification Modal */}
       <NotificationModal
-        isOpen={notification.isOpen}
-        type={notification.type}
-        title={notification.title}
-        message={notification.message}
+        notification={notification}
         onClose={closeNotification}
       />
     </>
