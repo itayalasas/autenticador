@@ -3,6 +3,7 @@ import { Menu, Plus, Edit, Trash2, Save, X, Grid, ChevronDown, ChevronUp } from 
 import { permissionsService, MenuWithActions } from '../../services/permissionsService';
 import { useNotification } from '../../hooks/useNotification';
 import ConfirmationModal from '../ui/ConfirmationModal';
+import NotificationModal from '../ui/NotificationModal';
 
 interface MenusManagerProps {
   applicationId: string;
@@ -28,7 +29,7 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
     order_index: 0
   });
 
-  const { showNotification } = useNotification();
+  const { showNotification, notification, closeNotification } = useNotification();
 
   useEffect(() => {
     loadMenus();
@@ -41,7 +42,7 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
       setMenus(data);
     } catch (error: any) {
       console.error('Error loading menus:', error);
-      showNotification('error', error.message || 'Error al cargar menús');
+      showNotification('error', 'Error', error.message || 'Error al cargar menús');
     } finally {
       setLoading(false);
     }
@@ -50,7 +51,7 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
   const handleCreateMenu = async () => {
     try {
       if (!menuForm.name || !menuForm.slug) {
-        showNotification('error', 'Nombre y slug son requeridos');
+        showNotification('error', 'Error', 'Nombre y slug son requeridos');
         return;
       }
 
@@ -62,13 +63,13 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
       // Create default actions for this menu
       await permissionsService.createDefaultActions(newMenu.id);
 
-      showNotification('success', 'Menú creado exitosamente');
+      showNotification('success', 'Éxito', 'Menú creado exitosamente');
       setShowCreateMenu(false);
       setMenuForm({ name: '', slug: '', description: '', icon: '', order_index: 0 });
       loadMenus();
     } catch (error: any) {
       console.error('Error creating menu:', error);
-      showNotification('error', error.message || 'Error al crear menú');
+      showNotification('error', 'Error', error.message || 'Error al crear menú');
     }
   };
 
@@ -78,13 +79,13 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
 
       await permissionsService.updateMenu(editingMenu.id, menuForm);
 
-      showNotification('success', 'Menú actualizado exitosamente');
+      showNotification('success', 'Éxito', 'Menú actualizado exitosamente');
       setEditingMenu(null);
       setMenuForm({ name: '', slug: '', description: '', icon: '', order_index: 0 });
       loadMenus();
     } catch (error: any) {
       console.error('Error updating menu:', error);
-      showNotification('error', error.message || 'Error al actualizar menú');
+      showNotification('error', 'Error', error.message || 'Error al actualizar menú');
     }
   };
 
@@ -94,12 +95,12 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
 
       await permissionsService.deleteMenu(deleteModal.menuId);
 
-      showNotification('success', 'Menú eliminado exitosamente');
+      showNotification('success', 'Éxito', 'Menú eliminado exitosamente');
       setDeleteModal({ show: false, menuId: null });
       loadMenus();
     } catch (error: any) {
       console.error('Error deleting menu:', error);
-      showNotification('error', error.message || 'Error al eliminar menú');
+      showNotification('error', 'Error', error.message || 'Error al eliminar menú');
     }
   };
 
@@ -367,6 +368,15 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
           onCancel={() => setDeleteModal({ show: false, menuId: null })}
         />
       )}
+
+      {/* Notification Modal */}
+      <NotificationModal
+        isOpen={notification.isOpen}
+        type={notification.type}
+        title={notification.title}
+        message={notification.message}
+        onClose={closeNotification}
+      />
     </>
   );
 }
