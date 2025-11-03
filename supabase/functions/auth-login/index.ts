@@ -19,7 +19,6 @@ interface LoginRequest {
 }
 
 Deno.serve(async (req) => {
-  // Handle CORS preflight request
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 200, headers: corsHeaders })
   }
@@ -72,7 +71,6 @@ Deno.serve(async (req) => {
     if (!email || !password || !application_id || !api_key) {
       const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0'
       
-      // Log missing fields error
       await supabase.from('auth_logs').insert({
         application_id: null,
         event_type: 'failed_login',
@@ -112,12 +110,11 @@ Deno.serve(async (req) => {
       has_api_key: !!api_key
     });
 
-    // Validate API Key
     console.log('🔑 Validating API Key...');
     const { data: apiKeyData, error: apiKeyError } = await supabase
       .from('api_keys')
       .select('*')
-      .eq('key_hash', api_key) // API key is stored as-is in key_hash field
+      .eq('key_hash', api_key)
       .eq('is_active', true)
       .maybeSingle();
 
@@ -155,7 +152,6 @@ Deno.serve(async (req) => {
 
     console.log('✅ API Key found and active, will verify ownership after loading application');
 
-    // Check if IP is blocked
     const { data: blockedIP } = await supabase
       .from('blocked_ips')
       .select('id, reason')
@@ -167,7 +163,6 @@ Deno.serve(async (req) => {
     if (blockedIP) {
       console.log('🚫 IP is blocked:', ipAddress, blockedIP.reason);
 
-      // Log blocked IP attempt
       await supabase.from('auth_logs').insert({
         application_id: null,
         event_type: 'failed_login',
@@ -199,7 +194,6 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Rate limiting check
     console.log('🛡️ Checking rate limit for IP:', ipAddress);
     const { data: rateLimitResult, error: rateLimitError } = await supabase.rpc('check_rate_limit', {
       p_ip_address: ipAddress,
@@ -256,7 +250,6 @@ Deno.serve(async (req) => {
     if (appError || !application) {
       console.log('❌ Application not found:', application_id);
       
-      // Log application not found error
       await supabase.from('auth_logs').insert({
         application_id: null,
         event_type: 'failed_login',
@@ -286,7 +279,6 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Verify API Key belongs to the application (compare with internal id)
     if (apiKeyData.application_id !== application.id) {
       console.log('❌ API Key does not belong to this application');
       console.log('  API Key application_id:', apiKeyData.application_id);
@@ -372,7 +364,6 @@ Deno.serve(async (req) => {
 
     console.log('🔐 Checking password for user:', user.email);
 
-    // Use bcrypt for secure password verification
     const passwordValid = await bcrypt.compare(password, user.password_hash);
     
     if (!passwordValid) {
@@ -458,20 +449,47 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Note: Subscription validation is done at the application owner level,
-    // not at the end-user level. Users in app_users can login as long as they're active.
+    let roleName = 'user';
+    let rolePermissions: { [menuSlug: string]: string[] } = {};
 
-    const { data: roles } = await supabase
-      .from('user_roles')
-      .select('role_name, permissions')
-      .eq('app_user_id', user.id)
+    if (user.role_id) {
+      const { data: roleData } = await supabase
+        .from('application_roles')
+        .select('name')
+        .eq('id', user.role_id)
+        .maybeSingle();
 
-    const userRoles = roles?.map(r => r.role_name) || ['user']
-    const userPermissions = roles?.flatMap(r => r.permissions || []) || ['read']
+      if (roleData) {
+        roleName = roleData.name;
+      }
+
+      const { data: permissions } = await supabase
+        .from('role_permissions')
+        .select(`
+          granted,
+          menu:application_menus!inner(slug),
+          action:menu_actions!inner(slug)
+        `)
+        .eq('role_id', user.role_id)
+        .eq('granted', true);
+
+      if (permissions) {
+        permissions.forEach((perm: any) => {
+          const menuSlug = perm.menu?.slug;
+          const actionSlug = perm.action?.slug;
+
+          if (menuSlug && actionSlug) {
+            if (!rolePermissions[menuSlug]) {
+              rolePermissions[menuSlug] = [];
+            }
+            rolePermissions[menuSlug].push(actionSlug);
+          }
+        });
+      }
+    }
 
     console.log('✅ Login successful for user:', user.email);
     
-    // Update last_login timestamp
     await supabase
       .from('app_users')
       .update({ last_login: new Date().toISOString() })
@@ -484,13 +502,13 @@ Deno.serve(async (req) => {
       ip_address: ipAddress,
       user_agent: req.headers.get('user-agent') || 'unknown',
       success: true,
-      metadata: { 
+      metadata: {
         email,
         user_name: user.name,
         method: 'email_password',
         application_name: application.name,
-        roles: userRoles,
-        permissions: userPermissions
+        role: roleName,
+        permissions: rolePermissions
       }
     });
     
@@ -506,8 +524,8 @@ Deno.serve(async (req) => {
       email: user.email,
       name: user.name,
       app_id: application_id,
-      roles: userRoles,
-      permissions: userPermissions,
+      role: roleName,
+      permissions: rolePermissions,
       iat: now,
       exp: now + (24 * 60 * 60),
       iss: 'AuthSystem',
@@ -528,8 +546,8 @@ Deno.serve(async (req) => {
           id: user.id,
           email: user.email,
           name: user.name,
-          roles: userRoles,
-          permissions: userPermissions,
+          role: roleName,
+          permissions: rolePermissions,
           metadata: user.metadata || {},
           created_at: user.created_at
         },
@@ -564,7 +582,6 @@ Deno.serve(async (req) => {
     
     const ipAddress = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0'
     
-    // Log internal server error
     try {
       const supabase = createClient(
         Deno.env.get('SUPABASE_URL') ?? '',
