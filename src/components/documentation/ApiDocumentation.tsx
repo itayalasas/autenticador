@@ -41,7 +41,28 @@ export default function ApiDocumentation() {
       title: 'Login de Usuario',
       method: 'POST',
       path: '/api/auth/login',
-      description: 'Autentica un usuario mediante formulario web. El API key debe incluirse en la URL como parámetro.',
+      description: `Autentica un usuario y retorna tokens de acceso junto con permisos granulares a nivel de menú.
+
+## Sistema de Permisos
+
+La respuesta incluye un objeto \`permissions\` que mapea cada menú de la aplicación con las acciones permitidas:
+
+- **Estructura**: \`{ "menu_slug": ["action1", "action2", ...] }\`
+- **Acciones posibles**: read, create, update, delete
+- **Uso**: Controla qué puede ver y hacer el usuario en cada sección
+
+### Ejemplo de uso:
+\`\`\`javascript
+// Verificar si el usuario puede crear en dashboard
+if (user.permissions.dashboard?.includes('create')) {
+  // Mostrar botón "Crear"
+}
+
+// Verificar si el usuario puede ver reportes
+if (user.permissions.reports) {
+  // Mostrar menú de reportes
+}
+\`\`\``,
       params: [
         { name: 'api_key', type: 'string', required: true, location: 'URL', description: 'API Key en la URL (ej: ?api_key=ak_production_xxx)' },
         { name: 'email', type: 'string', required: true, location: 'Body', description: 'Email del usuario' },
@@ -69,13 +90,17 @@ export default function ApiDocumentation() {
     "token_type": "Bearer",
     "expires_in": 86400,
     "user": {
-      "id": "user_123",
+      "id": "60187dc2-a013-40fa-9a00-68701cc92018",
       "email": "usuario@ejemplo.com",
       "name": "Usuario Ejemplo",
-      "roles": ["user"],
-      "permissions": ["read"],
+      "role": "administrador",
+      "permissions": {
+        "dashboard": ["read", "create", "update", "delete"],
+        "users": ["read", "create", "update"],
+        "reports": ["read"]
+      },
       "metadata": {},
-      "last_login": "2024-02-20T10:30:00Z"
+      "created_at": "2024-02-20T10:30:00Z"
     },
     "application": {
       "id": "app_mk2k3j4h5k6l",
@@ -130,7 +155,17 @@ if (data.success) {
   localStorage.setItem('access_token', data.data.access_token);
   localStorage.setItem('refresh_token', data.data.refresh_token);
 
+  // Guardar información del usuario y permisos
+  localStorage.setItem('user', JSON.stringify(data.data.user));
+
   console.log('Login exitoso:', data.data.user);
+  console.log('Rol del usuario:', data.data.user.role);
+  console.log('Permisos:', data.data.user.permissions);
+
+  // Ejemplo: Verificar si el usuario puede crear en dashboard
+  if (data.data.user.permissions.dashboard?.includes('create')) {
+    console.log('Usuario puede crear en dashboard');
+  }
 } else {
   console.error('Error:', data.error.message);
 }`,
@@ -151,7 +186,15 @@ result = response.json()
 if result['success']:
     access_token = result['data']['access_token']
     refresh_token = result['data']['refresh_token']
-    print(f"Login exitoso: {result['data']['user']}")
+    user = result['data']['user']
+
+    print(f"Login exitoso: {user['name']}")
+    print(f"Rol: {user['role']}")
+    print(f"Permisos: {user['permissions']}")
+
+    # Verificar permisos específicos
+    if 'create' in user['permissions'].get('dashboard', []):
+        print('Usuario puede crear en dashboard')
 else:
     print(f"Error: {result['error']['message']}")`,
         php: (baseUrl: string, apiKey: string) => `<?php
@@ -177,7 +220,16 @@ $result = json_decode($response, true);
 if ($result['success']) {
     $_SESSION['access_token'] = $result['data']['access_token'];
     $_SESSION['refresh_token'] = $result['data']['refresh_token'];
-    echo "Login exitoso";
+    $_SESSION['user'] = $result['data']['user'];
+
+    echo "Login exitoso: " . $result['data']['user']['name'];
+    echo "\\nRol: " . $result['data']['user']['role'];
+
+    // Verificar permisos
+    $permissions = $result['data']['user']['permissions'];
+    if (isset($permissions['dashboard']) && in_array('create', $permissions['dashboard'])) {
+        echo "\\nUsuario puede crear en dashboard";
+    }
 } else {
     echo "Error: " . $result['error']['message'];
 }
