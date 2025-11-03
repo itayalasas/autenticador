@@ -64,9 +64,11 @@ export default function Sidebar({ activeSection, onSectionChange, isOpen, onClos
       <div className="p-6 border-b border-gray-800">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
-              <Shield className="w-5 h-5" />
-            </div>
+            <img
+              src="/images/icon.svg"
+              alt="AuthSystem"
+              className="w-10 h-10"
+            />
             <div>
               <h1 className="text-xl font-bold">AuthSystem</h1>
               <p className="text-xs text-gray-400">Development</p>
