@@ -41,6 +41,23 @@ export const userService = {
     const saltRounds = 10;
     const passwordHash = await bcrypt.hash(userData.password, saltRounds);
 
+    // Get primary role ID if roles are provided
+    let primaryRoleId = null;
+    if (userData.roles && userData.roles.length > 0) {
+      const { data: applicationRoles } = await supabase
+        .from('application_roles')
+        .select('id, name')
+        .eq('application_id', userData.application_id)
+        .in('name', userData.roles);
+
+      if (applicationRoles && applicationRoles.length > 0) {
+        const primaryRole = applicationRoles.find(r => r.name === userData.roles![0]);
+        if (primaryRole) {
+          primaryRoleId = primaryRole.id;
+        }
+      }
+    }
+
     const { data: user, error: userError } = await supabase
       .from('app_users')
       .insert({
@@ -48,6 +65,7 @@ export const userService = {
         email: userData.email,
         name: userData.name,
         password_hash: passwordHash,
+        role_id: primaryRoleId,
         metadata: userData.metadata || {}
       })
       .select()
@@ -99,7 +117,7 @@ export const userService = {
   // Update user roles
   async updateUserRoles(userId: string, roles: string[]) {
     console.log('Updating user roles:', { userId, roles });
-    
+
     // Delete existing roles
     const { error: deleteError } = await supabase
       .from('user_roles')
@@ -111,22 +129,42 @@ export const userService = {
       throw deleteError;
     }
 
-    // Insert new roles
-    if (roles.length > 0) {
-      // Get role permissions from application_roles
-      const { data: applicationRoles, error: rolesError } = await supabase
-        .from('application_roles')
-        .select('name, permissions')
-        .in('name', roles);
+    // Get role IDs and data from application_roles
+    const { data: applicationRoles, error: rolesError } = await supabase
+      .from('application_roles')
+      .select('id, name, permissions')
+      .in('name', roles);
 
-      if (rolesError) {
-        console.error('Error getting role permissions:', rolesError);
-        throw rolesError;
+    if (rolesError) {
+      console.error('Error getting role permissions:', rolesError);
+      throw rolesError;
+    }
+
+    // Update app_users.role_id with primary role (first role in array)
+    let primaryRoleId = null;
+    if (roles.length > 0 && applicationRoles && applicationRoles.length > 0) {
+      const primaryRole = applicationRoles.find(r => r.name === roles[0]);
+      if (primaryRole) {
+        primaryRoleId = primaryRole.id;
       }
+    }
 
+    // Update the role_id in app_users
+    const { error: updateError } = await supabase
+      .from('app_users')
+      .update({ role_id: primaryRoleId })
+      .eq('id', userId);
+
+    if (updateError) {
+      console.error('Error updating app_users.role_id:', updateError);
+      throw updateError;
+    }
+
+    // Insert new roles in user_roles table
+    if (roles.length > 0 && applicationRoles && applicationRoles.length > 0) {
       // Create role inserts with proper permissions
       const roleInserts = roles.map(role => {
-        const roleData = applicationRoles?.find(r => r.name === role);
+        const roleData = applicationRoles.find(r => r.name === role);
         return {
           app_user_id: userId,
           role_name: role,
