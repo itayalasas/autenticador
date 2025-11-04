@@ -530,6 +530,168 @@ System.out.println(response.body());`
       }
     },
     {
+      id: 'application-info',
+      title: 'Información de Aplicación',
+      method: 'POST',
+      path: '/api/application/info',
+      description: 'Obtiene información detallada de una aplicación incluyendo su ID, nombre, application_id, estado y URLs por ambiente.',
+      params: [
+        { name: 'api_key', type: 'string', required: true, location: 'Body', description: 'Tu API Key de producción' },
+        { name: 'application_id', type: 'string', required: true, location: 'Body', description: 'ID único de la aplicación' }
+      ],
+      requestExample: (baseUrl: string, apiKey: string) => ({
+        url: `${baseUrl}/api/application/info`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: {
+          api_key: apiKey,
+          application_id: 'app_mk2k3j4h5k6l'
+        }
+      }),
+      response: {
+        success: (baseUrl: string) => `{
+  "success": true,
+  "data": {
+    "id": "123e4567-e89b-12d3-a456-426614174000",
+    "name": "Mi Aplicación",
+    "application_id": "app_mk2k3j4h5k6l",
+    "status": "active",
+    "url": "https://miapp.com",
+    "environment_urls": {
+      "development": "http://localhost:3000",
+      "testing": "https://test.miapp.com",
+      "production": "https://miapp.com"
+    }
+  }
+}`,
+        error: `{
+  "success": false,
+  "error": "Invalid API key or application"
+}
+
+// Otros errores posibles:
+{
+  "success": false,
+  "error": "api_key and application_id are required"
+}
+
+{
+  "success": false,
+  "error": "Application not found"
+}`
+      },
+      examples: {
+        javascript: (baseUrl: string, apiKey: string) => `// JavaScript/Fetch
+const response = await fetch('${baseUrl}/api/application/info', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    api_key: '${apiKey}',
+    application_id: 'app_mk2k3j4h5k6l'
+  })
+});
+
+const data = await response.json();
+
+if (data.success) {
+  const app = data.data;
+  console.log('Application ID:', app.application_id);
+  console.log('Name:', app.name);
+  console.log('Status:', app.status);
+  console.log('URL:', app.url);
+  console.log('Environment URLs:', app.environment_urls);
+} else {
+  console.error('Error:', data.error);
+}`,
+        python: (baseUrl: string, apiKey: string) => `# Python/Requests
+import requests
+
+url = '${baseUrl}/api/application/info'
+headers = {'Content-Type': 'application/json'}
+data = {
+    'api_key': '${apiKey}',
+    'application_id': 'app_mk2k3j4h5k6l'
+}
+
+response = requests.post(url, json=data, headers=headers)
+result = response.json()
+
+if result['success']:
+    app = result['data']
+    print(f"Application ID: {app['application_id']}")
+    print(f"Name: {app['name']}")
+    print(f"Status: {app['status']}")
+    print(f"URL: {app['url']}")
+    print(f"Environment URLs: {app['environment_urls']}")
+else:
+    print(f"Error: {result['error']}")`,
+        php: (baseUrl: string, apiKey: string) => `<?php
+// PHP/cURL
+$url = '${baseUrl}/api/application/info';
+$data = array(
+    'api_key' => '${apiKey}',
+    'application_id' => 'app_mk2k3j4h5k6l'
+);
+
+$ch = curl_init($url);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_POST, true);
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
+
+$response = curl_exec($ch);
+curl_close($ch);
+
+$result = json_decode($response, true);
+
+if ($result['success']) {
+    $app = $result['data'];
+    echo "Application ID: " . $app['application_id'] . PHP_EOL;
+    echo "Name: " . $app['name'] . PHP_EOL;
+    echo "Status: " . $app['status'] . PHP_EOL;
+    echo "URL: " . $app['url'] . PHP_EOL;
+    echo "Environment URLs: " . print_r($app['environment_urls'], true);
+} else {
+    echo "Error: " . $result['error'];
+}
+?>`,
+        java: (baseUrl: string, apiKey: string) => `// Java/HttpClient
+import java.net.http.*;
+import java.net.URI;
+import com.google.gson.Gson;
+import java.util.HashMap;
+import java.util.Map;
+
+public class ApplicationInfo {
+    public static void main(String[] args) throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+        Gson gson = new Gson();
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("api_key", "${apiKey}");
+        data.put("application_id", "app_mk2k3j4h5k6l");
+
+        String json = gson.toJson(data);
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("${baseUrl}/api/application/info"))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(json))
+            .build();
+
+        HttpResponse<String> response = client.send(request,
+            HttpResponse.BodyHandlers.ofString());
+
+        System.out.println(response.body());
+    }
+}`
+      }
+    },
+    {
       id: 'user-search',
       title: 'Búsqueda de Usuarios',
       method: 'POST',
