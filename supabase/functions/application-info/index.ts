@@ -9,7 +9,6 @@ const corsHeaders = {
 
 interface RequestBody {
   api_key: string;
-  application_id: string;
 }
 
 Deno.serve(async (req: Request) => {
@@ -30,13 +29,13 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { api_key, application_id }: RequestBody = await req.json();
+    const { api_key }: RequestBody = await req.json();
 
-    if (!api_key || !application_id) {
+    if (!api_key) {
       return new Response(
         JSON.stringify({
           success: false,
-          error: "api_key and application_id are required",
+          error: "api_key is required",
         }),
         {
           status: 400,
@@ -50,9 +49,8 @@ Deno.serve(async (req: Request) => {
 
     const { data: apiKeyData, error: apiKeyError } = await supabase
       .from("api_keys")
-      .select("id, application_id, is_active")
+      .select("id, application_id, is_active, user_id")
       .eq("key", api_key)
-      .eq("application_id", application_id)
       .eq("is_active", true)
       .maybeSingle();
 
@@ -60,7 +58,7 @@ Deno.serve(async (req: Request) => {
       return new Response(
         JSON.stringify({
           success: false,
-          error: "Invalid API key or application",
+          error: "Invalid API key",
         }),
         {
           status: 401,
@@ -72,7 +70,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const { data: application, error: appError } = await supabase
+    const { data: applications, error: appError } = await supabase
       .from("applications")
       .select(`
         id,
@@ -80,19 +78,21 @@ Deno.serve(async (req: Request) => {
         application_id,
         domain,
         status,
-        metadata
+        metadata,
+        created_at,
+        updated_at
       `)
-      .eq("application_id", application_id)
-      .maybeSingle();
+      .eq("user_id", apiKeyData.user_id)
+      .order("created_at", { ascending: false });
 
-    if (appError || !application) {
+    if (appError) {
       return new Response(
         JSON.stringify({
           success: false,
-          error: "Application not found",
+          error: "Error fetching applications",
         }),
         {
-          status: 404,
+          status: 500,
           headers: {
             ...corsHeaders,
             "Content-Type": "application/json",
@@ -101,26 +101,33 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const metadata = application.metadata as any;
-    const environmentUrls = metadata?.environment_urls || {};
+    const responseData = applications.map((app: any) => {
+      const metadata = app.metadata as any;
+      const environmentUrls = metadata?.environment_urls || {};
 
-    const responseData = {
-      id: application.id,
-      name: application.name,
-      application_id: application.application_id,
-      status: application.status,
-      url: application.domain,
-      environment_urls: {
-        development: environmentUrls.development?.base_url || null,
-        testing: environmentUrls.testing?.base_url || null,
-        production: environmentUrls.production?.base_url || null,
-      },
-    };
+      return {
+        id: app.id,
+        name: app.name,
+        application_id: app.application_id,
+        status: app.status,
+        url: app.domain,
+        environment_urls: {
+          development: environmentUrls.development?.base_url || null,
+          testing: environmentUrls.testing?.base_url || null,
+          production: environmentUrls.production?.base_url || null,
+        },
+        created_at: app.created_at,
+        updated_at: app.updated_at,
+      };
+    });
 
     return new Response(
       JSON.stringify({
         success: true,
-        data: responseData,
+        data: {
+          applications: responseData,
+          total: responseData.length,
+        },
       }),
       {
         status: 200,

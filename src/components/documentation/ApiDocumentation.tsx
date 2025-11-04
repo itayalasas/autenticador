@@ -531,13 +531,12 @@ System.out.println(response.body());`
     },
     {
       id: 'application-info',
-      title: 'Información de Aplicación',
+      title: 'Lista de Aplicaciones',
       method: 'POST',
       path: '/api/application/info',
-      description: 'Obtiene información detallada de una aplicación incluyendo su ID, nombre, application_id, estado y URLs por ambiente.',
+      description: 'Obtiene la lista completa de todas las aplicaciones asociadas al usuario propietario de la API Key. Retorna información detallada incluyendo ID, nombre, application_id, estado y URLs por ambiente.',
       params: [
-        { name: 'api_key', type: 'string', required: true, location: 'Body', description: 'Tu API Key de producción' },
-        { name: 'application_id', type: 'string', required: true, location: 'Body', description: 'ID único de la aplicación' }
+        { name: 'api_key', type: 'string', required: true, location: 'Body', description: 'Tu API Key de producción' }
       ],
       requestExample: (baseUrl: string, apiKey: string) => ({
         url: `${baseUrl}/api/application/info`,
@@ -546,95 +545,123 @@ System.out.println(response.body());`
           'Content-Type': 'application/json'
         },
         body: {
-          api_key: apiKey,
-          application_id: 'app_mk2k3j4h5k6l'
+          api_key: apiKey
         }
       }),
       response: {
         success: (baseUrl: string) => `{
   "success": true,
   "data": {
-    "id": "123e4567-e89b-12d3-a456-426614174000",
-    "name": "Mi Aplicación",
-    "application_id": "app_mk2k3j4h5k6l",
-    "status": "active",
-    "url": "https://miapp.com",
-    "environment_urls": {
-      "development": "http://localhost:3000",
-      "testing": "https://test.miapp.com",
-      "production": "https://miapp.com"
-    }
+    "applications": [
+      {
+        "id": "123e4567-e89b-12d3-a456-426614174000",
+        "name": "Mi Aplicación Web",
+        "application_id": "app_mk2k3j4h5k6l",
+        "status": "active",
+        "url": "https://miapp.com",
+        "environment_urls": {
+          "development": "http://localhost:3000",
+          "testing": "https://test.miapp.com",
+          "production": "https://miapp.com"
+        },
+        "created_at": "2024-01-15T10:30:00Z",
+        "updated_at": "2024-02-20T14:25:00Z"
+      },
+      {
+        "id": "987f6543-a21b-34c5-d678-901234567890",
+        "name": "Mi App Mobile",
+        "application_id": "app_xyz789abc",
+        "status": "active",
+        "url": "https://mobileapp.com",
+        "environment_urls": {
+          "development": "http://localhost:4000",
+          "testing": "https://test.mobileapp.com",
+          "production": "https://mobileapp.com"
+        },
+        "created_at": "2024-02-01T08:15:00Z",
+        "updated_at": "2024-02-18T16:45:00Z"
+      }
+    ],
+    "total": 2
   }
 }`,
         error: `{
   "success": false,
-  "error": "Invalid API key or application"
+  "error": "Invalid API key"
 }
 
 // Otros errores posibles:
 {
   "success": false,
-  "error": "api_key and application_id are required"
+  "error": "api_key is required"
 }
 
 {
   "success": false,
-  "error": "Application not found"
+  "error": "Error fetching applications"
 }`
       },
       examples: {
-        javascript: (baseUrl: string, apiKey: string) => `// JavaScript/Fetch
+        javascript: (baseUrl: string, apiKey: string) => `// JavaScript/Fetch - Listar todas las aplicaciones
 const response = await fetch('${baseUrl}/api/application/info', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
-    api_key: '${apiKey}',
-    application_id: 'app_mk2k3j4h5k6l'
+    api_key: '${apiKey}'
   })
 });
 
 const data = await response.json();
 
 if (data.success) {
-  const app = data.data;
-  console.log('Application ID:', app.application_id);
-  console.log('Name:', app.name);
-  console.log('Status:', app.status);
-  console.log('URL:', app.url);
-  console.log('Environment URLs:', app.environment_urls);
+  console.log(\`Total de aplicaciones: \${data.data.total}\`);
+
+  data.data.applications.forEach(app => {
+    console.log('---');
+    console.log('Application ID:', app.application_id);
+    console.log('Name:', app.name);
+    console.log('Status:', app.status);
+    console.log('URL:', app.url);
+    console.log('Environments:', app.environment_urls);
+  });
 } else {
   console.error('Error:', data.error);
 }`,
-        python: (baseUrl: string, apiKey: string) => `# Python/Requests
+        python: (baseUrl: string, apiKey: string) => `# Python/Requests - Listar todas las aplicaciones
 import requests
 
 url = '${baseUrl}/api/application/info'
 headers = {'Content-Type': 'application/json'}
 data = {
-    'api_key': '${apiKey}',
-    'application_id': 'app_mk2k3j4h5k6l'
+    'api_key': '${apiKey}'
 }
 
 response = requests.post(url, json=data, headers=headers)
 result = response.json()
 
 if result['success']:
-    app = result['data']
-    print(f"Application ID: {app['application_id']}")
-    print(f"Name: {app['name']}")
-    print(f"Status: {app['status']}")
-    print(f"URL: {app['url']}")
-    print(f"Environment URLs: {app['environment_urls']}")
+    applications = result['data']['applications']
+    total = result['data']['total']
+
+    print(f"Total de aplicaciones: {total}\\n")
+
+    for app in applications:
+        print("---")
+        print(f"Application ID: {app['application_id']}")
+        print(f"Name: {app['name']}")
+        print(f"Status: {app['status']}")
+        print(f"URL: {app['url']}")
+        print(f"Created: {app['created_at']}")
+        print(f"Environments: {app['environment_urls']}")
 else:
     print(f"Error: {result['error']}")`,
         php: (baseUrl: string, apiKey: string) => `<?php
-// PHP/cURL
+// PHP/cURL - Listar todas las aplicaciones
 $url = '${baseUrl}/api/application/info';
 $data = array(
-    'api_key' => '${apiKey}',
-    'application_id' => 'app_mk2k3j4h5k6l'
+    'api_key' => '${apiKey}'
 );
 
 $ch = curl_init($url);
@@ -649,31 +676,37 @@ curl_close($ch);
 $result = json_decode($response, true);
 
 if ($result['success']) {
-    $app = $result['data'];
-    echo "Application ID: " . $app['application_id'] . PHP_EOL;
-    echo "Name: " . $app['name'] . PHP_EOL;
-    echo "Status: " . $app['status'] . PHP_EOL;
-    echo "URL: " . $app['url'] . PHP_EOL;
-    echo "Environment URLs: " . print_r($app['environment_urls'], true);
+    $applications = $result['data']['applications'];
+    $total = $result['data']['total'];
+
+    echo "Total de aplicaciones: " . $total . PHP_EOL . PHP_EOL;
+
+    foreach ($applications as $app) {
+        echo "---" . PHP_EOL;
+        echo "Application ID: " . $app['application_id'] . PHP_EOL;
+        echo "Name: " . $app['name'] . PHP_EOL;
+        echo "Status: " . $app['status'] . PHP_EOL;
+        echo "URL: " . $app['url'] . PHP_EOL;
+        echo "Created: " . $app['created_at'] . PHP_EOL;
+    }
 } else {
     echo "Error: " . $result['error'];
 }
 ?>`,
-        java: (baseUrl: string, apiKey: string) => `// Java/HttpClient
+        java: (baseUrl: string, apiKey: string) => `// Java/HttpClient - Listar todas las aplicaciones
 import java.net.http.*;
 import java.net.URI;
 import com.google.gson.Gson;
 import java.util.HashMap;
 import java.util.Map;
 
-public class ApplicationInfo {
+public class ApplicationsList {
     public static void main(String[] args) throws Exception {
         HttpClient client = HttpClient.newHttpClient();
         Gson gson = new Gson();
 
         Map<String, Object> data = new HashMap<>();
         data.put("api_key", "${apiKey}");
-        data.put("application_id", "app_mk2k3j4h5k6l");
 
         String json = gson.toJson(data);
 
