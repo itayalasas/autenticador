@@ -51,6 +51,7 @@ Deno.serve(async (req: Request) => {
         domain,
         status,
         metadata,
+        users_count,
         created_at,
         updated_at
       `)
@@ -73,9 +74,44 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    // Get users for all applications
+    const { data: appUsers, error: usersError } = await supabase
+      .from("app_users")
+      .select(`
+        id,
+        application_id,
+        email,
+        name,
+        status,
+        last_login,
+        created_at
+      `)
+      .in("application_id", applications?.map((app: any) => app.id) || []);
+
+    if (usersError) {
+      console.error("Error fetching app users:", usersError);
+    }
+
+    // Group users by application_id
+    const usersByApp = (appUsers || []).reduce((acc: any, user: any) => {
+      if (!acc[user.application_id]) {
+        acc[user.application_id] = [];
+      }
+      acc[user.application_id].push({
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        status: user.status,
+        last_login: user.last_login,
+        created_at: user.created_at,
+      });
+      return acc;
+    }, {});
+
     const responseData = applications.map((app: any) => {
       const metadata = app.metadata as any;
       const environmentUrls = metadata?.environment_urls || {};
+      const appUsersList = usersByApp[app.id] || [];
 
       return {
         id: app.id,
@@ -83,11 +119,13 @@ Deno.serve(async (req: Request) => {
         application_id: app.application_id,
         status: app.status,
         url: app.domain,
+        users_count: app.users_count || 0,
         environment_urls: {
           development: environmentUrls.development?.base_url || null,
           testing: environmentUrls.testing?.base_url || null,
           production: environmentUrls.production?.base_url || null,
         },
+        users: appUsersList,
         created_at: app.created_at,
         updated_at: app.updated_at,
       };
