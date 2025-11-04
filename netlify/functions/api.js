@@ -332,30 +332,32 @@ exports.handler = async (event, context) => {
     }
 
     // Application info endpoint - Proxy to Edge Function
-    if (path.endsWith('/application/info') && method === 'POST') {
-      console.log('📱 Application info endpoint called - proxying to Edge Function');
-
-      let requestBody;
-      try {
-        requestBody = event.body ? JSON.parse(event.body) : {};
-      } catch (parseError) {
-        return {
-          statusCode: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            success: false,
-            error: 'Invalid JSON in request body'
-          })
-        };
-      }
+    if (path.endsWith('/application/info') && method === 'GET') {
+      console.log('📱 Application info endpoint called (GET) - proxying to Edge Function');
 
       try {
-        const result = await callEdgeFunction('application-info', requestBody);
+        const url = `${supabaseUrl}/functions/v1/application-info`;
+
+        console.log(`🔄 Proxying GET to Edge Function: application-info`, { url });
+
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${supabaseAnonKey}`
+          }
+        });
+
+        const result = await response.json();
+
+        console.log('📥 Edge Function response:', {
+          status: response.status,
+          success: result.success
+        });
 
         return {
-          statusCode: result.statusCode,
+          statusCode: response.status,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify(result.body)
+          body: JSON.stringify(result)
         };
       } catch (error) {
         console.error('❌ Error proxying application info request:', error);
@@ -364,7 +366,10 @@ exports.handler = async (event, context) => {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             success: false,
-            error: 'Error connecting to application service: ' + error.message
+            error: {
+              code: 'PROXY_ERROR',
+              message: 'Error connecting to application service: ' + error.message
+            }
           })
         };
       }
