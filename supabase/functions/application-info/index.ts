@@ -4,7 +4,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, X-API-Key",
 };
 
 Deno.serve(async (req: Request) => {
@@ -40,6 +40,91 @@ Deno.serve(async (req: Request) => {
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Validate API Key from header
+    const apiKey = req.headers.get("X-API-Key") || req.headers.get("x-api-key");
+
+    if (!apiKey) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "API Key is required. Please provide X-API-Key header",
+        }),
+        {
+          status: 401,
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+    }
+
+    // Validate the API key
+    const { data: keyData, error: keyError } = await supabase
+      .from("external_api_keys")
+      .select("id, name, is_active, allowed_endpoints, rate_limit, expires_at")
+      .eq("key", apiKey)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (keyError || !keyData) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Invalid or inactive API Key",
+        }),
+        {
+          status: 403,
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+    }
+
+    // Check if key is expired
+    if (keyData.expires_at && new Date(keyData.expires_at) < new Date()) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "API Key has expired",
+        }),
+        {
+          status: 403,
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+    }
+
+    // Check if endpoint is allowed
+    const allowedEndpoints = keyData.allowed_endpoints as string[];
+    if (!allowedEndpoints.includes("*") && !allowedEndpoints.includes("application-info")) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "API Key does not have permission for this endpoint",
+        }),
+        {
+          status: 403,
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+    }
+
+    // Update last_used_at timestamp (async, don't wait for response)
+    supabase
+      .from("external_api_keys")
+      .update({ last_used_at: new Date().toISOString() })
+      .eq("id", keyData.id)
+      .then();
 
     // Get all active applications
     const { data: applications, error: appError } = await supabase
