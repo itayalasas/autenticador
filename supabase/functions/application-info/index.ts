@@ -49,8 +49,8 @@ Deno.serve(async (req: Request) => {
 
     const { data: apiKeyData, error: apiKeyError } = await supabase
       .from("api_keys")
-      .select("id, application_id, is_active, user_id")
-      .eq("key", api_key)
+      .select("id, application_id, is_active")
+      .eq("key_hash", api_key)
       .eq("is_active", true)
       .maybeSingle();
 
@@ -62,6 +62,28 @@ Deno.serve(async (req: Request) => {
         }),
         {
           status: 401,
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+    }
+
+    const { data: appData, error: appDataError } = await supabase
+      .from("applications")
+      .select("user_id")
+      .eq("id", apiKeyData.application_id)
+      .maybeSingle();
+
+    if (appDataError || !appData) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Application not found for API key",
+        }),
+        {
+          status: 404,
           headers: {
             ...corsHeaders,
             "Content-Type": "application/json",
@@ -82,7 +104,7 @@ Deno.serve(async (req: Request) => {
         created_at,
         updated_at
       `)
-      .eq("user_id", apiKeyData.user_id)
+      .eq("user_id", appData.user_id)
       .order("created_at", { ascending: false });
 
     if (appError) {
