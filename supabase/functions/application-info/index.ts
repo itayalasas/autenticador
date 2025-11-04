@@ -7,10 +7,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-interface RequestBody {
-  api_key: string;
-}
-
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, {
@@ -20,6 +16,22 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    if (req.method !== "GET") {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Only GET method is allowed",
+        }),
+        {
+          status: 405,
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+    }
+
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
@@ -29,69 +41,7 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { api_key }: RequestBody = await req.json();
-
-    if (!api_key) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "api_key is required",
-        }),
-        {
-          status: 400,
-          headers: {
-            ...corsHeaders,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-    }
-
-    const { data: apiKeyData, error: apiKeyError } = await supabase
-      .from("api_keys")
-      .select("id, application_id, is_active")
-      .eq("key_hash", api_key)
-      .eq("is_active", true)
-      .maybeSingle();
-
-    if (apiKeyError || !apiKeyData) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "Invalid API key",
-        }),
-        {
-          status: 401,
-          headers: {
-            ...corsHeaders,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-    }
-
-    const { data: appData, error: appDataError } = await supabase
-      .from("applications")
-      .select("user_id")
-      .eq("id", apiKeyData.application_id)
-      .maybeSingle();
-
-    if (appDataError || !appData) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "Application not found for API key",
-        }),
-        {
-          status: 404,
-          headers: {
-            ...corsHeaders,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-    }
-
+    // Get all active applications
     const { data: applications, error: appError } = await supabase
       .from("applications")
       .select(`
@@ -104,7 +54,7 @@ Deno.serve(async (req: Request) => {
         created_at,
         updated_at
       `)
-      .eq("user_id", appData.user_id)
+      .eq("status", "active")
       .order("created_at", { ascending: false });
 
     if (appError) {
