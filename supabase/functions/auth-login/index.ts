@@ -523,6 +523,15 @@ Deno.serve(async (req) => {
     try {
       console.log('🔍 Validating user license with external API...');
 
+      const validationPayload = {
+        user_id: user.id,
+        email: user.email,
+        app_id: application_id,
+        application_id: application_id
+      };
+
+      console.log('📤 Sending validation request with payload:', validationPayload);
+
       const validationResponse = await fetch(
         'https://veymthufmfqhxxxzfmfi.supabase.co/functions/v1/validation-api/validate-user',
         {
@@ -530,12 +539,11 @@ Deno.serve(async (req) => {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            user_id: user.id,
-            app_id: application_id
-          })
+          body: JSON.stringify(validationPayload)
         }
       );
+
+      console.log('📥 Validation API response status:', validationResponse.status);
 
       if (validationResponse.ok) {
         validationData = await validationResponse.json();
