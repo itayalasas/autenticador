@@ -524,10 +524,8 @@ Deno.serve(async (req) => {
       console.log('🔍 Validating user license with external API...');
 
       const validationPayload = {
-        user_id: user.id,
-        email: user.email,
-        app_id: application_id,
-        application_id: application_id
+        external_app_id: application_id,
+        external_user_id: user.id
       };
 
       console.log('📤 Sending validation request with payload:', validationPayload);
