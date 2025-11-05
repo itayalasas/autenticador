@@ -573,6 +573,13 @@ Deno.serve(async (req) => {
       aud: application.domain
     }
 
+    if (validationData && validationData.success) {
+      accessTokenPayload.tenant = validationData.tenant;
+      accessTokenPayload.subscription = validationData.subscription;
+      accessTokenPayload.license = validationData.license;
+      accessTokenPayload.has_access = validationData.has_access;
+    }
+
     const accessToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify(accessTokenPayload))}.signature`
     const refreshToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify({...accessTokenPayload, type: 'refresh', exp: now + (30 * 24 * 60 * 60)}))}.signature`
 
