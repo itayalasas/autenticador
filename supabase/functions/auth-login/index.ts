@@ -489,12 +489,12 @@ Deno.serve(async (req) => {
     }
 
     console.log('✅ Login successful for user:', user.email);
-    
+
     await supabase
       .from('app_users')
       .update({ last_login: new Date().toISOString() })
       .eq('id', user.id);
-    
+
     const { error: logError } = await supabase.from('auth_logs').insert({
       application_id: application.id,
       app_user_id: user.id,
@@ -511,11 +511,46 @@ Deno.serve(async (req) => {
         permissions: rolePermissions
       }
     });
-    
+
     if (logError) {
       console.error('❌ Error logging successful login:', logError);
     } else {
       console.log('📝 Logged successful login for:', email);
+    }
+
+    let validationData = null;
+
+    try {
+      console.log('🔍 Validating user license with external API...');
+
+      const validationResponse = await fetch(
+        'https://veymthufmfqhxxxzfmfi.supabase.co/functions/v1/validation-api/validate-user',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            user_id: user.id,
+            app_id: application_id
+          })
+        }
+      );
+
+      if (validationResponse.ok) {
+        validationData = await validationResponse.json();
+        console.log('✅ License validation successful:', {
+          has_access: validationData.has_access,
+          subscription_status: validationData.subscription?.status,
+          plan_name: validationData.subscription?.plan_name
+        });
+      } else {
+        console.warn('⚠️ License validation failed with status:', validationResponse.status);
+        const errorText = await validationResponse.text();
+        console.warn('⚠️ License validation error:', errorText);
+      }
+    } catch (validationError) {
+      console.error('❌ Error validating license:', validationError);
     }
 
     const now = Math.floor(Date.now() / 1000)
@@ -557,6 +592,13 @@ Deno.serve(async (req) => {
           domain: application.domain
         }
       }
+    }
+
+    if (validationData && validationData.success) {
+      response.data.tenant = validationData.tenant;
+      response.data.subscription = validationData.subscription;
+      response.data.license = validationData.license;
+      response.data.has_access = validationData.has_access;
     }
 
     if (callback_url) {
