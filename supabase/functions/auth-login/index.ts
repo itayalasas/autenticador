@@ -578,6 +578,7 @@ Deno.serve(async (req) => {
       accessTokenPayload.subscription = validationData.subscription;
       accessTokenPayload.license = validationData.license;
       accessTokenPayload.has_access = validationData.has_access;
+      accessTokenPayload.available_plans = validationData.available_plans;
     }
 
     const accessToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify(accessTokenPayload))}.signature`
@@ -612,6 +613,7 @@ Deno.serve(async (req) => {
       response.data.subscription = validationData.subscription;
       response.data.license = validationData.license;
       response.data.has_access = validationData.has_access;
+      response.data.available_plans = validationData.available_plans;
     }
 
     if (callback_url) {
