@@ -617,10 +617,23 @@ Deno.serve(async (req) => {
     }
 
     if (callback_url) {
-      const callbackParams = new URLSearchParams({
-        token: accessToken,
+      // Generar un código temporal corto en lugar de pasar el token completo en la URL
+      const authCode = crypto.randomUUID();
+
+      // Guardar el código con los tokens en la base de datos (expira en 5 minutos)
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+
+      await supabase.from('auth_codes').insert({
+        code: authCode,
+        access_token: accessToken,
         refresh_token: refreshToken,
         user_id: user.id,
+        application_id: application.id,
+        expires_at: expiresAt
+      });
+
+      const callbackParams = new URLSearchParams({
+        code: authCode,
         state: 'authenticated'
       })
       response.data.callback_url = `${callback_url}?${callbackParams.toString()}`
