@@ -527,32 +527,48 @@ export const subscriptionService = {
     const subscription = await this.getCurrentSubscription();
     if (!subscription) {
       // Allow development for free users, block testing and production
+      console.log('🔍 No subscription found, allowing development only');
       return environment === 'development';
     }
 
     const plan = subscription.subscription_plans;
     if (!plan) {
+      console.log('🔍 No plan found in subscription, allowing development only');
       return environment === 'development';
     }
 
+    console.log('🔍 Checking environment access:', {
+      environment,
+      plan_name: plan.name,
+      plan_limits: plan.limits,
+      environments: plan.limits?.environments,
+      status: subscription.status,
+      period_end: subscription.current_period_end
+    });
+
     // Check if subscription is active
     if (!['active', 'trialing'].includes(subscription.status)) {
+      console.log('🔍 Subscription not active, allowing development only');
       return environment === 'development';
     }
 
     // Check if subscription hasn't expired
     if (new Date(subscription.current_period_end) < new Date()) {
+      console.log('🔍 Subscription expired, allowing development only');
       return environment === 'development';
     }
 
     // Check if plan has limits defined
     if (!plan.limits || !plan.limits.environments) {
       // If no limits defined, allow only development
+      console.log('🔍 No limits or environments defined, allowing development only');
       return environment === 'development';
     }
 
     // Check if environment is in the allowed environments list
-    return plan.limits.environments.includes(environment);
+    const hasAccess = plan.limits.environments.includes(environment);
+    console.log(`🔍 Environment ${environment} access:`, hasAccess, 'Available:', plan.limits.environments);
+    return hasAccess;
   },
 
   // Check if user can access feature
