@@ -200,9 +200,9 @@ class DLocalService {
     
     if (name.includes('profesional')) {
       return {
-        applications: 5,
-        users_per_app: 10000,
-        api_requests_per_month: 1000000,
+        applications: 10,
+        users_per_app: 1000,
+        api_requests_per_month: 100000,
         environments: ['development', 'testing', 'production'],
         support_level: 'priority'
       };
