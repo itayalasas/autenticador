@@ -524,6 +524,11 @@ export const subscriptionService = {
 
   // Check if user can access specific environment
   async canAccessEnvironment(environment: string): Promise<boolean> {
+    // TEMPORARY: Subscription validation disabled - always allow access
+    console.log('⚠️  Subscription validation DISABLED - allowing access to', environment);
+    return true;
+
+    /* ORIGINAL CODE - COMMENTED OUT FOR DEPLOYMENT
     const subscription = await this.getCurrentSubscription();
     if (!subscription) {
       // Allow development for free users, block testing and production
@@ -569,10 +574,16 @@ export const subscriptionService = {
     const hasAccess = plan.limits.environments.includes(environment);
     console.log(`🔍 Environment ${environment} access:`, hasAccess, 'Available:', plan.limits.environments);
     return hasAccess;
+    */
   },
 
   // Check if user can access feature
   async canAccessFeature(feature: string): Promise<boolean> {
+    // TEMPORARY: Subscription validation disabled - always allow access
+    console.log('⚠️  Subscription validation DISABLED - allowing feature', feature);
+    return true;
+
+    /* ORIGINAL CODE - COMMENTED OUT FOR DEPLOYMENT
     const subscription = await this.getCurrentSubscription();
     if (!subscription) return false;
 
@@ -600,6 +611,7 @@ export const subscriptionService = {
       default:
         return true;
     }
+    */
   },
 
   // Get usage for current period
