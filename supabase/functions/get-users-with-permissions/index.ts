@@ -25,13 +25,14 @@ Deno.serve(async (req: Request) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const url = new URL(req.url);
-    const application_id = url.searchParams.get('application_id');
+    const pathParts = url.pathname.split('/').filter(Boolean);
+    const application_id = pathParts[pathParts.length - 1];
 
-    if (!application_id) {
+    if (!application_id || application_id === 'get-users-with-permissions') {
       return new Response(
         JSON.stringify({
           success: false,
-          error: 'application_id is required as query parameter'
+          error: 'application_id is required in the URL path'
         }),
         {
           status: 400,
