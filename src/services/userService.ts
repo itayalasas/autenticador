@@ -9,8 +9,10 @@ export const userService = {
       .from('app_users')
       .select(`
         *,
-        user_roles(
-          role_name,
+        application_roles (
+          id,
+          name,
+          display_name,
           permissions
         )
       `)
@@ -18,13 +20,20 @@ export const userService = {
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-    
+
     // Transform the data to include roles array for easier access
-    const transformedData = (data || []).map(user => ({
-      ...user,
-      roles: user.user_roles?.map(ur => ur.role_name) || []
-    }));
-    
+    const transformedData = (data || []).map(user => {
+      // Get role from application_roles join (single role via role_id)
+      const role = user.application_roles;
+
+      return {
+        ...user,
+        roles: role ? [role.name] : [],
+        role_display_name: role?.display_name || null,
+        role_permissions: role?.permissions || []
+      };
+    });
+
     return transformedData;
   },
 

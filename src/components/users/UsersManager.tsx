@@ -357,14 +357,22 @@ export default function UsersManager() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex flex-wrap gap-1">
-                            {user.roles?.map((role) => (
+                            {user.role_display_name ? (
                               <span
-                                key={role}
-                                className={`px-2 py-1 text-xs font-medium rounded-full ${getRoleColor(role)}`}
+                                className={`px-2 py-1 text-xs font-medium rounded-full ${getRoleColor(user.roles?.[0] || '')}`}
                               >
-                                {role}
+                                {user.role_display_name}
                               </span>
-                            ))}
+                            ) : user.roles && user.roles.length > 0 ? (
+                              user.roles.map((role) => (
+                                <span
+                                  key={role}
+                                  className={`px-2 py-1 text-xs font-medium rounded-full ${getRoleColor(role)}`}
+                                >
+                                  {role}
+                                </span>
+                              ))
+                            ) : null}
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -383,11 +391,12 @@ export default function UsersManager() {
                             <button
                               onClick={() => {
                                 setEditingUser(user);
-                               // Extract role names from user_roles array
-                               const userRoleNames = user.user_roles?.map(ur => ur.role_name) || [];
+                               // Extract role names from roles array (comes from application_roles join)
+                               const userRoleNames = user.roles || [];
                                console.log('Setting edit user with roles:', {
                                  userId: user.id,
-                                 userRoles: user.user_roles,
+                                 roleId: user.role_id,
+                                 roles: user.roles,
                                  extractedRoleNames: userRoleNames
                                });
                                 setEditUser({
