@@ -70,7 +70,7 @@ Deno.serve(async (req: Request) => {
         metadata,
         created_at,
         role_id,
-        application_roles!inner (
+        application_roles (
           id,
           name,
           display_name,
