@@ -869,7 +869,7 @@ function PublicAuthForms({
                 >
                   <option value="">{getText('role_selection_placeholder', 'Selecciona un rol')}</option>
                   {availableRoles.map((role) => (
-                    <option key={role.id} value={role.name}>
+                    <option key={role.id} value={role.display_name || role.name}>
                       {role.display_name}
                       {role.description && ` - ${role.description}`}
                     </option>

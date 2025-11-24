@@ -805,13 +805,13 @@ Deno.serve(async (req) => {
     console.log('✅ User created successfully, assigning role...');
     console.log('🎭 Role from request:', role || 'not specified');
 
-    let roleToAssign: { name: string; permissions: any[] } | null = null;
+    let roleToAssign: { id: string; name: string; display_name: string; permissions: any[] } | null = null;
 
     // If role is specified in the request, try to find it
     if (role) {
       const { data: requestedRole } = await supabase
         .from('application_roles')
-        .select('name, permissions')
+        .select('id, name, display_name, permissions')
         .eq('application_id', application.id)
         .eq('display_name', role)
         .maybeSingle();
@@ -823,7 +823,7 @@ Deno.serve(async (req) => {
         // Try finding by name (lowercase)
         const { data: roleByName } = await supabase
           .from('application_roles')
-          .select('name, permissions')
+          .select('id, name, display_name, permissions')
           .eq('application_id', application.id)
           .ilike('name', role)
           .maybeSingle();
@@ -841,29 +841,33 @@ Deno.serve(async (req) => {
     if (!roleToAssign) {
       const { data: defaultRole } = await supabase
         .from('application_roles')
-        .select('name, permissions')
+        .select('id, name, display_name, permissions')
         .eq('application_id', application.id)
         .eq('is_default', true)
         .maybeSingle();
 
-      roleToAssign = defaultRole || { name: 'user', permissions: ['read'] };
-      console.log('✅ Using default role:', roleToAssign.name);
+      if (defaultRole) {
+        roleToAssign = defaultRole;
+        console.log('✅ Using default role:', defaultRole.name);
+      } else {
+        console.warn('⚠️ No default role found, user will be created without role');
+      }
     }
 
-    // Assign role to user
-    const { error: roleError } = await supabase
-      .from('user_roles')
-      .insert({
-        app_user_id: newUser.id,
-        role_name: roleToAssign.name,
-        permissions: roleToAssign.permissions || ['read']
-      });
+    // Update user with role_id
+    if (roleToAssign) {
+      const { error: roleError } = await supabase
+        .from('app_users')
+        .update({ role_id: roleToAssign.id })
+        .eq('id', newUser.id);
 
-    if (roleError) {
-      console.error('⚠️ Error assigning role:', roleError);
-      // Continue without role assignment if it fails
-    } else {
-      console.log('✅ Role assigned successfully:', roleToAssign.name);
+      if (roleError) {
+        console.error('⚠️ Error assigning role_id to user:', roleError);
+      } else {
+        console.log('✅ Role assigned successfully:', roleToAssign.display_name || roleToAssign.name);
+        // Update the newUser object with role_id for later use
+        newUser.role_id = roleToAssign.id;
+      }
     }
 
     console.log('✅ Registration successful for user:', newUser.email);
@@ -955,14 +959,26 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Get user roles for token generation
-    const { data: userRoles } = await supabase
-      .from('user_roles')
-      .select('role_name, permissions')
-      .eq('app_user_id', newUser.id);
+    // Get user role for token generation
+    let roles = ['user'];
+    let permissions = ['read'];
 
-    const roles = userRoles?.map(r => r.role_name) || ['user'];
-    const permissions = userRoles?.flatMap(r => r.permissions || []) || ['read'];
+    if (newUser.role_id && roleToAssign) {
+      roles = [roleToAssign.name];
+      permissions = roleToAssign.permissions || ['read'];
+    } else if (newUser.role_id) {
+      // If role_id exists but roleToAssign is not available, fetch the role
+      const { data: userRole } = await supabase
+        .from('application_roles')
+        .select('name, permissions')
+        .eq('id', newUser.role_id)
+        .maybeSingle();
+
+      if (userRole) {
+        roles = [userRole.name];
+        permissions = userRole.permissions || ['read'];
+      }
+    }
 
     const now = Math.floor(Date.now() / 1000);
     const accessTokenPayload = {
