@@ -37,6 +37,13 @@ export const userService = {
     roles?: string[];
     metadata?: Record<string, any>;
   }) {
+    console.log('Creating user with data:', {
+      application_id: userData.application_id,
+      email: userData.email,
+      name: userData.name,
+      roles: userData.roles
+    });
+
     // Hash password using bcrypt (consistent with backend)
     const saltRounds = 10;
     const passwordHash = await bcrypt.hash(userData.password, saltRounds);
@@ -44,19 +51,37 @@ export const userService = {
     // Get primary role ID if roles are provided
     let primaryRoleId = null;
     if (userData.roles && userData.roles.length > 0) {
-      const { data: applicationRoles } = await supabase
+      console.log('Looking up role IDs for roles:', userData.roles);
+
+      const { data: applicationRoles, error: rolesError } = await supabase
         .from('application_roles')
         .select('id, name')
         .eq('application_id', userData.application_id)
         .in('name', userData.roles);
 
+      if (rolesError) {
+        console.error('Error fetching application roles:', rolesError);
+        throw rolesError;
+      }
+
+      console.log('Found application roles:', applicationRoles);
+
       if (applicationRoles && applicationRoles.length > 0) {
         const primaryRole = applicationRoles.find(r => r.name === userData.roles![0]);
         if (primaryRole) {
           primaryRoleId = primaryRole.id;
+          console.log('Assigned primary role ID:', primaryRoleId);
+        } else {
+          console.warn('Primary role not found for:', userData.roles![0]);
         }
+      } else {
+        console.warn('No application roles found for the provided role names');
       }
+    } else {
+      console.log('No roles provided, user will be created without role_id');
     }
+
+    console.log('Inserting user with role_id:', primaryRoleId);
 
     const { data: user, error: userError } = await supabase
       .from('app_users')
@@ -71,21 +96,35 @@ export const userService = {
       .select()
       .single();
 
-    if (userError) throw userError;
+    if (userError) {
+      console.error('Error inserting user:', userError);
+      throw userError;
+    }
 
-    // Add roles if provided
+    console.log('User created successfully:', user.id);
+
+    // Add roles to user_roles table if provided
     if (userData.roles && userData.roles.length > 0) {
+      console.log('Adding roles to user_roles table');
+
       const roleInserts = userData.roles.map(role => ({
         app_user_id: user.id,
         role_name: role,
         permissions: []
       }));
 
+      console.log('Inserting role records:', roleInserts);
+
       const { error: roleError } = await supabase
         .from('user_roles')
         .insert(roleInserts);
 
-      if (roleError) throw roleError;
+      if (roleError) {
+        console.error('Error inserting user roles:', roleError);
+        throw roleError;
+      }
+
+      console.log('User roles added successfully');
     }
 
     return user;
