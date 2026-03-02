@@ -2,7 +2,7 @@
 // Auto-generated
 
 export const BRANDED_PUBLIC_AUTH_TEMPLATE = `import React, { useState, useEffect } from 'react';
-import { Mail, Lock, User, ArrowRight, ArrowLeft, Shield, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, ArrowLeft, CheckCircle } from 'lucide-react';
 import {
   BrandedContainer,
   BrandedCard,
@@ -36,10 +36,17 @@ export default function BrandedPublicAuth({
   const [messageStatus, setMessageStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [mfaSetupData, setMfaSetupData] = useState<any | null>(null);
+  const [mfaSetupStep, setMfaSetupStep] = useState<1 | 2 | 3>(1);
+  const [mfaSetupPolling, setMfaSetupPolling] = useState(false);
+  const [mfaSetupLinked, setMfaSetupLinked] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState<'weak' | 'medium' | 'strong' | 'very-strong'>('weak');
-  const [rateLimitInfo, setRateLimitInfo] = useState<{ blocked: boolean; timeLeft: number }>({ blocked: false, timeLeft: 0 });
   const [availableRoles, setAvailableRoles] = useState<any[]>([]);
   const [selectedRole, setSelectedRole] = useState('');
+  const activeSetupPollRunRef = React.useRef(0);
+  const SUPABASE_URL = 'https://sfqtmnncgiqkveaoqckt.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNmcXRtbm5jZ2lxa3ZlYW9xY2t0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4MDEyNDMsImV4cCI6MjA3NTM3NzI0M30.n2yaYrfHDLAFePP1tA3-250P6bgKmf696fYJFHfRZaQ';
+  const API_BASE_URL = SUPABASE_URL + '/functions/v1';
 
   const [formData, setFormData] = useState({
     name: '',
@@ -113,6 +120,45 @@ export default function BrandedPublicAuth({
     ...customBranding
   };
 
+  useEffect(() => {
+    if (!branding.favicon_url) return;
+
+    const faviconUrl = branding.favicon_url;
+    const isData = faviconUrl.startsWith('data:');
+    const href = isData
+      ? faviconUrl
+      : \`\${faviconUrl}\${faviconUrl.includes('?') ? '&' : '?'}fv=\${Date.now()}\`;
+
+    const detectType = (url: string) => {
+      const normalized = url.toLowerCase();
+      if (normalized.startsWith('data:image/')) {
+        const match = normalized.match(/^data:(image\\/[a-z0-9+.-]+);/i);
+        return match?.[1] || 'image/png';
+      }
+      if (normalized.endsWith('.svg')) return 'image/svg+xml';
+      if (normalized.endsWith('.ico')) return 'image/x-icon';
+      if (normalized.endsWith('.webp')) return 'image/webp';
+      if (normalized.endsWith('.jpg') || normalized.endsWith('.jpeg')) return 'image/jpeg';
+      if (normalized.endsWith('.gif')) return 'image/gif';
+      return 'image/png';
+    };
+
+    const type = detectType(faviconUrl);
+    const upsert = (rel: string) => {
+      let link = document.querySelector(\`link[rel='\${rel}']\`) as HTMLLinkElement | null;
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = rel;
+        document.head.appendChild(link);
+      }
+      link.type = type;
+      link.href = href;
+    };
+
+    upsert('icon');
+    upsert('shortcut icon');
+  }, [branding.favicon_url]);
+
   // Helper function to get custom text or fallback to default
   const getText = (key: string, defaultText: string): string => {
     const customTexts = (branding as any).custom_texts || {};
@@ -150,9 +196,77 @@ export default function BrandedPublicAuth({
     }
   };
 
+  useEffect(() => {
+    return () => {
+      activeSetupPollRunRef.current += 1;
+    };
+  }, []);
+
+  const startMfaSetupPolling = (pairingToken: string) => {
+    const runId = ++activeSetupPollRunRef.current;
+    setMfaSetupPolling(true);
+    setMfaSetupLinked(false);
+
+    const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+    const runPolling = async () => {
+      const pollingEndpoint = API_BASE_URL + '/mfa-check-pairing-token';
+
+      for (let attempt = 0; attempt < 90; attempt += 1) {
+        if (activeSetupPollRunRef.current !== runId) return;
+        await wait(2000);
+
+        const response = await fetch(pollingEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+            'apikey': SUPABASE_ANON_KEY,
+            'X-Client-Info': 'authsystem-branded-form/1.0'
+          },
+          body: JSON.stringify({ pairing_token: pairingToken, application_id: applicationId })
+        });
+
+        const result = await response.json();
+        if (!result?.success) continue;
+
+        const pairingStatus = result?.data?.status;
+        if (pairingStatus === 'linked') {
+          setMfaSetupLinked(true);
+          setMessageStatus('idle');
+          setErrorMessage('');
+          return;
+        }
+
+        if (pairingStatus === 'expired') {
+          setMessageStatus('error');
+          setErrorMessage('El código de vinculación expiró. Inicia sesión nuevamente para generar otro.');
+          return;
+        }
+
+        if (pairingStatus === 'invalid') {
+          setMessageStatus('error');
+          setErrorMessage('No se pudo validar el token de vinculación.');
+          return;
+        }
+      }
+    };
+
+    runPolling().finally(() => {
+      if (activeSetupPollRunRef.current === runId) {
+        setMfaSetupPolling(false);
+      }
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
+    setMfaSetupData(null);
+    setMfaSetupStep(1);
+    setMfaSetupLinked(false);
+    setMfaSetupPolling(false);
+    activeSetupPollRunRef.current += 1;
 
     // 1. Rate limiting check (client-side)
     const rateLimitKey = \`auth-\${formType}-\${applicationId}\`;
@@ -161,7 +275,6 @@ export default function BrandedPublicAuth({
       const secondsLeft = Math.ceil(timeLeft / 1000);
       setErrorMessage(\`Demasiados intentos. Por favor espera \${secondsLeft} segundos.\`);
       setMessageStatus('error');
-      setRateLimitInfo({ blocked: true, timeLeft });
       return;
     }
 
@@ -197,9 +310,33 @@ export default function BrandedPublicAuth({
 
     } catch (error: any) {
       setMessageStatus('error');
-      setErrorMessage(error.message || 'Error al procesar la solicitud');
+      const errorCode = error?.code || error?.error?.code;
+      const errorData = error?.data || error?.error?.data || null;
+      const errorText = error?.message || 'Error al procesar la solicitud';
+
+      if (errorCode === 'MFA_SETUP_REQUIRED') {
+        setMessageStatus('idle');
+        setErrorMessage('');
+        setMfaSetupStep(1);
+        setMfaSetupData(errorData || null);
+
+        const pairingToken = errorData?.pairing_token;
+        if (pairingToken) {
+          startMfaSetupPolling(pairingToken);
+        }
+      } else {
+        setErrorMessage(errorText);
+
+        if (errorText?.includes('Token manual:')) {
+          const token = errorText.split('Token manual:')[1]?.trim();
+          if (token) {
+            setMfaSetupData({ pairing_token: token, qr_text: JSON.stringify({ pairing_token: token }) });
+          }
+        }
+      }
+
       if (onError) {
-        onError(error.message);
+        onError(errorText);
       }
     } finally {
       setLoading(false);
@@ -252,6 +389,8 @@ export default function BrandedPublicAuth({
     }
   };
 
+  const isMfaSetupFlow = formType === 'login' && !!mfaSetupData;
+
   return (
     <BrandedContainer branding={branding}>
       <BrandedHeader
@@ -262,32 +401,90 @@ export default function BrandedPublicAuth({
       />
 
       <BrandedCard branding={branding}>
-        <BrandedMessage
-          status={messageStatus}
-          branding={branding}
-        />
-
-        {/* Security Error Message */}
-        {errorMessage && (
-          <div className="mb-4 p-4 rounded-lg bg-red-500/10 border border-red-500/20 flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="text-sm text-red-200 font-medium">Error de Seguridad</p>
-              <p className="text-xs text-red-300/80 mt-1">{errorMessage}</p>
-            </div>
-          </div>
+        {!isMfaSetupFlow && (
+          <BrandedMessage
+            status={messageStatus}
+            branding={branding}
+            loadingText={getText('message_loading_text', branding.message_loading_text || 'Processing...')}
+            successText={getText('message_success_text', branding.message_success_text || 'Success!')}
+            errorText={getText('message_error_text', branding.message_error_text || 'An error occurred')}
+            errorHelpText={messageStatus === 'error'
+              ? (errorMessage || getText('message_error_help_text', branding.message_error_help_text || ''))
+              : getText('message_error_help_text', branding.message_error_help_text || '')}
+          />
         )}
 
-        {/* Rate Limit Warning */}
-        {rateLimitInfo.blocked && (
-          <div className="mb-4 p-4 rounded-lg bg-orange-500/10 border border-orange-500/20 flex items-start gap-3">
-            <Shield className="w-5 h-5 text-orange-400 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="text-sm text-orange-200 font-medium">Límite de Intentos Alcanzado</p>
-              <p className="text-xs text-orange-300/80 mt-1">
-                Por seguridad, debes esperar antes de intentar nuevamente.
-              </p>
-            </div>
+        {formType === 'login' && mfaSetupData && (
+          <div className="mb-6 p-4 rounded-lg border" style={{ backgroundColor: '#EEF6FF', borderColor: '#BFDBFE' }}>
+            <h4 className="font-semibold mb-2" style={{ color: '#1E3A8A' }}>Configura tu Authenticator</h4>
+            <p className="text-xs mb-2" style={{ color: '#1E3A8A' }}>Paso {mfaSetupStep} de 3</p>
+
+            {!mfaSetupLinked && mfaSetupStep === 1 && (
+              <>
+                <p className="text-sm mb-3" style={{ color: '#1E40AF' }}>Debes agregar la app Authenticator de este sistema para continuar.</p>
+                <div className="flex justify-end">
+                  <button type="button" onClick={() => setMfaSetupStep(2)} className="px-3 py-2 rounded-lg text-white text-sm font-semibold" style={{ backgroundColor: '#2563EB' }}>Siguiente</button>
+                </div>
+              </>
+            )}
+
+            {!mfaSetupLinked && mfaSetupStep === 2 && (
+              <>
+                <p className="text-sm mb-3" style={{ color: '#1E40AF' }}>Descarga la aplicación en tu móvil.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
+                  <a href="https://play.google.com/store" target="_blank" rel="noreferrer" className="px-3 py-2 text-sm text-center rounded-lg border" style={{ color: '#1E3A8A', borderColor: '#BFDBFE', backgroundColor: '#FFFFFF' }}>🤖 Google Play</a>
+                  <a href="https://www.apple.com/app-store/" target="_blank" rel="noreferrer" className="px-3 py-2 text-sm text-center rounded-lg border" style={{ color: '#1E3A8A', borderColor: '#BFDBFE', backgroundColor: '#FFFFFF' }}> App Store</a>
+                </div>
+                <div className="flex justify-between">
+                  <button type="button" onClick={() => setMfaSetupStep(1)} className="px-3 py-2 rounded-lg text-sm font-semibold border" style={{ color: '#1E3A8A', borderColor: '#93C5FD', backgroundColor: '#FFFFFF' }}>Atrás</button>
+                  <button type="button" onClick={() => setMfaSetupStep(3)} className="px-3 py-2 rounded-lg text-white text-sm font-semibold" style={{ backgroundColor: '#2563EB' }}>Siguiente</button>
+                </div>
+              </>
+            )}
+
+            {!mfaSetupLinked && mfaSetupStep === 3 && (
+              <>
+                <p className="text-sm mb-3" style={{ color: '#1E40AF' }}>Escanea el QR con la app móvil de este sistema (no Google/Microsoft Authenticator).</p>
+                {mfaSetupData?.qr_text && (
+                  <div className="bg-white rounded-lg border p-3 w-fit mx-auto mb-3" style={{ borderColor: '#DBEAFE' }}>
+                    <img
+                      src={
+                        'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' +
+                        encodeURIComponent(mfaSetupData.qr_text)
+                      }
+                      alt="QR de configuración MFA"
+                      className="w-44 h-44"
+                    />
+                  </div>
+                )}
+
+                {mfaSetupData?.pairing_token && (
+                  <p className="text-xs break-all mb-3" style={{ color: '#1E3A8A' }}>Token manual: {mfaSetupData.pairing_token}</p>
+                )}
+
+                <button type="button" onClick={() => setMfaSetupStep(2)} className="px-3 py-2 rounded-lg text-sm font-semibold border" style={{ color: '#1E3A8A', borderColor: '#93C5FD', backgroundColor: '#FFFFFF' }}>Atrás</button>
+              </>
+            )}
+
+            {mfaSetupPolling && !mfaSetupLinked && (
+              <p className="text-xs mt-3" style={{ color: '#1E40AF' }}>Esperando confirmación de vinculación desde el móvil...</p>
+            )}
+
+            {mfaSetupLinked && (
+              <div className="mt-3 p-3 rounded-lg border" style={{ backgroundColor: '#ECFDF5', borderColor: '#BBF7D0' }}>
+                <p className="text-sm mb-2" style={{ color: '#166534' }}>✅ Dispositivo vinculado correctamente.</p>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await handleSubmit({ preventDefault: () => {} } as React.FormEvent);
+                  }}
+                  className="px-3 py-2 rounded-lg text-white text-sm font-semibold"
+                  style={{ backgroundColor: '#16A34A' }}
+                >
+                  OK
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -327,7 +524,7 @@ export default function BrandedPublicAuth({
             />
           )}
 
-          {formType !== 'reset-password-confirm' && (
+          {!isMfaSetupFlow && formType !== 'reset-password-confirm' && (
             <BrandedInput
               type="email"
               id="email"
@@ -344,7 +541,7 @@ export default function BrandedPublicAuth({
             />
           )}
 
-          {(formType === 'login' || formType === 'register' || formType === 'reset-password-confirm') && (
+          {!isMfaSetupFlow && (formType === 'login' || formType === 'register' || formType === 'reset-password-confirm') && (
             <>
               <div>
                 <BrandedInput
@@ -461,6 +658,7 @@ export default function BrandedPublicAuth({
             </div>
           )}
 
+          {!isMfaSetupFlow && (
           <BrandedButton
             type="submit"
             branding={branding}
@@ -472,8 +670,10 @@ export default function BrandedPublicAuth({
               <ArrowRight className="w-5 h-5" />
             </span>
           </BrandedButton>
+          )}
 
           {/* Links */}
+          {!isMfaSetupFlow && (
           <div className="flex items-center justify-between text-sm">
             {formType === 'login' && (
               <>
@@ -504,6 +704,7 @@ export default function BrandedPublicAuth({
               </a>
             )}
           </div>
+          )}
         </form>
       </BrandedCard>
 
