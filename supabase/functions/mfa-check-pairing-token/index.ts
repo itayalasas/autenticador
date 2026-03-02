@@ -10,7 +10,7 @@ const corsHeaders = {
 
 interface CheckPairingRequest {
   pairing_token: string;
-  application_id: string;
+  application_id?: string;
 }
 
 Deno.serve(async (req) => {
@@ -27,8 +27,8 @@ Deno.serve(async (req) => {
     const body: CheckPairingRequest = await req.json();
     const { pairing_token, application_id } = body;
 
-    if (!pairing_token || !application_id) {
-      return new Response(JSON.stringify({ success: false, error: { code: 'MISSING_FIELDS', message: 'pairing_token and application_id are required' } }), {
+    if (!pairing_token) {
+      return new Response(JSON.stringify({ success: false, error: { code: 'MISSING_FIELDS', message: 'pairing_token is required' } }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
@@ -39,24 +39,10 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { data: application } = await supabase
-      .from('applications')
-      .select('id, application_id')
-      .eq('application_id', application_id)
-      .maybeSingle();
-
-    if (!application) {
-      return new Response(JSON.stringify({ success: false, error: { code: 'APPLICATION_NOT_FOUND', message: 'Aplicación no encontrada' } }), {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
-
     const { data: pairing } = await supabase
       .from('mfa_pairing_tokens')
-      .select('id, token, expires_at, used_at, app_user_id')
+      .select('id, token, application_id, expires_at, used_at, app_user_id')
       .eq('token', pairing_token)
-      .eq('application_id', application.id)
       .maybeSingle();
 
     if (!pairing) {
@@ -64,6 +50,28 @@ Deno.serve(async (req) => {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
+    }
+
+    if (application_id) {
+      const { data: appByPublicId } = await supabase
+        .from('applications')
+        .select('id, application_id')
+        .eq('application_id', application_id)
+        .maybeSingle();
+
+      const { data: appByInternalId } = await supabase
+        .from('applications')
+        .select('id, application_id')
+        .eq('id', application_id)
+        .maybeSingle();
+
+      const resolvedApp = appByPublicId || appByInternalId;
+      if (resolvedApp && resolvedApp.id !== pairing.application_id) {
+        return new Response(JSON.stringify({ success: true, data: { status: 'invalid' } }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
     }
 
     if (pairing.used_at) {
