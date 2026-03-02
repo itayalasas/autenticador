@@ -59,6 +59,19 @@ Deno.serve(async (req) => {
       .eq('id', pairing.application_id)
       .maybeSingle();
 
+    const { data: apiKeyRow } = await supabase
+      .from('api_keys')
+      .select('key_hash, created_at')
+      .eq('application_id', pairing.application_id)
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const applicationWithApiKey = application
+      ? { ...application, api_key: apiKeyRow?.key_hash || null }
+      : null;
+
     const { data: appUser } = await supabase
       .from('app_users')
       .select('id, email, name')
@@ -71,7 +84,7 @@ Deno.serve(async (req) => {
         data: {
           status: 'already_linked',
           linked_at: pairing.used_at,
-          application,
+          application: applicationWithApiKey,
           user: appUser,
         }
       }), {
@@ -121,7 +134,7 @@ Deno.serve(async (req) => {
         status: 'linked',
         linked_at: linkedAt,
         device: deviceRow,
-        application,
+        application: applicationWithApiKey,
         user: appUser,
       }
     }), {

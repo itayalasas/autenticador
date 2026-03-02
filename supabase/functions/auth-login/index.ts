@@ -18,6 +18,11 @@ interface LoginRequest {
   client_ip?: string
 }
 
+interface PermissionNode {
+  actions: string[];
+  submenus?: { [submenuSlug: string]: string[] };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 200, headers: corsHeaders })
@@ -451,6 +456,7 @@ Deno.serve(async (req) => {
 
     let roleName = 'user';
     let rolePermissions: { [menuSlug: string]: string[] } = {};
+    let rolePermissionsHierarchy: { [menuSlug: string]: PermissionNode } = {};
 
     if (user.role_id) {
       const { data: roleData } = await supabase
@@ -467,22 +473,79 @@ Deno.serve(async (req) => {
         .from('role_permissions')
         .select(`
           granted,
-          menu:application_menus!inner(slug),
+          menu:application_menus!inner(id, slug, parent_menu_id),
           action:menu_actions!inner(slug)
         `)
         .eq('role_id', user.role_id)
         .eq('granted', true);
 
       if (permissions) {
+        const menuById: { [menuId: string]: { slug: string; parent_menu_id: string | null } } = {};
+
         permissions.forEach((perm: any) => {
+          const menuData = perm.menu;
+          if (menuData?.id && menuData?.slug) {
+            menuById[menuData.id] = {
+              slug: menuData.slug,
+              parent_menu_id: menuData.parent_menu_id || null
+            };
+          }
+        });
+
+        permissions.forEach((perm: any) => {
+          const menuId = perm.menu?.id;
           const menuSlug = perm.menu?.slug;
           const actionSlug = perm.action?.slug;
 
-          if (menuSlug && actionSlug) {
+          if (menuId && menuSlug && actionSlug) {
             if (!rolePermissions[menuSlug]) {
               rolePermissions[menuSlug] = [];
             }
             rolePermissions[menuSlug].push(actionSlug);
+
+            const parentMenuId = menuById[menuId]?.parent_menu_id || null;
+            if (parentMenuId && menuById[parentMenuId]) {
+              const parentSlug = menuById[parentMenuId].slug;
+
+              if (!rolePermissionsHierarchy[parentSlug]) {
+                rolePermissionsHierarchy[parentSlug] = {
+                  actions: [],
+                  submenus: {}
+                };
+              }
+
+              if (!rolePermissionsHierarchy[parentSlug].submenus) {
+                rolePermissionsHierarchy[parentSlug].submenus = {};
+              }
+
+              if (!rolePermissionsHierarchy[parentSlug].submenus![menuSlug]) {
+                rolePermissionsHierarchy[parentSlug].submenus![menuSlug] = [];
+              }
+
+              rolePermissionsHierarchy[parentSlug].submenus![menuSlug].push(actionSlug);
+            } else {
+              if (!rolePermissionsHierarchy[menuSlug]) {
+                rolePermissionsHierarchy[menuSlug] = {
+                  actions: []
+                };
+              }
+
+              rolePermissionsHierarchy[menuSlug].actions.push(actionSlug);
+            }
+          }
+        });
+
+        Object.keys(rolePermissions).forEach((menuSlug) => {
+          rolePermissions[menuSlug] = Array.from(new Set(rolePermissions[menuSlug]));
+        });
+
+        Object.keys(rolePermissionsHierarchy).forEach((menuSlug) => {
+          rolePermissionsHierarchy[menuSlug].actions = Array.from(new Set(rolePermissionsHierarchy[menuSlug].actions));
+
+          if (rolePermissionsHierarchy[menuSlug].submenus) {
+            Object.keys(rolePermissionsHierarchy[menuSlug].submenus!).forEach((submenuSlug) => {
+              rolePermissionsHierarchy[menuSlug].submenus![submenuSlug] = Array.from(new Set(rolePermissionsHierarchy[menuSlug].submenus![submenuSlug]));
+            });
           }
         });
       }
@@ -508,7 +571,8 @@ Deno.serve(async (req) => {
         method: 'email_password',
         application_name: application.name,
         role: roleName,
-        permissions: rolePermissions
+        permissions: rolePermissions,
+        permissions_hierarchy: rolePermissionsHierarchy
       }
     });
 
@@ -567,6 +631,7 @@ Deno.serve(async (req) => {
       app_id: application_id,
       role: roleName,
       permissions: rolePermissions,
+      permissions_hierarchy: rolePermissionsHierarchy,
       iat: now,
       exp: now + (24 * 60 * 60),
       iss: 'AuthSystem',
@@ -584,6 +649,154 @@ Deno.serve(async (req) => {
     const accessToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify(accessTokenPayload))}.signature`
     const refreshToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify({...accessTokenPayload, type: 'refresh', exp: now + (30 * 24 * 60 * 60)}))}.signature`
 
+    const twoFactorEnabled = application?.metadata?.enable_two_factor === true;
+
+    if (twoFactorEnabled) {
+      const { data: activeMfaDevices, error: deviceCheckError } = await supabase
+        .from('mfa_devices')
+        .select('id')
+        .eq('application_id', application.id)
+        .eq('app_user_id', user.id)
+        .eq('is_active', true)
+        .limit(1);
+
+      if (deviceCheckError) {
+        console.error('❌ Error checking MFA devices:', deviceCheckError);
+      }
+
+      if (activeMfaDevices && activeMfaDevices.length > 0) {
+        const challengeCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const challengeExpiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+
+        const { data: challengeRow, error: challengeError } = await supabase
+          .from('mfa_login_challenges')
+          .insert({
+            application_id: application.id,
+            app_user_id: user.id,
+            challenge_code: challengeCode,
+            status: 'pending',
+            access_token: accessToken,
+            refresh_token: refreshToken,
+            callback_url: callback_url || null,
+            expires_at: challengeExpiresAt,
+            metadata: {
+              email,
+              application_id,
+              user_name: user.name,
+              ip_address: ipAddress,
+            }
+          })
+          .select('id, expires_at')
+          .single();
+
+        if (challengeError || !challengeRow) {
+          console.error('❌ Error creating MFA challenge:', challengeError);
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: {
+                code: 'MFA_CHALLENGE_ERROR',
+                message: 'No se pudo iniciar el desafío de doble factor'
+              }
+            }),
+            {
+              status: 500,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: {
+              code: 'MFA_REQUIRED',
+              message: 'Aprobación requerida en la app móvil Authenticator'
+            },
+            data: {
+              challenge_id: challengeRow.id,
+              challenge_code: challengeCode,
+              state: 'mfa_pending',
+              expires_at: challengeRow.expires_at,
+              polling_endpoint: '/functions/v1/mfa-check-challenge'
+            }
+          }),
+          {
+            status: 202,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
+
+      const pairingExpiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      const { data: pairingRow, error: pairingError } = await supabase
+        .from('mfa_pairing_tokens')
+        .insert({
+          application_id: application.id,
+          app_user_id: user.id,
+          expires_at: pairingExpiresAt,
+        })
+        .select('token, expires_at')
+        .single();
+
+      if (pairingError || !pairingRow) {
+        console.error('❌ Error creating MFA setup pairing token:', pairingError);
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: {
+              code: 'MFA_SETUP_ERROR',
+              message: 'No se pudo iniciar la configuración de doble factor'
+            }
+          }),
+          {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
+
+      const qrPayload = {
+        type: 'authsystem-mfa-pair',
+        pairing_token: pairingRow.token,
+        application_id: application.application_id,
+        app_name: application.name,
+        api_key,
+        email,
+        password,
+        base_url: Deno.env.get('SUPABASE_URL') ?? '',
+        expires_at: pairingRow.expires_at,
+      };
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'MFA_SETUP_REQUIRED',
+            message: 'Configura tu app Authenticator para activar doble factor en esta cuenta.'
+          },
+          data: {
+            state: 'mfa_setup_required',
+            pairing_token: pairingRow.token,
+            expires_at: pairingRow.expires_at,
+            qr_payload: qrPayload,
+            qr_text: JSON.stringify(qrPayload),
+            setup_endpoint: '/functions/v1/mfa-register-device',
+            setup_steps: [
+              'Abre la app Authenticator en tu móvil',
+              'Escanea el QR o pega el pairing token',
+              'Registra el dispositivo',
+              'Vuelve a iniciar sesión'
+            ]
+          }
+        }),
+        {
+          status: 202,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
     const response = {
       success: true,
       data: {
@@ -597,6 +810,7 @@ Deno.serve(async (req) => {
           name: user.name,
           role: roleName,
           permissions: rolePermissions,
+          permissions_hierarchy: rolePermissionsHierarchy,
           metadata: user.metadata || {},
           created_at: user.created_at
         },

@@ -35,6 +35,8 @@ function parseQrPayload(rawValue: string): {
   appName?: string;
   apiKey?: string;
   baseUrl?: string;
+  email?: string;
+  password?: string;
 } {
   const value = rawValue.trim();
 
@@ -46,6 +48,8 @@ function parseQrPayload(rawValue: string): {
       appName: json.app_name || json.application_name,
       apiKey: json.api_key,
       baseUrl: json.base_url,
+      email: json.email,
+      password: json.password,
     };
   } catch {
     if (value.includes('pairing_token=') || value.includes('application_id=') || value.includes('api_key=')) {
@@ -57,6 +61,8 @@ function parseQrPayload(rawValue: string): {
         appName: params.get('app_name') || undefined,
         apiKey: params.get('api_key') || undefined,
         baseUrl: params.get('base_url') || undefined,
+        email: params.get('email') || undefined,
+        password: params.get('password') || undefined,
       };
     }
 
@@ -92,6 +98,7 @@ export default function App() {
   const [challenges, setChallenges] = useState<any[]>([]);
   const [loadingChallenges, setLoadingChallenges] = useState(false);
   const [working, setWorking] = useState(false);
+  const [workingMessage, setWorkingMessage] = useState('Procesando...');
 
   const [scannerVisible, setScannerVisible] = useState(false);
   const [isScannerLocked, setIsScannerLocked] = useState(false);
@@ -194,12 +201,14 @@ export default function App() {
     applicationId?: string;
     appName?: string;
     email?: string;
+    password?: string;
     apiKey?: string;
     baseUrl?: string;
   }) => {
     const resolvedApplicationId = input.applicationId || applicationId || '';
     const resolvedAppName = input.appName || appName || resolvedApplicationId || 'Authenticator';
     const resolvedEmail = input.email || email || '';
+    const resolvedPassword = input.password || password || '';
     const resolvedBaseUrl = input.baseUrl || baseUrl || SUPABASE_URL;
 
     const existingProfile = profiles.find((item) => item.applicationId === resolvedApplicationId && item.email === resolvedEmail);
@@ -212,7 +221,7 @@ export default function App() {
       applicationId: resolvedApplicationId,
       apiKey: input.apiKey || existingProfile?.apiKey || apiKey || '',
       email: resolvedEmail,
-      password: existingProfile?.password || password || '',
+      password: resolvedPassword || existingProfile?.password || '',
       deviceId,
       deviceName,
       createdAt: existingProfile?.createdAt || now,
@@ -238,6 +247,8 @@ export default function App() {
     if (parsed.appName) setAppName(parsed.appName);
     if (parsed.apiKey) setApiKey(parsed.apiKey);
     if (parsed.baseUrl) setBaseUrl(parsed.baseUrl);
+    if (parsed.email) setEmail(parsed.email);
+    if (parsed.password) setPassword(parsed.password);
 
     setScannerVisible(false);
 
@@ -248,6 +259,7 @@ export default function App() {
     }
 
     if (parsed.pairingToken) {
+      setWorkingMessage('Vinculando cuenta...');
       setWorking(true);
       try {
         const resolvedBaseUrl = parsed.baseUrl || baseUrl || SUPABASE_URL;
@@ -263,8 +275,9 @@ export default function App() {
         await saveLinkedProfile({
           applicationId: result.data?.application?.application_id || parsed.applicationId,
           appName: result.data?.application?.name || parsed.appName,
-          email: result.data?.user?.email,
-          apiKey: parsed.apiKey,
+          email: result.data?.user?.email || parsed.email,
+          password: parsed.password,
+          apiKey: result.data?.application?.api_key || parsed.apiKey,
           baseUrl: resolvedBaseUrl,
         });
 
@@ -297,6 +310,12 @@ export default function App() {
     const profile = targetProfile || profiles.find((item) => item.id === activeProfileId) || null;
     if (!profile) {
       Alert.alert('Sin cuenta', 'Selecciona o crea una cuenta primero.');
+      return;
+    }
+
+    const hasChallengeCredentials = !!(profile.applicationId && profile.apiKey && profile.email && profile.password);
+    if (!hasChallengeCredentials) {
+      setChallenges([]);
       return;
     }
 
@@ -449,7 +468,7 @@ export default function App() {
         applicationId: result.data?.application?.application_id || applicationId,
         appName: result.data?.application?.name || appName,
         email: result.data?.user?.email || email,
-        apiKey,
+        apiKey: result.data?.application?.api_key || apiKey,
         baseUrl,
       });
 
@@ -515,7 +534,10 @@ export default function App() {
                       style={[styles.accountRow, isActive ? styles.accountRowActive : undefined]}
                       onPress={() => {
                         applyProfile(profile);
-                        onLoadChallenges(profile);
+                        const canLoad = !!(profile.applicationId && profile.apiKey && profile.email && profile.password);
+                        if (canLoad) {
+                          onLoadChallenges(profile);
+                        }
                       }}
                       onLongPress={() => deleteProfile(profile)}
                     >
@@ -683,6 +705,15 @@ export default function App() {
           <Text style={styles.scannerHelp}>Escanea el QR de cuenta o de pairing MFA.</Text>
         </SafeAreaView>
       </Modal>
+
+      {working && (
+        <View style={styles.blockingOverlay}>
+          <View style={styles.blockingCard}>
+            <ActivityIndicator size="large" color="#0A78D1" />
+            <Text style={styles.blockingText}>{workingMessage}</Text>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -858,4 +889,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   scannerHelp: { color: '#94A3B8', textAlign: 'center', paddingBottom: 20 },
+
+  blockingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.28)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  blockingCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    minWidth: 210,
+  },
+  blockingText: {
+    marginTop: 10,
+    color: '#0F172A',
+    fontWeight: '600',
+    fontSize: 14,
+  },
 });
