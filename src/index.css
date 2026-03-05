@@ -1,3 +1,28 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+.preview-scroll {
+	scrollbar-width: thin;
+	scrollbar-color: rgba(148, 163, 184, 0.5) transparent;
+}
+
+.preview-scroll::-webkit-scrollbar {
+	width: 8px;
+}
+
+.preview-scroll::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.preview-scroll::-webkit-scrollbar-thumb {
+	background: rgba(148, 163, 184, 0.45);
+	border-radius: 9999px;
+	border: 2px solid transparent;
+	background-clip: content-box;
+}
+
+.preview-scroll::-webkit-scrollbar-thumb:hover {
+	background: rgba(100, 116, 139, 0.65);
+	background-clip: content-box;
+}

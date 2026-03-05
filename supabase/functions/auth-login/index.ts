@@ -23,6 +23,60 @@ interface PermissionNode {
   submenus?: { [submenuSlug: string]: string[] };
 }
 
+const isExpoPushToken = (token: string) => /^ExponentPushToken\[[^\]]+\]$|^ExpoPushToken\[[^\]]+\]$/.test(token);
+
+const DYNAMIC_MFA_WINDOW_SECONDS = 60;
+
+function computeDynamicChallengeCode(applicationInternalId: string, appUserId: string, timestampMs: number, secret: string): string {
+  const window = Math.floor(timestampMs / (DYNAMIC_MFA_WINDOW_SECONDS * 1000));
+  const seed = `${secret}|${applicationInternalId}|${appUserId}|${window}`;
+  let hash = 2166136261;
+
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  hash ^= hash >>> 16;
+  hash = Math.imul(hash, 0x7feb352d);
+  hash ^= hash >>> 15;
+  hash = Math.imul(hash, 0x846ca68b);
+  hash ^= hash >>> 16;
+
+  const code = (hash >>> 0) % 1000000;
+  return code.toString().padStart(6, '0');
+}
+
+async function sendExpoPushNotifications(messages: Array<{
+  to: string;
+  title: string;
+  body: string;
+  data: Record<string, unknown>;
+}>) {
+  if (!messages.length) return;
+
+  try {
+    const response = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(messages),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      console.warn('⚠️ Expo push request failed:', response.status, text);
+      return;
+    }
+
+    const payload = await response.json();
+    console.log('📲 Expo push response:', payload?.data?.length || 0, 'tickets');
+  } catch (error) {
+    console.warn('⚠️ Expo push send error:', error);
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 200, headers: corsHeaders })
@@ -666,6 +720,7 @@ Deno.serve(async (req) => {
 
       if (activeMfaDevices && activeMfaDevices.length > 0) {
         const challengeCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const verificationNumber = String(Math.floor(Math.random() * 99) + 1).padStart(2, '0');
         const challengeExpiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
         const { data: challengeRow, error: challengeError } = await supabase
@@ -684,6 +739,7 @@ Deno.serve(async (req) => {
               application_id,
               user_name: user.name,
               ip_address: ipAddress,
+              verification_number: verificationNumber,
             }
           })
           .select('id, expires_at')
@@ -706,6 +762,45 @@ Deno.serve(async (req) => {
           );
         }
 
+        const mfaSecret = Deno.env.get('MFA_CHALLENGE_SECRET') || 'authsystem-mfa-secret';
+        const dynamicChallengeCode = computeDynamicChallengeCode(application.id, user.id, Date.now(), mfaSecret);
+
+        const { data: devicesForPush, error: pushDevicesError } = await supabase
+          .from('mfa_devices')
+          .select('id, device_name, push_token, push_provider')
+          .eq('application_id', application.id)
+          .eq('app_user_id', user.id)
+          .eq('is_active', true)
+          .not('push_token', 'is', null);
+
+        if (pushDevicesError) {
+          console.warn('⚠️ Could not load devices for push:', pushDevicesError);
+        }
+
+        const pushMessages = (devicesForPush || [])
+          .filter((device: any) => device.push_provider === 'expo' && typeof device.push_token === 'string' && isExpoPushToken(device.push_token))
+          .map((device: any) => ({
+            to: device.push_token,
+            title: `Solicitud de acceso - ${application.name || 'Authenticator'}`,
+            body: `Aprueba el ingreso de ${email}. Número: ${verificationNumber}. Código (60s): ${dynamicChallengeCode}`,
+            data: {
+              type: 'mfa_challenge',
+              challenge_id: challengeRow.id,
+              challenge_code: dynamicChallengeCode,
+              verification_number: verificationNumber,
+              application_id,
+              user_email: email,
+              app_name: application.name,
+              device_name: device.device_name || null,
+            },
+          }));
+
+        if (pushMessages.length > 0) {
+          await sendExpoPushNotifications(pushMessages);
+        } else {
+          console.log('ℹ️ No active push tokens found for user devices');
+        }
+
         return new Response(
           JSON.stringify({
             success: false,
@@ -715,7 +810,9 @@ Deno.serve(async (req) => {
             },
             data: {
               challenge_id: challengeRow.id,
-              challenge_code: challengeCode,
+              challenge_code: dynamicChallengeCode,
+              verification_number: verificationNumber,
+              challenge_code_ttl_seconds: DYNAMIC_MFA_WINDOW_SECONDS,
               state: 'mfa_pending',
               expires_at: challengeRow.expires_at,
               polling_endpoint: '/functions/v1/mfa-check-challenge'

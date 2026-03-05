@@ -273,6 +273,7 @@ interface BrandedButtonProps {
   variant?: 'primary' | 'secondary';
   disabled?: boolean;
   loading?: boolean;
+  loadingText?: string;
 }
 
 export function BrandedButton({
@@ -282,7 +283,8 @@ export function BrandedButton({
   branding,
   variant = 'primary',
   disabled,
-  loading
+  loading,
+  loadingText
 }: BrandedButtonProps) {
   const getButtonClass = () => {
     const baseClass = `w-full font-semibold transition-all ${getAnimationDuration(branding.animation_speed)}`;
@@ -339,7 +341,7 @@ export function BrandedButton({
       {loading ? (
         <span className="flex items-center justify-center gap-2">
           <Loader2 className="w-5 h-5 animate-spin" />
-          Processing...
+          {loadingText || branding.message_loading_text || 'Procesando...'}
         </span>
       ) : (
         children

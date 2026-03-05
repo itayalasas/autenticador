@@ -1,6 +1,57 @@
 import { supabase } from '../lib/supabase';
-import { AppUser } from '../types';
+import { requireSupabaseUrl } from '../lib/supabaseRuntime';
+import { AppUser, MfaManagedDevice } from '../types';
 import bcrypt from 'bcryptjs';
+
+type MfaManageAction = 'list' | 'revoke' | 'reset';
+
+async function callMfaManageDevices(action: MfaManageAction, payload: Record<string, unknown>) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const accessToken = sessionData.session?.access_token;
+
+  if (!accessToken) {
+    throw new Error('No hay sesión activa');
+  }
+
+  const supabaseUrl = requireSupabaseUrl();
+  const endpoint = `${supabaseUrl}/functions/v1/mfa-manage-user-devices`;
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ action, ...payload }),
+  });
+
+  const responseText = await response.text();
+  let result: any = null;
+
+  if (responseText) {
+    try {
+      result = JSON.parse(responseText);
+    } catch {
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error('La función mfa-manage-user-devices no existe o no está desplegada en este proyecto Supabase');
+        }
+        throw new Error(`Error ${response.status} al consultar MFA: respuesta no JSON`);
+      }
+      throw new Error('Respuesta inválida del servidor al consultar MFA');
+    }
+  }
+
+  if (!response.ok || !result?.success) {
+    if (response.status === 404) {
+      throw new Error('La función mfa-manage-user-devices no existe o no está desplegada en este proyecto Supabase');
+    }
+
+    throw new Error(result?.error?.message || `Error ${response.status} al consultar MFA`);
+  }
+
+  return result;
+}
 
 export const userService = {
   // Get users for an application
@@ -233,5 +284,19 @@ export const userService = {
     }
     
     console.log('User roles updated successfully');
+  },
+
+  async listUserMfaDevices(appUserId: string): Promise<MfaManagedDevice[]> {
+    const result = await callMfaManageDevices('list', { app_user_id: appUserId });
+
+    return result.data?.devices || [];
+  },
+
+  async revokeUserMfaDevice(appUserId: string, deviceId: string) {
+    await callMfaManageDevices('revoke', { app_user_id: appUserId, device_id: deviceId });
+  },
+
+  async resetUserMfaDevices(appUserId: string) {
+    await callMfaManageDevices('reset', { app_user_id: appUserId });
   }
 };

@@ -534,16 +534,98 @@ function generateStandaloneFormHTML(
         const data = await response.json();
         console.log('📥 Login response:', data);
 
+        const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+        const completeSuccessfulLogin = async (loginData) => {
+          const targetUrl = loginData?.callback_url || redirectUri || loginData?.redirect_url || '/dashboard';
+
+          if (targetUrl) {
+            console.log('🔄 Redirecting to:', targetUrl);
+            setTimeout(() => {
+              window.location.href = targetUrl;
+            }, 1500);
+            return;
+          }
+
+          if (loginData?.access_token) {
+            localStorage.setItem('auth_token', loginData.access_token);
+            localStorage.setItem('refresh_token', loginData.refresh_token);
+            if (loginData?.user) {
+              localStorage.setItem('user_data', JSON.stringify(loginData.user));
+            }
+          }
+        };
+
         if (data.success) {
           showMessage('¡Inicio de sesión exitoso!', 'success');
 
-          // Redirect to callback URL or use the one from response
-          const targetUrl = data.data?.callback_url || redirectUri || data.data?.redirect_url || '/dashboard';
-          console.log('🔄 Redirecting to:', targetUrl);
+          await completeSuccessfulLogin(data.data || {});
+        } else if (data.error?.code === 'MFA_REQUIRED') {
+          const challengeId = data.data?.challenge_id;
+          const challengeCode = data.data?.challenge_code;
 
-          setTimeout(() => {
-            window.location.href = targetUrl;
-          }, 1500);
+          if (!challengeId) {
+            showMessage('Desafío MFA inválido. Intenta nuevamente.', 'error');
+            return;
+          }
+
+          showMessage('Doble factor requerido. Aprueba en tu app Authenticator. Código: ' + (challengeCode || 'N/A'), 'success');
+
+          (async () => {
+            for (let attempt = 0; attempt < 60; attempt += 1) {
+              await wait(2000);
+
+              const checkResponse = await fetch(SUPABASE_URL + '/functions/v1/mfa-check-challenge', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+                  'apikey': SUPABASE_ANON_KEY,
+                  'X-Client-Info': 'authsystem-static-form/1.0'
+                },
+                body: JSON.stringify({
+                  challenge_id: challengeId,
+                  application_id: APPLICATION_ID
+                })
+              });
+
+              const checkData = await checkResponse.json();
+              const status = checkData?.data?.status;
+
+              if (!checkData?.success || status === 'pending') {
+                continue;
+              }
+
+              if (status === 'approved') {
+                showMessage('¡Inicio de sesión aprobado!', 'success');
+                await completeSuccessfulLogin(checkData.data || {});
+                return;
+              }
+
+              if (status === 'rejected') {
+                showMessage('Aprobación rechazada desde la app Authenticator.', 'error');
+                return;
+              }
+
+              if (status === 'expired') {
+                showMessage('El desafío MFA expiró. Inicia sesión nuevamente.', 'error');
+                return;
+              }
+
+              if (status === 'approved_consumed') {
+                showMessage('El desafío MFA ya fue consumido. Inicia sesión nuevamente.', 'error');
+                return;
+              }
+            }
+
+            showMessage('Tiempo de espera agotado para la aprobación MFA.', 'error');
+          })();
+        } else if (data.error?.code === 'MFA_SETUP_REQUIRED') {
+          const setupData = data.data || {};
+          const setupMessage = setupData?.pairing_token
+            ? 'Configura Authenticator. Token manual: ' + setupData.pairing_token
+            : 'Configura Authenticator escaneando el QR y vuelve a iniciar sesión.';
+          showMessage(setupMessage, 'error');
         } else {
           console.error('❌ Login failed:', data.error);
           showMessage(data.error?.message || data.error || 'Error al iniciar sesión', 'error');
@@ -864,7 +946,8 @@ export default {
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/svg+xml" href="/images/icon.svg" />
+    <link rel="shortcut icon" type="image/svg+xml" href="/images/icon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AuthSystem</title>
   </head>

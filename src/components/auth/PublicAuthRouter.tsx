@@ -2,7 +2,9 @@ import React, { useEffect, useState } from 'react';
 import PublicAuthForms from './PublicAuthForms';
 import { applicationService } from '../../services/applicationService';
 import { supabase } from '../../lib/supabase';
+import { getSupabaseAnonKey, getSupabaseUrl } from '../../lib/supabaseRuntime';
 import { useSearchParams } from 'react-router-dom';
+import { applyFaviconToDocument } from '../../utils/favicon';
 
 interface PublicAuthRouterProps {
   appId: string;
@@ -21,14 +23,16 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
     : 'login';
 
   useEffect(() => {
+    applyFaviconToDocument('/images/icon.svg');
+
     const loadApplicationData = async () => {
     try {
       setLoading(true);
       console.log('Loading application data for:', appId);
       
       // Check if Supabase is properly configured
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const supabaseUrl = getSupabaseUrl();
+      const supabaseKey = getSupabaseAnonKey();
       
       if (!supabaseUrl || !supabaseKey || 
           supabaseUrl === 'https://your-project-id.supabase.co' || 
@@ -198,6 +202,12 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
 
     loadApplicationData();
   }, [appId]);
+
+  useEffect(() => {
+    if (appData?.branding?.favicon_url) {
+      applyFaviconToDocument(appData.branding.favicon_url);
+    }
+  }, [appData?.branding?.favicon_url]);
 
   if (loading) {
     return (

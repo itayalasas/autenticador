@@ -128,6 +128,8 @@ VITE_API_KEY=your-api-key
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/images/icon.svg" />
+    <link rel="shortcut icon" type="image/svg+xml" href="/images/icon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AuthSystem - Autenticación</title>
   </head>
@@ -447,16 +449,44 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
 
       const result = await response.json();
 
+      const completeSuccessfulLogin = async (loginData: any) => {
+        if (loginData?.callback_url) {
+          console.log('🔄 Redirecting to:', loginData.callback_url);
+          setTimeout(() => {
+            window.location.href = loginData.callback_url;
+          }, 1500);
+          return;
+        }
+
+        if (loginData?.access_token) {
+          localStorage.setItem('auth_token', loginData.access_token);
+          localStorage.setItem('refresh_token', loginData.refresh_token);
+          if (loginData?.user) {
+            localStorage.setItem('user_data', JSON.stringify(loginData.user));
+          }
+        }
+      };
+
       if (!result.success) {
+        if (validFormType === 'login' && result.error?.code === 'MFA_REQUIRED') {
+          const challengeError: any = new Error(result.error?.message || 'MFA_REQUIRED');
+          challengeError.code = 'MFA_REQUIRED';
+          challengeError.data = result.data || null;
+          throw challengeError;
+        }
+
+        if (validFormType === 'login' && result.error?.code === 'MFA_SETUP_REQUIRED') {
+          const setupError: any = new Error(result.error?.message || 'MFA_SETUP_REQUIRED');
+          setupError.code = 'MFA_SETUP_REQUIRED';
+          setupError.data = result.data || null;
+          throw setupError;
+        }
+
         throw new Error(result.error?.message || 'Error de autenticación');
       }
 
-      // Handle success - redirect if callback URL exists
-      if (result.data?.callback_url) {
-        console.log('🔄 Redirecting to:', result.data.callback_url);
-        setTimeout(() => {
-          window.location.href = result.data.callback_url;
-        }, 2000);
+      if (validFormType === 'login') {
+        await completeSuccessfulLogin(result.data);
       }
 
       return result.data;

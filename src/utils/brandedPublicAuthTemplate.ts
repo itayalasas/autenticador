@@ -2,7 +2,7 @@
 // Auto-generated
 
 export const BRANDED_PUBLIC_AUTH_TEMPLATE = `import React, { useState, useEffect } from 'react';
-import { Mail, Lock, User, ArrowRight, ArrowLeft, CheckCircle } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, ArrowLeft, CheckCircle, Shield, X } from 'lucide-react';
 import {
   BrandedContainer,
   BrandedCard,
@@ -40,10 +40,21 @@ export default function BrandedPublicAuth({
   const [mfaSetupStep, setMfaSetupStep] = useState<1 | 2 | 3>(1);
   const [mfaSetupPolling, setMfaSetupPolling] = useState(false);
   const [mfaSetupLinked, setMfaSetupLinked] = useState(false);
+  const [mfaAutoStartingSession, setMfaAutoStartingSession] = useState(false);
+  const [mfaChallengeId, setMfaChallengeId] = useState<string | null>(null);
+  const [mfaChallengeCode, setMfaChallengeCode] = useState('');
+  const [mfaVerificationNumber, setMfaVerificationNumber] = useState('');
+  const [mfaCodeExpiresIn, setMfaCodeExpiresIn] = useState(0);
+  const [showMfaManualEntry, setShowMfaManualEntry] = useState(false);
+  const [mfaManualCode, setMfaManualCode] = useState('');
+  const [mfaVerifyingCode, setMfaVerifyingCode] = useState(false);
+  const [mfaPolling, setMfaPolling] = useState(false);
+  const [mfaCompletingLogin, setMfaCompletingLogin] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState<'weak' | 'medium' | 'strong' | 'very-strong'>('weak');
   const [availableRoles, setAvailableRoles] = useState<any[]>([]);
   const [selectedRole, setSelectedRole] = useState('');
   const activeSetupPollRunRef = React.useRef(0);
+  const activeChallengePollRunRef = React.useRef(0);
   const SUPABASE_URL = 'https://sfqtmnncgiqkveaoqckt.supabase.co';
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNmcXRtbm5jZ2lxa3ZlYW9xY2t0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4MDEyNDMsImV4cCI6MjA3NTM3NzI0M30.n2yaYrfHDLAFePP1tA3-250P6bgKmf696fYJFHfRZaQ';
   const API_BASE_URL = SUPABASE_URL + '/functions/v1';
@@ -199,8 +210,119 @@ export default function BrandedPublicAuth({
   useEffect(() => {
     return () => {
       activeSetupPollRunRef.current += 1;
+      activeChallengePollRunRef.current += 1;
     };
   }, []);
+
+  useEffect(() => {
+    if (!mfaChallengeId || mfaCodeExpiresIn <= 0) return;
+
+    const timer = window.setInterval(() => {
+      setMfaCodeExpiresIn(current => Math.max(0, current - 1));
+    }, 1000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [mfaChallengeId, mfaCodeExpiresIn]);
+
+  const startMfaChallengePolling = (challengeId: string) => {
+    const runId = ++activeChallengePollRunRef.current;
+    setMfaPolling(true);
+
+    const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+    const runPolling = async () => {
+      const pollingEndpoint = API_BASE_URL + '/mfa-check-challenge';
+      const maxAttempts = 60;
+
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        if (activeChallengePollRunRef.current !== runId) return;
+        await wait(2000);
+
+        const checkResponse = await fetch(pollingEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+            'apikey': SUPABASE_ANON_KEY,
+            'X-Client-Info': 'authsystem-branded-form/1.0'
+          },
+          body: JSON.stringify({
+            challenge_id: challengeId,
+            application_id: applicationId
+          })
+        });
+
+        const checkResult = await checkResponse.json();
+        const challengeStatus = checkResult?.data?.status;
+
+        if (!checkResult?.success) {
+          continue;
+        }
+
+        if (challengeStatus === 'pending') {
+          if (checkResult?.data?.challenge_code) {
+            setMfaChallengeCode(checkResult.data.challenge_code);
+          }
+
+          if (typeof checkResult?.data?.verification_number === 'string') {
+            setMfaVerificationNumber(String(checkResult.data.verification_number).padStart(2, '0'));
+          }
+
+          if (typeof checkResult?.data?.challenge_code_expires_in_seconds === 'number') {
+            setMfaCodeExpiresIn(Math.max(0, checkResult.data.challenge_code_expires_in_seconds));
+          }
+
+          continue;
+        }
+
+        if (challengeStatus === 'approved') {
+          setMfaCompletingLogin(true);
+          setMessageStatus('success');
+          setErrorMessage('Aprobación recibida. Iniciando sesión...');
+          if (onSuccess) {
+            onSuccess(checkResult.data);
+          }
+          if (checkResult?.data?.callback_url) {
+            setTimeout(() => {
+              window.location.href = checkResult.data.callback_url;
+            }, 900);
+          }
+          return;
+        }
+
+        if (challengeStatus === 'rejected') {
+          setMessageStatus('error');
+          setErrorMessage('Aprobación rechazada desde la app Authenticator.');
+          return;
+        }
+
+        if (challengeStatus === 'expired') {
+          setMessageStatus('error');
+          setErrorMessage('El desafío MFA expiró. Inicia sesión nuevamente.');
+          return;
+        }
+
+        if (challengeStatus === 'approved_consumed') {
+          setMessageStatus('error');
+          setErrorMessage('El desafío MFA ya fue consumido. Inicia sesión nuevamente.');
+          return;
+        }
+      }
+
+      if (activeChallengePollRunRef.current === runId) {
+        setMessageStatus('error');
+        setErrorMessage('Tiempo de espera agotado para la aprobación MFA.');
+      }
+    };
+
+    runPolling().finally(() => {
+      if (activeChallengePollRunRef.current === runId) {
+        setMfaPolling(false);
+      }
+    });
+  };
 
   const startMfaSetupPolling = (pairingToken: string) => {
     const runId = ++activeSetupPollRunRef.current;
@@ -235,6 +357,12 @@ export default function BrandedPublicAuth({
           setMfaSetupLinked(true);
           setMessageStatus('idle');
           setErrorMessage('');
+          setMfaAutoStartingSession(true);
+          window.setTimeout(() => {
+            if (activeSetupPollRunRef.current !== runId) return;
+            const formElement = document.querySelector('form') as HTMLFormElement | null;
+            formElement?.requestSubmit();
+          }, 900);
           return;
         }
 
@@ -265,8 +393,18 @@ export default function BrandedPublicAuth({
     setMfaSetupData(null);
     setMfaSetupStep(1);
     setMfaSetupLinked(false);
+    setMfaAutoStartingSession(false);
     setMfaSetupPolling(false);
+    setMfaChallengeId(null);
+    setMfaChallengeCode('');
+    setMfaVerificationNumber('');
+    setMfaCodeExpiresIn(0);
+    setShowMfaManualEntry(false);
+    setMfaManualCode('');
+    setMfaPolling(false);
+    setMfaCompletingLogin(false);
     activeSetupPollRunRef.current += 1;
+    activeChallengePollRunRef.current += 1;
 
     // 1. Rate limiting check (client-side)
     const rateLimitKey = \`auth-\${formType}-\${applicationId}\`;
@@ -324,6 +462,29 @@ export default function BrandedPublicAuth({
         if (pairingToken) {
           startMfaSetupPolling(pairingToken);
         }
+      } else if (errorCode === 'MFA_REQUIRED') {
+        const challengeId = errorData?.challenge_id;
+        const challengeCode = errorData?.challenge_code;
+        const verificationNumber = String(errorData?.verification_number || '').padStart(2, '0');
+
+        if (!challengeId) {
+          setErrorMessage('Desafío MFA inválido: falta challenge_id');
+          setMessageStatus('error');
+          if (onError) {
+            onError('Desafío MFA inválido: falta challenge_id');
+          }
+          return;
+        }
+
+        setMessageStatus('idle');
+        setErrorMessage('');
+        setMfaChallengeId(challengeId);
+        setMfaChallengeCode(challengeCode || '');
+        setMfaVerificationNumber(verificationNumber || '');
+        setMfaCodeExpiresIn(Number(errorData?.challenge_code_expires_in_seconds || 60));
+        setShowMfaManualEntry(false);
+        setMfaManualCode('');
+        startMfaChallengePolling(challengeId);
       } else {
         setErrorMessage(errorText);
 
@@ -389,7 +550,121 @@ export default function BrandedPublicAuth({
     }
   };
 
+  const handleManualMfaCodeVerification = async () => {
+    if (!mfaChallengeId) {
+      setMessageStatus('error');
+      setErrorMessage('No hay desafío MFA activo.');
+      return;
+    }
+
+    const manualCode = mfaManualCode.trim();
+    if (!manualCode) {
+      setMessageStatus('error');
+      setErrorMessage('Ingresa el código de verificación.');
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const runtimeApiKey = params.get('api_key') || '';
+
+    if (!runtimeApiKey) {
+      setMessageStatus('error');
+      setErrorMessage('No se encontró api_key en la URL para validar el código manual.');
+      return;
+    }
+
+    try {
+      setMfaVerifyingCode(true);
+
+      const approveResponse = await fetch(API_BASE_URL + '/mfa-approve-challenge', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+          'apikey': SUPABASE_ANON_KEY,
+          'X-Client-Info': 'authsystem-branded-form/1.0'
+        },
+        body: JSON.stringify({
+          application_id: applicationId,
+          api_key: runtimeApiKey,
+          email: formData.email,
+          password: formData.password,
+          challenge_id: mfaChallengeId,
+          challenge_code: manualCode,
+          action: 'approve'
+        })
+      });
+
+      const approveResult = await approveResponse.json();
+      if (!approveResponse.ok || !approveResult?.success) {
+        throw new Error(approveResult?.error?.message || 'Código inválido o expirado');
+      }
+
+      activeChallengePollRunRef.current += 1;
+      setMfaPolling(false);
+
+      const checkResponse = await fetch(API_BASE_URL + '/mfa-check-challenge', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+          'apikey': SUPABASE_ANON_KEY,
+          'X-Client-Info': 'authsystem-branded-form/1.0'
+        },
+        body: JSON.stringify({
+          challenge_id: mfaChallengeId,
+          application_id: applicationId
+        })
+      });
+
+      const checkResult = await checkResponse.json();
+      if (!checkResult?.success || checkResult?.data?.status !== 'approved') {
+        throw new Error('No se pudo completar el login con código MFA.');
+      }
+
+      setMfaCompletingLogin(true);
+      setMessageStatus('success');
+      setErrorMessage('Aprobación recibida. Iniciando sesión...');
+
+      if (onSuccess) {
+        onSuccess(checkResult.data);
+      }
+
+      if (checkResult?.data?.callback_url) {
+        setTimeout(() => {
+          window.location.href = checkResult.data.callback_url;
+        }, 900);
+      }
+    } catch (error: any) {
+      setMfaCompletingLogin(false);
+      setMessageStatus('error');
+      setErrorMessage(error.message || 'No se pudo verificar el código MFA');
+    } finally {
+      setMfaVerifyingCode(false);
+    }
+  };
+
+  const handleRequestAnotherMfaCode = async () => {
+    await handleSubmit({ preventDefault: () => {} } as React.FormEvent);
+  };
+
+  const handleCloseMfaChallengeModal = () => {
+    activeChallengePollRunRef.current += 1;
+    setMfaPolling(false);
+    setMfaVerifyingCode(false);
+    setMfaCompletingLogin(false);
+    setShowMfaManualEntry(false);
+    setMfaManualCode('');
+    setMfaChallengeId(null);
+    setMfaChallengeCode('');
+    setMfaVerificationNumber('');
+    setMfaCodeExpiresIn(0);
+    setMessageStatus('idle');
+    setErrorMessage('');
+  };
+
   const isMfaSetupFlow = formType === 'login' && !!mfaSetupData;
+  const isMfaChallengeFlow = formType === 'login' && !!mfaChallengeId;
 
   return (
     <BrandedContainer branding={branding}>
@@ -473,6 +748,9 @@ export default function BrandedPublicAuth({
             {mfaSetupLinked && (
               <div className="mt-3 p-3 rounded-lg border" style={{ backgroundColor: '#ECFDF5', borderColor: '#BBF7D0' }}>
                 <p className="text-sm mb-2" style={{ color: '#166534' }}>✅ Dispositivo vinculado correctamente.</p>
+                <p className="text-xs mb-2" style={{ color: '#166534' }}>
+                  {mfaAutoStartingSession ? 'Iniciando sesión automáticamente...' : 'Si no avanza, presiona OK para continuar.'}
+                </p>
                 <button
                   type="button"
                   onClick={async () => {
@@ -510,6 +788,7 @@ export default function BrandedPublicAuth({
           </div>
         )}
 
+        {!isMfaChallengeFlow && (
         <form onSubmit={handleSubmit} className="space-y-6" style={{ display: messageStatus === 'success' && formType === 'reset-password' ? 'none' : 'block' }}>
           {formType === 'register' && (
             <BrandedInput
@@ -706,7 +985,100 @@ export default function BrandedPublicAuth({
           </div>
           )}
         </form>
+        )}
       </BrandedCard>
+
+      {isMfaChallengeFlow && (
+        <div className="fixed inset-0 z-50 bg-black/55 backdrop-blur-[1px] flex items-center justify-center px-4">
+          <div className="w-full max-w-[700px] overflow-hidden rounded-[22px] bg-white shadow-2xl border border-indigo-100">
+            <div className="p-6 md:p-7 space-y-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-2">
+                  <p className="text-[13px] font-semibold uppercase tracking-wide text-indigo-500">Verificación MFA</p>
+                  <h3 className="text-[38px] font-semibold text-indigo-950 leading-[1.08]">Aprobación en curso</h3>
+                  <p className="text-base text-indigo-800 leading-[1.35]">
+                    Revisa tu app Authenticator y aprueba el acceso para continuar.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleCloseMfaChallengeModal}
+                  disabled={mfaCompletingLogin}
+                  className="text-indigo-400 hover:text-indigo-600 disabled:opacity-40"
+                  aria-label="Cerrar verificación MFA"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="rounded-[16px] border border-indigo-200 bg-indigo-50 px-5 py-4">
+                <p className="text-base font-medium text-indigo-800">Número de verificación</p>
+                <p className="text-[48px] font-bold tracking-[0.12em] text-indigo-900 mt-1">{mfaVerificationNumber || '--'}</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowMfaManualEntry((current) => !current)}
+                  className="px-4 py-2.5 rounded-xl border border-indigo-200 bg-white text-indigo-700 text-[15px] font-medium hover:bg-indigo-50 disabled:opacity-60"
+                  disabled={mfaCompletingLogin}
+                >
+                  Entrar código manual
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRequestAnotherMfaCode}
+                  className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-[15px] font-medium hover:bg-indigo-700 disabled:opacity-60"
+                  disabled={loading || mfaCompletingLogin}
+                >
+                  Solicitar otro código
+                </button>
+              </div>
+
+              {showMfaManualEntry && (
+                <div className="rounded-xl border border-indigo-100 bg-white p-4 space-y-3">
+                  <p className="text-xs text-indigo-700">Código de 6 dígitos (se regenera cada 60 segundos).</p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={mfaManualCode}
+                      onChange={(e) => setMfaManualCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                      placeholder="Código MFA"
+                      className="flex-1 px-3 py-2 border border-indigo-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleManualMfaCodeVerification}
+                      disabled={mfaVerifyingCode || mfaCompletingLogin}
+                      className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-60"
+                    >
+                      {mfaVerifyingCode ? 'Verificando...' : 'Validar'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <p className="text-sm text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-[14px] px-4 py-3.5 flex items-center gap-3">
+                <span className="w-5 h-5 rounded-full border-2 border-indigo-400 border-dashed animate-spin shrink-0" />
+                <span>
+                  {mfaCompletingLogin
+                    ? 'Conectando y autenticando sesión...'
+                    : mfaPolling
+                    ? 'Esperando aprobación desde la app móvil.'
+                    : 'Espera de aprobación detenida.'}
+                </span>
+              </p>
+            </div>
+
+            <div className="border-t border-slate-100 bg-slate-50 px-6 py-4 flex items-center justify-center gap-2 text-slate-600">
+              <Shield className="w-5 h-5 text-indigo-500" />
+              <p className="text-[1.05rem]">Protected by <span className="font-semibold text-slate-800">AuthSystem</span></p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <div className="mt-6 text-center text-sm" style={{ color: branding.text_color, opacity: 0.6 }}>

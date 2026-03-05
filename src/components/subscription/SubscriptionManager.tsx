@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Crown, CreditCard, Check, X, Star, Zap, Shield, Users, Globe, Sparkles, ArrowRight, Calendar, DollarSign, AlertTriangle } from 'lucide-react';
 import { subscriptionService } from '../../services/subscriptionService';
 import { dLocalService } from '../../services/dLocalService';
+import { requireSupabaseAnonKey, requireSupabaseUrl } from '../../lib/supabaseRuntime';
 import { useNotification } from '../../hooks/useNotification';
 import NotificationModal from '../ui/NotificationModal';
 import ConfirmationModal from '../ui/ConfirmationModal';
@@ -157,8 +158,8 @@ export default function SubscriptionManager() {
       console.log('🔄 Sincronizando suscripciones desde dLocal...');
 
       try {
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+        const supabaseUrl = requireSupabaseUrl();
+        const anonKey = requireSupabaseAnonKey();
 
         const syncResponse = await fetch(`${supabaseUrl}/functions/v1/sync-dlocal-subscriptions`, {
           method: 'POST',

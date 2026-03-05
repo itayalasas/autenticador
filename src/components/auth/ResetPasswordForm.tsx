@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Eye, EyeOff, Lock, CheckCircle, AlertCircle, Mail, ArrowLeft } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { requireSupabaseAnonKey, requireSupabaseUrl } from '../../lib/supabaseRuntime';
 
 interface BrandingConfig {
   primary_color: string;
@@ -198,13 +199,16 @@ export default function ResetPasswordForm() {
     setSubmitting(true);
 
     try {
+      const supabaseUrl = requireSupabaseUrl();
+      const anonKey = requireSupabaseAnonKey();
+
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auth-reset-password`,
+        `${supabaseUrl}/functions/v1/auth-reset-password`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            'Authorization': `Bearer ${anonKey}`,
           },
           body: JSON.stringify({
             application_id: appId,
@@ -276,13 +280,16 @@ export default function ResetPasswordForm() {
     setSubmitting(true);
 
     try {
+      const supabaseUrl = requireSupabaseUrl();
+      const anonKey = requireSupabaseAnonKey();
+
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auth-reset-password-confirm`,
+        `${supabaseUrl}/functions/v1/auth-reset-password-confirm`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            'Authorization': `Bearer ${anonKey}`,
           },
           body: JSON.stringify({
             token,

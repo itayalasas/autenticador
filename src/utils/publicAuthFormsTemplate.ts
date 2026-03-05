@@ -489,57 +489,61 @@ function PublicAuthForms({
             await wait(2000);
 
             const checkResponse = await fetch(pollingEndpoint, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + supabaseAnonKey,
-                'apikey': supabaseAnonKey,
-                'X-Client-Info': 'authsystem-public-form/1.0'
-              },
-              body: JSON.stringify({
-                challenge_id: challengeId,
-                application_id: applicationId
-              })
-            });
 
-            const checkResult = await checkResponse.json();
-            const challengeStatus = checkResult?.data?.status;
+          (async () => {
+            for (let attempt = 0; attempt < 60; attempt += 1) {
+              await wait(2000);
 
-            if (!checkResult?.success) {
-              continue;
-            }
+              const checkResponse = await fetch(pollingEndpoint, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer ' + supabaseAnonKey,
+                  'apikey': supabaseAnonKey,
+                  'X-Client-Info': 'authsystem-public-form/1.0'
+                },
+                body: JSON.stringify({
+                  challenge_id: challengeId,
+                  application_id: applicationId
+                })
+              });
 
-            if (challengeStatus === 'pending') {
-              continue;
-            }
+              const checkResult = await checkResponse.json();
+              const challengeStatus = checkResult?.data?.status;
 
-            if (challengeStatus === 'approved') {
-              await completeSuccessfulLogin(checkResult.data);
-              if (onSuccess) {
-                onSuccess(checkResult.data);
+              if (!checkResult?.success || challengeStatus === 'pending') {
+                continue;
               }
-              return;
+
+              if (challengeStatus === 'approved') {
+                setMessage({ type: 'success', text: 'Aprobación recibida. Iniciando sesión...' });
+                await completeSuccessfulLogin(checkResult.data);
+                if (onSuccess) {
+                  onSuccess(checkResult.data);
+                }
+                return;
+              }
+
+              if (challengeStatus === 'rejected') {
+                setMessage({ type: 'error', text: 'Aprobación rechazada desde la app Authenticator.' });
+                return;
+              }
+
+              if (challengeStatus === 'expired') {
+                setMessage({ type: 'error', text: 'El desafío MFA expiró. Inicia sesión nuevamente.' });
+                return;
+              }
+
+              if (challengeStatus === 'approved_consumed') {
+                setMessage({ type: 'error', text: 'El desafío MFA ya fue consumido. Inicia sesión nuevamente.' });
+                return;
+              }
             }
 
-            if (challengeStatus === 'rejected') {
-              throw new Error('Aprobación rechazada desde la app Authenticator.');
-            }
+            setMessage({ type: 'error', text: 'Tiempo de espera agotado para la aprobación MFA.' });
+          })();
 
-            if (challengeStatus === 'expired') {
-              throw new Error('El desafío MFA expiró. Inicia sesión nuevamente.');
-            }
-
-            if (challengeStatus === 'approved_consumed') {
-              throw new Error('El desafío MFA ya fue consumido. Inicia sesión nuevamente.');
-            }
-          }
-
-          throw new Error('Tiempo de espera agotado para la aprobación MFA.');
-        }
-
-        if (formType === 'login' && result.error?.code === 'MFA_SETUP_REQUIRED') {
-          setMfaSetupData(result.data || null);
-          setMfaSetupStep(1);
+          return;
           setMessage(null);
 
           const pairingToken = result.data?.pairing_token;

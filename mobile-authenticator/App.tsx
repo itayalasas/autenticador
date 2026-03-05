@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   SafeAreaView,
   View,
@@ -10,14 +10,26 @@ import {
   StyleSheet,
   Modal,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as LocalAuthentication from 'expo-local-authentication';
-import { listPendingChallenges, approveChallenge, generatePairingToken, registerDevice } from './src/services/api';
+import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
+import Constants from 'expo-constants';
+import { listPendingChallenges, approveChallenge, generatePairingToken, registerDevice, unlinkDevice } from './src/services/api';
 import { AppProfile, loadProfiles, removeProfile, upsertProfile } from './src/services/profiles';
 import { loadBiometricApprovalEnabled, saveBiometricApprovalEnabled } from './src/services/settings';
 
 const SUPABASE_URL = 'https://sfqtmnncgiqkveaoqckt.supabase.co';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 
 type TabKey = 'authenticator' | 'verified';
 
@@ -77,13 +89,22 @@ function initials(name: string) {
   return `${parts[0].charAt(0)}${parts[1].charAt(0)}`.toUpperCase();
 }
 
+function normalizeBaseUrl(baseUrl?: string) {
+  return (baseUrl || SUPABASE_URL).trim().replace(/\/+$/, '');
+}
+
 export default function App() {
   const [profiles, setProfiles] = useState<AppProfile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
+  const [detailProfileId, setDetailProfileId] = useState<string | null>(null);
 
   const [tab, setTab] = useState<TabKey>('authenticator');
   const [showActionsModal, setShowActionsModal] = useState(false);
   const [showSetupModal, setShowSetupModal] = useState(false);
+  const [showAccountSettingsModal, setShowAccountSettingsModal] = useState(false);
+  const [showApprovalNumberModal, setShowApprovalNumberModal] = useState(false);
+  const [approvalChallenge, setApprovalChallenge] = useState<any | null>(null);
+  const [approvalNumberInput, setApprovalNumberInput] = useState('');
 
   const [appName, setAppName] = useState('');
   const [baseUrl, setBaseUrl] = useState(SUPABASE_URL);
@@ -94,11 +115,14 @@ export default function App() {
   const [pairingToken, setPairingToken] = useState('');
   const [deviceName, setDeviceName] = useState('Mi teléfono');
   const [deviceId, setDeviceId] = useState(createDeviceId());
+  const [pushToken, setPushToken] = useState<string>('');
 
   const [challenges, setChallenges] = useState<any[]>([]);
+  const [dynamicCodesByProfile, setDynamicCodesByProfile] = useState<Record<string, { code: string; expiresIn: number; receivedAtMs: number }>>({});
   const [loadingChallenges, setLoadingChallenges] = useState(false);
   const [working, setWorking] = useState(false);
   const [workingMessage, setWorkingMessage] = useState('Procesando...');
+  const [codeNowMs, setCodeNowMs] = useState(Date.now());
 
   const [scannerVisible, setScannerVisible] = useState(false);
   const [isScannerLocked, setIsScannerLocked] = useState(false);
@@ -106,7 +130,90 @@ export default function App() {
 
   const [biometricSupported, setBiometricSupported] = useState(false);
   const [biometricEnrolled, setBiometricEnrolled] = useState(false);
+  const [deviceSecurityConfigured, setDeviceSecurityConfigured] = useState(false);
   const [requireBiometricApproval, setRequireBiometricApproval] = useState(true);
+  const detailCodeRefreshInFlightRef = React.useRef(false);
+  const approvalCodeRefreshInFlightRef = React.useRef(false);
+  const pushTokenRef = React.useRef<string>('');
+  const notificationReceivedListener = React.useRef<any>(null);
+  const notificationResponseListener = React.useRef<any>(null);
+
+  useEffect(() => {
+    pushTokenRef.current = pushToken;
+  }, [pushToken]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCodeNowMs(Date.now());
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  const requestPushToken = async (): Promise<string> => {
+    if (!Device.isDevice) {
+      return '';
+    }
+
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'default',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#2563EB',
+      });
+    }
+
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
+
+    if (existingStatus !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+
+    if (finalStatus !== 'granted') {
+      return '';
+    }
+
+    const projectId =
+      Constants?.expoConfig?.extra?.eas?.projectId ||
+      Constants?.easConfig?.projectId ||
+      '245ac28f-c50c-45f0-855b-a575fcd795c5';
+
+    const tokenResponse = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
+    const token = tokenResponse?.data || '';
+
+    if (token) {
+      setPushToken(token);
+      pushTokenRef.current = token;
+    }
+
+    return token;
+  };
+
+  const waitForPushToken = async (timeoutMs = 12000): Promise<string> => {
+    if (pushTokenRef.current) {
+      return pushTokenRef.current;
+    }
+
+    try {
+      const immediate = await requestPushToken();
+      if (immediate) return immediate;
+    } catch (error) {
+      console.warn('⚠️ Could not get immediate push token:', error);
+    }
+
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      if (pushTokenRef.current) {
+        return pushTokenRef.current;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+
+    return '';
+  };
 
   useEffect(() => {
     const bootstrap = async () => {
@@ -116,9 +223,11 @@ export default function App() {
       const hasHardware = await LocalAuthentication.hasHardwareAsync();
       const hasEnrollment = await LocalAuthentication.isEnrolledAsync();
       const supportedMethods = await LocalAuthentication.supportedAuthenticationTypesAsync();
+      const enrolledLevel = await LocalAuthentication.getEnrolledLevelAsync();
 
       setBiometricSupported(hasHardware && supportedMethods.length > 0);
       setBiometricEnrolled(hasEnrollment);
+      setDeviceSecurityConfigured(enrolledLevel !== LocalAuthentication.SecurityLevel.NONE);
       setRequireBiometricApproval(biometricPreference);
 
       setProfiles(storedProfiles);
@@ -130,10 +239,27 @@ export default function App() {
     bootstrap();
   }, []);
 
+  useEffect(() => {
+    const registerPushNotifications = async () => {
+      try {
+        const token = await requestPushToken();
+        if (token) {
+          console.log('✅ Expo push token obtained');
+        } else {
+          console.log('⚠️ Push notification token not available yet');
+        }
+      } catch (error) {
+        console.warn('⚠️ Error registering push notifications:', error);
+      }
+    };
+
+    registerPushNotifications();
+  }, []);
+
   const applyProfile = (profile: AppProfile) => {
     setActiveProfileId(profile.id);
     setAppName(profile.appName || '');
-    setBaseUrl(profile.baseUrl || SUPABASE_URL);
+    setBaseUrl(normalizeBaseUrl(profile.baseUrl));
     setApplicationId(profile.applicationId || '');
     setApiKey(profile.apiKey || '');
     setEmail(profile.email || '');
@@ -152,7 +278,7 @@ export default function App() {
     const profile: AppProfile = {
       id: activeProfileId || createLocalId(),
       appName: appName || applicationId,
-      baseUrl: baseUrl || SUPABASE_URL,
+      baseUrl: normalizeBaseUrl(baseUrl),
       applicationId,
       apiKey,
       email,
@@ -172,8 +298,35 @@ export default function App() {
   };
 
   const deleteProfile = async (profile: AppProfile) => {
+    const canUnlinkRemotely = !!(profile.applicationId && profile.apiKey && profile.email && profile.password && profile.deviceId);
+
+    if (canUnlinkRemotely) {
+      try {
+        await unlinkDevice({
+          baseUrl: normalizeBaseUrl(profile.baseUrl),
+          application_id: profile.applicationId,
+          api_key: profile.apiKey,
+          email: profile.email,
+          password: profile.password,
+          device_id: profile.deviceId,
+        });
+      } catch (error) {
+        console.warn('⚠️ No se pudo desvincular el dispositivo en servidor:', error);
+      }
+    }
+
     const updated = await removeProfile(profile.id);
     setProfiles(updated);
+    setDynamicCodesByProfile((current) => {
+      const next = { ...current };
+      delete next[profile.id];
+      return next;
+    });
+
+    if (detailProfileId === profile.id) {
+      setDetailProfileId(null);
+      setShowAccountSettingsModal(false);
+    }
 
     if (activeProfileId === profile.id) {
       setActiveProfileId(null);
@@ -181,6 +334,93 @@ export default function App() {
         applyProfile(updated[0]);
       }
     }
+  };
+
+  const openAccountSettings = () => {
+    if (!detailProfile) return;
+    applyProfile(detailProfile);
+    const canLoad = !!(detailProfile.applicationId && detailProfile.apiKey && detailProfile.email && detailProfile.password);
+    if (canLoad) {
+      onLoadChallenges(detailProfile);
+    }
+    setShowAccountSettingsModal(true);
+  };
+
+  const onRenameAccount = () => {
+    if (!detailProfile) return;
+    setShowAccountSettingsModal(false);
+    setShowSetupModal(true);
+    Alert.alert('Editar cuenta', 'Puedes cambiar el nombre de la cuenta en el campo "Nombre de la aplicación" y guardar.');
+  };
+
+  const onAddAccountToDevice = () => {
+    setShowAccountSettingsModal(false);
+    setShowActionsModal(true);
+  };
+
+  const onRemoveCurrentAccount = () => {
+    if (!detailProfile) return;
+    Alert.alert(
+      'Quitar cuenta',
+      `¿Seguro que deseas quitar ${detailProfile.appName || detailProfile.applicationId}?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Quitar',
+          style: 'destructive',
+          onPress: async () => {
+            await deleteProfile(detailProfile);
+            Alert.alert('Cuenta eliminada', 'La cuenta fue eliminada del dispositivo.');
+          },
+        },
+      ]
+    );
+  };
+
+  const onOpenPasswordChange = () => {
+    if (!detailProfile) return;
+    Alert.alert('Cambiar contraseña', `Realiza este cambio en el portal de ${detailProfile.appName || detailProfile.applicationId}.`);
+  };
+
+  const onOpenSecurityInfo = () => {
+    if (!detailProfile) return;
+    setShowSetupModal(true);
+    Alert.alert('Información de seguridad', 'Desde Configurar cuenta puedes actualizar credenciales y datos de vinculación.');
+  };
+
+  const onOpenRecentActivity = async () => {
+    if (!detailProfile) return;
+    await onLoadChallenges(detailProfile);
+    Alert.alert('Actividad reciente', 'Se recargaron las solicitudes pendientes de esta cuenta.');
+  };
+
+  const onOpenPasskey = () => {
+    Alert.alert('Clave de paso', 'Función preparada. Puedes implementarla en tu backend para registrar passkeys.');
+  };
+
+  const onOpenPasswordlessConfig = () => {
+    setShowActionsModal(true);
+    Alert.alert('Solicitudes sin contraseña', 'Desde el menú puedes activar/desactivar biometría para aprobar solicitudes.');
+  };
+
+  const onOpenNotificationsConfig = async () => {
+    if (!detailProfile) return;
+
+    const latestChallenges = await loadChallengesForProfile(detailProfile, { silent: true });
+    setChallenges(latestChallenges);
+
+    const pendingForProfile = latestChallenges.filter((challenge: any) => {
+      const challengeEmail = challenge?.metadata?.email;
+      const challengeApp = challenge?.metadata?.application_id;
+      return challengeEmail === detailProfile.email && challengeApp === detailProfile.applicationId;
+    });
+
+    if (!pendingForProfile.length) {
+      Alert.alert('Notificaciones', 'No hay solicitudes pendientes.');
+      return;
+    }
+
+    beginApproveChallenge(pendingForProfile[0], detailProfile.id);
   };
 
   const openScanner = async () => {
@@ -209,13 +449,13 @@ export default function App() {
     const resolvedAppName = input.appName || appName || resolvedApplicationId || 'Authenticator';
     const resolvedEmail = input.email || email || '';
     const resolvedPassword = input.password || password || '';
-    const resolvedBaseUrl = input.baseUrl || baseUrl || SUPABASE_URL;
+    const resolvedBaseUrl = normalizeBaseUrl(input.baseUrl || baseUrl || SUPABASE_URL);
 
     const existingProfile = profiles.find((item) => item.applicationId === resolvedApplicationId && item.email === resolvedEmail);
     const now = new Date().toISOString();
 
     const profile: AppProfile = {
-      id: existingProfile?.id || activeProfileId || createLocalId(),
+      id: existingProfile?.id || createLocalId(),
       appName: resolvedAppName,
       baseUrl: resolvedBaseUrl,
       applicationId: resolvedApplicationId,
@@ -234,6 +474,8 @@ export default function App() {
     setTab('authenticator');
     setShowSetupModal(false);
     setShowActionsModal(false);
+
+    return profile;
   };
 
   const onQrScanned = async (rawData: string) => {
@@ -252,27 +494,27 @@ export default function App() {
 
     setScannerVisible(false);
 
-    if (parsed.applicationId && parsed.apiKey) {
-      setShowSetupModal(true);
-      Alert.alert('QR leído', 'Datos de cuenta detectados. Revisa y guarda la cuenta.');
-      return;
-    }
-
     if (parsed.pairingToken) {
-      setWorkingMessage('Vinculando cuenta...');
+      setWorkingMessage('Preparando registro automático...');
       setWorking(true);
       try {
-        const resolvedBaseUrl = parsed.baseUrl || baseUrl || SUPABASE_URL;
+        const resolvedBaseUrl = normalizeBaseUrl(parsed.baseUrl || baseUrl || SUPABASE_URL);
+        const resolvedPushToken = await waitForPushToken();
+
+        setWorkingMessage('Registrando dispositivo en AuthSystem...');
         const result = await registerDevice({
           baseUrl: resolvedBaseUrl,
           pairing_token: parsed.pairingToken,
           device_id: deviceId,
           device_name: deviceName,
+          push_token: resolvedPushToken || undefined,
+          push_provider: resolvedPushToken ? 'expo' : undefined,
+          device_platform: Device.osName || undefined,
         });
 
         if (!result.success) throw new Error(result.error?.message || 'No se pudo registrar dispositivo');
 
-        await saveLinkedProfile({
+        const linkedProfile = await saveLinkedProfile({
           applicationId: result.data?.application?.application_id || parsed.applicationId,
           appName: result.data?.application?.name || parsed.appName,
           email: result.data?.user?.email || parsed.email,
@@ -281,11 +523,42 @@ export default function App() {
           baseUrl: resolvedBaseUrl,
         });
 
-        Alert.alert('Cuenta vinculada', 'Dispositivo registrado y cuenta agregada al Authenticator.');
+        setWorkingMessage('Sincronizando solicitudes MFA...');
+        if (linkedProfile) {
+          await onLoadChallenges(linkedProfile);
+          setDetailProfileId(linkedProfile.id);
+        }
       } catch (error: any) {
         if (parsed.pairingToken) setPairingToken(parsed.pairingToken);
         setShowSetupModal(true);
         Alert.alert('Vinculación manual', error.message || 'No se pudo vincular automáticamente. Completa el registro manual.');
+      } finally {
+        setWorking(false);
+      }
+      return;
+    }
+
+    if (parsed.applicationId && parsed.apiKey) {
+      setWorkingMessage('Guardando cuenta automáticamente...');
+      setWorking(true);
+      try {
+        const autoProfile = await saveLinkedProfile({
+          applicationId: parsed.applicationId,
+          appName: parsed.appName,
+          email: parsed.email,
+          password: parsed.password,
+          apiKey: parsed.apiKey,
+          baseUrl: parsed.baseUrl,
+        });
+
+        if (autoProfile) {
+          setWorkingMessage('Sincronizando solicitudes MFA...');
+          await onLoadChallenges(autoProfile);
+          setDetailProfileId(autoProfile.id);
+        }
+      } catch (error: any) {
+        setShowSetupModal(true);
+        Alert.alert('QR leído', error?.message || 'Datos detectados. Completa y guarda manualmente la cuenta.');
       } finally {
         setWorking(false);
       }
@@ -297,7 +570,7 @@ export default function App() {
 
   const credentials = useMemo(
     () => ({
-      baseUrl: baseUrl || SUPABASE_URL,
+      baseUrl: normalizeBaseUrl(baseUrl),
       application_id: applicationId,
       api_key: apiKey,
       email,
@@ -305,6 +578,58 @@ export default function App() {
     }),
     [baseUrl, applicationId, apiKey, email, password]
   );
+
+  const loadChallengesForProfile = useCallback(async (profile: AppProfile, options?: { silent?: boolean }) => {
+    const hasChallengeCredentials = !!(profile.applicationId && profile.apiKey && profile.email && profile.password);
+    if (!hasChallengeCredentials) {
+      return [];
+    }
+
+    try {
+      const result = await listPendingChallenges({
+        baseUrl: normalizeBaseUrl(profile.baseUrl),
+        application_id: profile.applicationId,
+        api_key: profile.apiKey,
+        email: profile.email,
+        password: profile.password,
+        device_id: profile.deviceId || deviceId,
+        device_name: profile.deviceName || deviceName,
+        push_token: pushToken || undefined,
+        push_provider: pushToken ? 'expo' : undefined,
+        device_platform: Device.osName || undefined,
+      });
+
+      if (!result.success) {
+        throw new Error(result.error?.message || 'No se pudieron cargar solicitudes');
+      }
+
+      const receivedAtMs = Date.now();
+      const currentDynamicCode = String(result.data?.current_challenge_code || '');
+      const currentDynamicCodeExpiresIn = Number(result.data?.current_challenge_code_expires_in_seconds || 0);
+
+      setDynamicCodesByProfile((current) => ({
+        ...current,
+        [profile.id]: {
+          code: currentDynamicCode,
+          expiresIn: currentDynamicCodeExpiresIn,
+          receivedAtMs,
+        },
+      }));
+
+      const normalizedChallenges = (result.data?.challenges || []).map((challenge: any) => ({
+        ...challenge,
+        _receivedAtMs: receivedAtMs,
+        challenge_code_expires_in_seconds: Number(challenge?.challenge_code_expires_in_seconds || 0),
+      }));
+
+      return normalizedChallenges;
+    } catch (error: any) {
+      if (!options?.silent) {
+        Alert.alert('Error', error.message || 'Error cargando solicitudes');
+      }
+      return [];
+    }
+  }, [pushToken, deviceId, deviceName]);
 
   const onLoadChallenges = async (targetProfile?: AppProfile) => {
     const profile = targetProfile || profiles.find((item) => item.id === activeProfileId) || null;
@@ -320,7 +645,7 @@ export default function App() {
     }
 
     if (!targetProfile) {
-      setBaseUrl(profile.baseUrl || SUPABASE_URL);
+      setBaseUrl(normalizeBaseUrl(profile.baseUrl));
       setApplicationId(profile.applicationId || '');
       setApiKey(profile.apiKey || '');
       setEmail(profile.email || '');
@@ -329,31 +654,113 @@ export default function App() {
 
     setLoadingChallenges(true);
     try {
-      const result = await listPendingChallenges({
-        baseUrl: profile.baseUrl || SUPABASE_URL,
-        application_id: profile.applicationId,
-        api_key: profile.apiKey,
-        email: profile.email,
-        password: profile.password,
-      });
-      if (!result.success) throw new Error(result.error?.message || 'No se pudieron cargar solicitudes');
-      setChallenges(result.data?.challenges || []);
-    } catch (error: any) {
-      Alert.alert('Error', error.message || 'Error cargando solicitudes');
+      const latestChallenges = await loadChallengesForProfile(profile);
+      setChallenges(latestChallenges);
     } finally {
       setLoadingChallenges(false);
     }
   };
 
-  const toggleBiometricRequirement = async () => {
-    if (!requireBiometricApproval) {
-      if (!biometricSupported) {
-        Alert.alert('No disponible', 'Este dispositivo no tiene biometría disponible.');
-        return;
+  const openApprovalModalFromNotification = async (payload: any, openDetail: boolean) => {
+    if (payload?.type !== 'mfa_challenge') return;
+
+    const matchingProfile = profiles.find(
+      (profile) => profile.applicationId === payload.application_id && profile.email === payload.user_email
+    );
+
+    if (!matchingProfile) return;
+
+    setActiveProfileId(matchingProfile.id);
+    if (openDetail) {
+      setDetailProfileId(matchingProfile.id);
+    }
+
+    const latestChallenges = await loadChallengesForProfile(matchingProfile, { silent: true });
+    setChallenges(latestChallenges);
+
+    const selectedChallenge = latestChallenges.find((item: any) => item.id === payload.challenge_id) || latestChallenges[0] || {
+      id: payload.challenge_id,
+      challenge_code: payload.challenge_code,
+      challenge_code_expires_in_seconds: 60,
+      _receivedAtMs: Date.now(),
+      metadata: {
+        verification_number: payload.verification_number,
+        email: payload.user_email,
+        application_id: payload.application_id,
+      },
+      status: 'pending',
+    };
+
+    const verificationNumber = String(selectedChallenge?.metadata?.verification_number || payload.verification_number || '').padStart(2, '0');
+    if (!verificationNumber) return;
+
+    setApprovalChallenge(selectedChallenge);
+    setApprovalNumberInput('');
+    setShowApprovalNumberModal(true);
+  };
+
+  useEffect(() => {
+    notificationReceivedListener.current = Notifications.addNotificationReceivedListener(async (notification) => {
+      const data = notification.request.content.data as any;
+      await openApprovalModalFromNotification(data, false);
+    });
+
+    notificationResponseListener.current = Notifications.addNotificationResponseReceivedListener(async (response) => {
+      const data = response.notification.request.content.data as any;
+      await openApprovalModalFromNotification(data, true);
+    });
+
+    return () => {
+      if (notificationReceivedListener.current) {
+        Notifications.removeNotificationSubscription(notificationReceivedListener.current);
       }
 
-      if (!biometricEnrolled) {
-        Alert.alert('Biometría no configurada', 'Configura Face ID/huella en el dispositivo para habilitar esta opción.');
+      if (notificationResponseListener.current) {
+        Notifications.removeNotificationSubscription(notificationResponseListener.current);
+      }
+    };
+  }, [profiles, pushToken, deviceId, deviceName]);
+
+  useEffect(() => {
+    const checkInitialNotification = async () => {
+      const response = await Notifications.getLastNotificationResponseAsync();
+      const data = response?.notification?.request?.content?.data as any;
+      if (!data) return;
+      await openApprovalModalFromNotification(data, true);
+    };
+
+    checkInitialNotification();
+  }, [profiles, pushToken, deviceId, deviceName]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const syncActiveProfileChallenges = async () => {
+      const profile = profiles.find((item) => item.id === activeProfileId);
+      if (!profile) return;
+
+      const latestChallenges = await loadChallengesForProfile(profile, { silent: true });
+      if (!isCancelled) {
+        setChallenges(latestChallenges);
+      }
+    };
+
+    syncActiveProfileChallenges();
+    const timer = setInterval(syncActiveProfileChallenges, 5000);
+
+    return () => {
+      isCancelled = true;
+      clearInterval(timer);
+    };
+  }, [activeProfileId, profiles, pushToken, deviceId, deviceName, loadChallengesForProfile]);
+
+  const toggleBiometricRequirement = async () => {
+    if (!requireBiometricApproval) {
+      if (!deviceSecurityConfigured) {
+        Alert.alert(
+          'Seguridad no configurada',
+          'Este dispositivo no tiene biometría ni PIN/contraseña. Configura al menos un método de seguridad para continuar.'
+        );
         return;
       }
     }
@@ -366,26 +773,49 @@ export default function App() {
   const verifyBiometricForApproval = async (): Promise<boolean> => {
     if (!requireBiometricApproval) return true;
 
-    if (!biometricSupported) {
-      Alert.alert('No disponible', 'Este dispositivo no soporta autenticación biométrica.');
-      return false;
-    }
+    const enrolledLevel = await LocalAuthentication.getEnrolledLevelAsync();
+    const hasDeviceSecurity = enrolledLevel !== LocalAuthentication.SecurityLevel.NONE;
+    setDeviceSecurityConfigured(hasDeviceSecurity);
 
-    if (!biometricEnrolled) {
-      Alert.alert('Biometría no configurada', 'Debes configurar Face ID/huella para aprobar con un toque.');
+    if (!hasDeviceSecurity) {
+      Alert.alert(
+        'Seguridad no configurada',
+        'Este dispositivo no tiene biometría ni PIN/contraseña. Configura al menos un método de seguridad para aprobar solicitudes.'
+      );
       return false;
     }
 
     const result = await LocalAuthentication.authenticateAsync({
-      promptMessage: 'Confirma aprobación MFA',
+      promptMessage: biometricSupported && biometricEnrolled
+        ? 'Confirma aprobación MFA'
+        : 'Confirma con PIN o contraseña para aprobar MFA',
       cancelLabel: 'Cancelar',
-      fallbackLabel: 'Usar código',
+      fallbackLabel: 'Usar PIN o contraseña',
+      disableDeviceFallback: false,
     });
 
     if (!result.success) {
       const errorCode = 'error' in result ? result.error : undefined;
-      if (errorCode !== 'user_cancel') {
-        Alert.alert('Verificación fallida', 'No fue posible confirmar identidad biométrica.');
+      if (errorCode === 'passcode_not_set') {
+        Alert.alert(
+          'Seguridad no configurada',
+          'Configura biometría o PIN/contraseña en el dispositivo para poder aprobar solicitudes.'
+        );
+      } else if (errorCode === 'not_available' || errorCode === 'not_enrolled') {
+        const refreshedLevel = await LocalAuthentication.getEnrolledLevelAsync();
+        const stillHasDeviceSecurity = refreshedLevel !== LocalAuthentication.SecurityLevel.NONE;
+        setDeviceSecurityConfigured(stillHasDeviceSecurity);
+
+        if (stillHasDeviceSecurity) {
+          return true;
+        }
+
+        Alert.alert(
+          'Seguridad no configurada',
+          'Configura biometría o PIN/contraseña en el dispositivo para poder aprobar solicitudes.'
+        );
+      } else if (errorCode !== 'user_cancel') {
+        Alert.alert('Verificación fallida', 'No fue posible confirmar la seguridad del dispositivo.');
       }
       return false;
     }
@@ -393,7 +823,7 @@ export default function App() {
     return true;
   };
 
-  const onResolveChallenge = async (challenge: any, action: 'approve' | 'reject') => {
+  const onResolveChallenge = async (challenge: any, action: 'approve' | 'reject', verificationNumber?: string) => {
     const profile = profiles.find((item) => item.id === activeProfileId);
     if (!profile) {
       Alert.alert('Sin cuenta', 'Selecciona una cuenta para responder la solicitud.');
@@ -408,23 +838,71 @@ export default function App() {
     setWorking(true);
     try {
       const result = await approveChallenge({
-        baseUrl: profile.baseUrl || SUPABASE_URL,
+        baseUrl: normalizeBaseUrl(profile.baseUrl),
         application_id: profile.applicationId,
         api_key: profile.apiKey,
         email: profile.email,
         password: profile.password,
         challenge_id: challenge.id,
         challenge_code: challenge.challenge_code,
+        verification_number: verificationNumber,
         action,
       });
       if (!result.success) throw new Error(result.error?.message || 'No se pudo procesar solicitud');
-      Alert.alert('OK', action === 'approve' ? 'Solicitud aprobada' : 'Solicitud rechazada');
       await onLoadChallenges(profile);
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Error procesando solicitud');
     } finally {
       setWorking(false);
     }
+  };
+
+  const beginApproveChallenge = (challenge: any, profileId: string) => {
+    const verificationNumber = String(challenge?.metadata?.verification_number || '').padStart(2, '0');
+    setActiveProfileId(profileId);
+
+    if (verificationNumber) {
+      setApprovalChallenge(challenge);
+      setApprovalNumberInput('');
+      setShowApprovalNumberModal(true);
+      return;
+    }
+
+    onResolveChallenge(challenge, 'approve');
+  };
+
+  const confirmApproveWithNumber = async () => {
+    if (!approvalChallenge) return;
+
+    const expectedNumber = String(approvalChallenge?.metadata?.verification_number || '').padStart(2, '0');
+    const entered = approvalNumberInput.trim().padStart(2, '0');
+
+    if (!entered || entered.length !== 2) {
+      Alert.alert('Número requerido', 'Ingresa el número de dos dígitos que se muestra en el login web.');
+      return;
+    }
+
+    if (expectedNumber && entered !== expectedNumber) {
+      Alert.alert('Número incorrecto', 'El número ingresado no coincide con el mostrado en el login.');
+      return;
+    }
+
+    let challengeToApprove = approvalChallenge;
+    const profile = profiles.find((item) => item.id === activeProfileId);
+
+    if (profile) {
+      const latestChallenges = await loadChallengesForProfile(profile, { silent: true });
+      setChallenges(latestChallenges);
+      const refreshedChallenge = latestChallenges.find((item: any) => item.id === approvalChallenge.id);
+      if (refreshedChallenge) {
+        challengeToApprove = refreshedChallenge;
+      }
+    }
+
+    setShowApprovalNumberModal(false);
+    setApprovalChallenge(null);
+    setApprovalNumberInput('');
+    await onResolveChallenge(challengeToApprove, 'approve', entered);
   };
 
   const onGeneratePairing = async () => {
@@ -437,7 +915,7 @@ export default function App() {
     setWorking(true);
     try {
       const result = await generatePairingToken({
-        baseUrl: profile.baseUrl || SUPABASE_URL,
+        baseUrl: normalizeBaseUrl(profile.baseUrl),
         application_id: profile.applicationId,
         api_key: profile.apiKey,
         email: profile.email,
@@ -456,15 +934,22 @@ export default function App() {
   const onRegisterDevice = async () => {
     setWorking(true);
     try {
+      setWorkingMessage('Preparando notificaciones del dispositivo...');
+      const resolvedPushToken = await waitForPushToken();
+
+      setWorkingMessage('Registrando dispositivo...');
       const result = await registerDevice({
-        baseUrl: baseUrl || SUPABASE_URL,
+        baseUrl: normalizeBaseUrl(baseUrl),
         pairing_token: pairingToken,
         device_id: deviceId,
         device_name: deviceName,
+        push_token: resolvedPushToken || undefined,
+        push_provider: resolvedPushToken ? 'expo' : undefined,
+        device_platform: Device.osName || undefined,
       });
       if (!result.success) throw new Error(result.error?.message || 'No se pudo registrar dispositivo');
 
-      await saveLinkedProfile({
+      const linkedProfile = await saveLinkedProfile({
         applicationId: result.data?.application?.application_id || applicationId,
         appName: result.data?.application?.name || appName,
         email: result.data?.user?.email || email,
@@ -472,7 +957,11 @@ export default function App() {
         baseUrl,
       });
 
-      Alert.alert('OK', 'Dispositivo registrado para MFA y cuenta vinculada.');
+      setWorkingMessage('Sincronizando solicitudes MFA...');
+      if (linkedProfile) {
+        await onLoadChallenges(linkedProfile);
+        setDetailProfileId(linkedProfile.id);
+      }
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Error registrando dispositivo');
     } finally {
@@ -491,6 +980,105 @@ export default function App() {
     });
     return map;
   }, [profiles, challenges]);
+
+  const detailProfile = useMemo(
+    () => profiles.find((profile) => profile.id === detailProfileId) || null,
+    [profiles, detailProfileId]
+  );
+
+  const detailChallenges = detailProfile ? pendingByProfile[detailProfile.id] || [] : [];
+  const detailChallenge = detailChallenges[0] || null;
+  const detailDynamicCode = detailProfile ? dynamicCodesByProfile[detailProfile.id] : undefined;
+  const detailCode = detailChallenge?.challenge_code || detailDynamicCode?.code || '--- ---';
+  const detailCodeHasValue = detailCode !== '--- ---';
+  const detailCodeExpiresIn = useMemo(() => {
+    if (!detailChallenge && !detailDynamicCode) return 0;
+
+    const baseSeconds = detailChallenge
+      ? Number(detailChallenge?.challenge_code_expires_in_seconds || 0)
+      : Number(detailDynamicCode?.expiresIn || 0);
+    const receivedAtMs = detailChallenge
+      ? Number(detailChallenge?._receivedAtMs || 0)
+      : Number(detailDynamicCode?.receivedAtMs || 0);
+
+    if (!baseSeconds || !receivedAtMs) return 0;
+
+    const elapsedSeconds = Math.floor((codeNowMs - receivedAtMs) / 1000);
+    return Math.max(0, baseSeconds - elapsedSeconds);
+  }, [detailChallenge, detailDynamicCode, codeNowMs]);
+
+  const approvalCodeExpiresIn = useMemo(() => {
+    if (!approvalChallenge) return 0;
+
+    const baseSeconds = Number(approvalChallenge?.challenge_code_expires_in_seconds || 0);
+    const receivedAtMs = Number(approvalChallenge?._receivedAtMs || 0);
+
+    if (!baseSeconds || !receivedAtMs) return 0;
+
+    const elapsedSeconds = Math.floor((codeNowMs - receivedAtMs) / 1000);
+    return Math.max(0, baseSeconds - elapsedSeconds);
+  }, [approvalChallenge, codeNowMs]);
+
+  useEffect(() => {
+    if (!detailProfile || (!detailChallenge && !detailDynamicCode)) {
+      detailCodeRefreshInFlightRef.current = false;
+      return;
+    }
+
+    if (detailCodeExpiresIn > 0 || detailCodeRefreshInFlightRef.current) {
+      return;
+    }
+
+    detailCodeRefreshInFlightRef.current = true;
+
+    const refreshChallengeCode = async () => {
+      const latestChallenges = await loadChallengesForProfile(detailProfile, { silent: true });
+      setChallenges(latestChallenges);
+
+      if (showApprovalNumberModal && approvalChallenge?.id) {
+        const refreshedChallenge = latestChallenges.find((item: any) => item.id === approvalChallenge.id);
+        if (refreshedChallenge) {
+          setApprovalChallenge(refreshedChallenge);
+        }
+      }
+    };
+
+    refreshChallengeCode().finally(() => {
+      detailCodeRefreshInFlightRef.current = false;
+    });
+  }, [detailCodeExpiresIn, detailProfile, detailChallenge, detailDynamicCode, showApprovalNumberModal, approvalChallenge, loadChallengesForProfile]);
+
+  useEffect(() => {
+    if (!showApprovalNumberModal || !approvalChallenge?.id) {
+      approvalCodeRefreshInFlightRef.current = false;
+      return;
+    }
+
+    if (approvalCodeExpiresIn > 0 || approvalCodeRefreshInFlightRef.current) {
+      return;
+    }
+
+    const profile = profiles.find((item) => item.id === activeProfileId);
+    if (!profile) {
+      return;
+    }
+
+    approvalCodeRefreshInFlightRef.current = true;
+
+    const refreshApprovalChallenge = async () => {
+      const latestChallenges = await loadChallengesForProfile(profile, { silent: true });
+      setChallenges(latestChallenges);
+
+      const refreshedChallenge = latestChallenges.find((item: any) => item.id === approvalChallenge.id);
+      if (refreshedChallenge) {
+        setApprovalChallenge(refreshedChallenge);
+      }
+    };
+
+    refreshApprovalChallenge().finally(() => {
+      approvalCodeRefreshInFlightRef.current = false;
+    });
+  }, [showApprovalNumberModal, approvalChallenge, approvalCodeExpiresIn, profiles, activeProfileId, loadChallengesForProfile]);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -516,78 +1104,208 @@ export default function App() {
 
       <ScrollView style={styles.listContainer} contentContainerStyle={{ paddingBottom: 140 }}>
         {tab === 'authenticator' ? (
-          <>
-            {profiles.length === 0 ? (
-              <View style={styles.emptyWrap}>
-                <Text style={styles.emptyTitle}>No tienes cuentas todavía</Text>
-                <Text style={styles.emptySubtitle}>Pulsa + para escanear QR o agregar una cuenta manualmente.</Text>
-              </View>
-            ) : (
-              profiles.map((profile) => {
-                const isActive = activeProfileId === profile.id;
-                const profileChallenges = pendingByProfile[profile.id] || [];
-                const highlightedChallenge = profileChallenges[0];
+          detailProfile ? (
+            <View style={styles.detailScreen}>
+              <View style={styles.detailTopCard}>
+                <View style={styles.detailTopBar}>
+                  <TouchableOpacity style={styles.detailIconButton} onPress={() => setDetailProfileId(null)}>
+                    <Text style={styles.detailHeaderIcon}>‹</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.detailIconButton} onPress={openAccountSettings}>
+                    <Text style={styles.detailHeaderIcon}>⚙</Text>
+                  </TouchableOpacity>
+                </View>
 
-                return (
-                  <View key={profile.id} style={styles.rowSection}>
-                    <TouchableOpacity
-                      style={[styles.accountRow, isActive ? styles.accountRowActive : undefined]}
-                      onPress={() => {
-                        applyProfile(profile);
-                        const canLoad = !!(profile.applicationId && profile.apiKey && profile.email && profile.password);
-                        if (canLoad) {
-                          onLoadChallenges(profile);
-                        }
-                      }}
-                      onLongPress={() => deleteProfile(profile)}
-                    >
-                      <View style={styles.avatarCircle}>
-                        <Text style={styles.avatarText}>{initials(profile.appName || profile.applicationId)}</Text>
-                      </View>
-
-                      <View style={styles.accountInfo}>
-                        <Text style={styles.accountName}>{profile.appName || profile.applicationId}</Text>
-                        <Text style={styles.accountMeta}>{profile.email}</Text>
-                      </View>
-
-                      <Text style={styles.chevron}>›</Text>
-                    </TouchableOpacity>
-
-                    {highlightedChallenge && (
-                      <View style={styles.codeBlock}>
-                        <Text style={styles.codeText}>{highlightedChallenge.challenge_code}</Text>
-                        <View style={styles.codeBadge}>
-                          <Text style={styles.codeBadgeText}>10</Text>
-                        </View>
-                        <View style={styles.codeActions}>
-                          <TouchableOpacity
-                            style={styles.approveButton}
-                            onPress={() => {
-                              setActiveProfileId(profile.id);
-                              onResolveChallenge(highlightedChallenge, 'approve');
-                            }}
-                            disabled={working}
-                          >
-                            <Text style={styles.approveText}>Aprobar</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={styles.rejectButton}
-                            onPress={() => {
-                              setActiveProfileId(profile.id);
-                              onResolveChallenge(highlightedChallenge, 'reject');
-                            }}
-                            disabled={working}
-                          >
-                            <Text style={styles.rejectText}>Rechazar</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    )}
+                <View style={styles.detailIdentityRow}>
+                  <View style={styles.detailAvatar}>
+                    <Text style={styles.detailAvatarText}>{initials(detailProfile.appName || detailProfile.applicationId)}</Text>
                   </View>
-                );
-              })
-            )}
-          </>
+                  <View style={styles.detailIdentityText}>
+                    <Text style={styles.detailAppName}>{detailProfile.appName || detailProfile.applicationId}</Text>
+                    <Text style={styles.detailEmail}>{detailProfile.email}</Text>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.detailSectionHeaderWrap}>
+                <Text style={styles.detailSectionHeader}>FORMAS DE INICIAR SESIÓN O COMPROBAR</Text>
+              </View>
+
+              <TouchableOpacity style={styles.detailRow} onPress={onOpenNotificationsConfig}>
+                <View style={styles.detailRowIconWrap}>
+                  <Text style={styles.detailRowIcon}>✓</Text>
+                </View>
+                <View style={styles.detailRowTextWrap}>
+                  <Text style={styles.detailRowTitle}>Notificaciones de inicio de sesión</Text>
+                  <Text style={styles.detailRowSubtitle}>Aprobar una solicitud de inicio de sesión en el teléfono</Text>
+                </View>
+              </TouchableOpacity>
+
+              <View style={styles.detailCodeRow}>
+                <View style={styles.detailCodeBadge}>
+                  <Text style={styles.detailCodeBadgeText}>{detailCodeHasValue ? `${detailCodeExpiresIn}s` : '--'}</Text>
+                </View>
+                <View style={styles.detailCodeTextWrap}>
+                  <Text style={styles.detailCodeTitle}>Código de contraseña de un solo uso</Text>
+                  <Text style={styles.detailCodeValue}>{detailCode}</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.detailCopyButton}
+                  onPress={() => {
+                    Alert.alert('Código', detailCode === '--- ---' ? 'No hay código disponible ahora.' : `Código actual: ${detailCode}`);
+                  }}
+                >
+                  <Text style={styles.detailCopyIcon}>⧉</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.detailSectionHeaderWrap}>
+                <Text style={styles.detailSectionHeader}>OTRAS FORMAS DE INICIAR SESIÓN</Text>
+              </View>
+
+              <TouchableOpacity style={styles.detailSimpleAction} onPress={onOpenPasskey}>
+                <Text style={styles.detailSimpleActionText}>Crear una clave de paso</Text>
+                <Text style={styles.detailSimpleActionChevron}>›</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.detailSimpleAction} onPress={onOpenPasswordlessConfig}>
+                <Text style={styles.detailSimpleActionText}>Configuración de solicitudes de inicio de sesión sin contraseña</Text>
+                <Text style={styles.detailSimpleActionChevron}>›</Text>
+              </TouchableOpacity>
+
+              <View style={styles.detailSectionHeaderWrap}>
+                <Text style={styles.detailSectionHeader}>ADMINISTRAR</Text>
+              </View>
+
+              <TouchableOpacity style={styles.detailSimpleAction} onPress={onOpenPasswordChange}>
+                <Text style={styles.detailSimpleActionText}>Cambiar contraseña</Text>
+                <Text style={styles.detailSimpleActionChevron}>↗</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.detailSimpleAction} onPress={onOpenSecurityInfo}>
+                <Text style={styles.detailSimpleActionText}>Actualizar la información de seguridad</Text>
+                <Text style={styles.detailSimpleActionChevron}>↗</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.detailSimpleAction} onPress={onOpenRecentActivity}>
+                <Text style={styles.detailSimpleActionText}>Revisar la actividad reciente</Text>
+                <Text style={styles.detailSimpleActionChevron}>↗</Text>
+              </TouchableOpacity>
+
+              {detailChallenge && (
+                <View style={styles.detailActionButtons}>
+                  <TouchableOpacity
+                    style={styles.approveButton}
+                    onPress={() => {
+                      beginApproveChallenge(detailChallenge, detailProfile.id);
+                    }}
+                    disabled={working}
+                  >
+                    <Text style={styles.approveText}>Aprobar solicitud actual</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.rejectButton}
+                    onPress={() => {
+                      setActiveProfileId(detailProfile.id);
+                      onResolveChallenge(detailChallenge, 'reject');
+                    }}
+                    disabled={working}
+                  >
+                    <Text style={styles.rejectText}>Rechazar solicitud actual</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          ) : (
+            <>
+              {profiles.length === 0 ? (
+                <View style={styles.emptyWrap}>
+                  <Text style={styles.emptyTitle}>No tienes cuentas todavía</Text>
+                  <Text style={styles.emptySubtitle}>Pulsa + para escanear QR o agregar una cuenta manualmente.</Text>
+                </View>
+              ) : (
+                profiles.map((profile) => {
+                  const isActive = activeProfileId === profile.id;
+                  const profileChallenges = pendingByProfile[profile.id] || [];
+                  const highlightedChallenge = profileChallenges[0];
+                  const profileDynamicCode = dynamicCodesByProfile[profile.id];
+                  const profileCodeValue = highlightedChallenge?.challenge_code || profileDynamicCode?.code || '--- ---';
+                  const profileCodeHasValue = profileCodeValue !== '--- ---';
+                  const profileCodeBaseSeconds = highlightedChallenge
+                    ? Number(highlightedChallenge?.challenge_code_expires_in_seconds || 0)
+                    : Number(profileDynamicCode?.expiresIn || 0);
+                  const profileCodeReceivedAtMs = highlightedChallenge
+                    ? Number(highlightedChallenge?._receivedAtMs || 0)
+                    : Number(profileDynamicCode?.receivedAtMs || 0);
+                  const profileCodeElapsedSeconds = profileCodeReceivedAtMs
+                    ? Math.floor((codeNowMs - profileCodeReceivedAtMs) / 1000)
+                    : 0;
+                  const profileCodeExpiresIn = (profileCodeBaseSeconds && profileCodeReceivedAtMs)
+                    ? Math.max(0, profileCodeBaseSeconds - profileCodeElapsedSeconds)
+                    : 0;
+
+                  return (
+                    <View key={profile.id} style={styles.rowSection}>
+                      <TouchableOpacity
+                        style={[styles.accountRow, isActive ? styles.accountRowActive : undefined]}
+                        onPress={() => {
+                          applyProfile(profile);
+                          setDetailProfileId(profile.id);
+                          const canLoad = !!(profile.applicationId && profile.apiKey && profile.email && profile.password);
+                          if (canLoad) {
+                            onLoadChallenges(profile);
+                          }
+                        }}
+                        onLongPress={() => deleteProfile(profile)}
+                      >
+                        <View style={styles.avatarCircle}>
+                          <Text style={styles.avatarText}>{initials(profile.appName || profile.applicationId)}</Text>
+                        </View>
+
+                        <View style={styles.accountInfo}>
+                          <Text style={styles.accountName}>{profile.appName || profile.applicationId}</Text>
+                          <Text style={styles.accountMeta}>{profile.email}</Text>
+                        </View>
+
+                        <Text style={styles.chevron}>›</Text>
+                      </TouchableOpacity>
+
+                      {highlightedChallenge && (
+                        <View style={styles.codeBlock}>
+                          <Text style={styles.codeText}>{profileCodeValue}</Text>
+                          <View style={styles.codeBadge}>
+                            <Text style={styles.codeBadgeText}>{profileCodeHasValue ? `${profileCodeExpiresIn}s` : '--'}</Text>
+                          </View>
+                          <View style={styles.codeActions}>
+                            <TouchableOpacity
+                              style={styles.approveButton}
+                              onPress={() => {
+                                beginApproveChallenge(highlightedChallenge, profile.id);
+                              }}
+                              disabled={working}
+                            >
+                              <Text style={styles.approveText}>Aprobar</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.rejectButton}
+                              onPress={() => {
+                                setActiveProfileId(profile.id);
+                                onResolveChallenge(highlightedChallenge, 'reject');
+                              }}
+                              disabled={working}
+                            >
+                              <Text style={styles.rejectText}>Rechazar</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })
+              )}
+            </>
+          )
         ) : (
           <View style={styles.emptyWrap}>
             <Text style={styles.emptyTitle}>Id. comprobados</Text>
@@ -685,6 +1403,41 @@ export default function App() {
         </SafeAreaView>
       </Modal>
 
+      <Modal visible={showAccountSettingsModal} animationType="slide" onRequestClose={() => setShowAccountSettingsModal(false)}>
+        <SafeAreaView style={styles.accountSettingsSafe}>
+          <View style={styles.accountSettingsHeader}>
+            <TouchableOpacity style={styles.accountSettingsBackButton} onPress={() => setShowAccountSettingsModal(false)}>
+              <Text style={styles.accountSettingsBackText}>‹</Text>
+            </TouchableOpacity>
+            <Text style={styles.accountSettingsTitle}>Configuración de cuenta</Text>
+            <View style={styles.accountSettingsHeaderSpacer} />
+          </View>
+
+          <ScrollView style={styles.accountSettingsContent}>
+            <TouchableOpacity style={styles.accountSettingsRow} onPress={onRenameAccount}>
+              <Text style={styles.accountSettingsRowLabel}>Nombre de cuenta</Text>
+              <View style={styles.accountSettingsValueWrap}>
+                <Text style={styles.accountSettingsRowValue}>{detailProfile?.appName || detailProfile?.applicationId || '-'}</Text>
+                <Text style={styles.accountSettingsChevron}>›</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.accountSettingsRow} onPress={onAddAccountToDevice}>
+              <Text style={styles.accountSettingsRowLabel}>Agregar una cuenta a este dispositivo</Text>
+              <Text style={styles.accountSettingsChevron}>›</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.accountSettingsHelp}>
+              Mantenga la sesión iniciada en las aplicaciones compatibles del dispositivo en las que use esta cuenta.
+            </Text>
+
+            <TouchableOpacity style={styles.accountSettingsRemoveButton} onPress={onRemoveCurrentAccount}>
+              <Text style={styles.accountSettingsRemoveText}>Quitar cuenta</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
       <Modal visible={scannerVisible} animationType="slide" onRequestClose={() => setScannerVisible(false)}>
         <SafeAreaView style={styles.scannerSafe}>
           <View style={styles.scannerHeader}>
@@ -704,6 +1457,53 @@ export default function App() {
 
           <Text style={styles.scannerHelp}>Escanea el QR de cuenta o de pairing MFA.</Text>
         </SafeAreaView>
+      </Modal>
+
+      <Modal
+        visible={showApprovalNumberModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setShowApprovalNumberModal(false);
+          setApprovalChallenge(null);
+          setApprovalNumberInput('');
+        }}
+      >
+        <View style={styles.blockingOverlay}>
+          <View style={styles.approvalModalCard}>
+            <Text style={styles.approvalModalTitle}>Confirmar número de inicio de sesión</Text>
+            <Text style={styles.approvalModalText}>
+              Ingresa el número de 2 dígitos (01-99) que ves en la pantalla de login web para aprobar.
+            </Text>
+
+            <TextInput
+              style={styles.approvalNumberInput}
+              keyboardType="number-pad"
+              maxLength={2}
+              value={approvalNumberInput}
+              onChangeText={(value) => setApprovalNumberInput(value.replace(/[^0-9]/g, ''))}
+              placeholder="00"
+              placeholderTextColor="#8CA0BC"
+            />
+
+            <View style={styles.approvalModalActions}>
+              <TouchableOpacity
+                style={styles.approvalCancelButton}
+                onPress={() => {
+                  setShowApprovalNumberModal(false);
+                  setApprovalChallenge(null);
+                  setApprovalNumberInput('');
+                }}
+              >
+                <Text style={styles.approvalCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.approvalConfirmButton} onPress={confirmApproveWithNumber}>
+                <Text style={styles.approvalConfirmText}>Aprobar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
 
       {working && (
@@ -792,6 +1592,107 @@ const styles = StyleSheet.create({
   emptyWrap: { padding: 18 },
   emptyTitle: { fontSize: 19, fontWeight: '700', color: '#222' },
   emptySubtitle: { marginTop: 6, color: '#6E6E6E', fontSize: 15 },
+
+  detailScreen: { backgroundColor: '#F2F2F2' },
+  detailTopCard: { backgroundColor: '#0A78D1', paddingHorizontal: 14, paddingBottom: 18, paddingTop: 8 },
+  detailTopBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  detailIconButton: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
+  detailHeaderIcon: { color: '#fff', fontSize: 30, fontWeight: '500' },
+  detailIdentityRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
+  detailAvatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#D9D9D9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  detailAvatarText: { color: '#444', fontWeight: '700', fontSize: 22 },
+  detailIdentityText: { flex: 1 },
+  detailAppName: { color: '#fff', fontSize: 22, fontWeight: '800' },
+  detailEmail: { color: '#E4EEF8', fontSize: 16, marginTop: 2 },
+
+  detailSectionHeaderWrap: {
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#DADADA',
+    backgroundColor: '#F2F2F2',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginTop: 8,
+  },
+  detailSectionHeader: { color: '#8A8A8A', fontSize: 15, fontWeight: '500' },
+
+  detailRow: {
+    backgroundColor: '#F2F2F2',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#DEDEDE',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  detailRowIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#111',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  detailRowIcon: { color: '#111', fontSize: 16, fontWeight: '700' },
+  detailRowTextWrap: { flex: 1 },
+  detailRowTitle: { color: '#111', fontSize: 20, fontWeight: '400' },
+  detailRowSubtitle: { color: '#4F4F4F', fontSize: 16, marginTop: 2 },
+
+  detailCodeRow: {
+    backgroundColor: '#F2F2F2',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#DEDEDE',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  detailCodeBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 2,
+    borderColor: '#C7C7C7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F7F7F7',
+    marginRight: 10,
+  },
+  detailCodeBadgeText: { color: '#0A78D1', fontSize: 16, fontWeight: '500' },
+  detailCodeTextWrap: { flex: 1 },
+  detailCodeTitle: { color: '#111', fontSize: 18, fontWeight: '400' },
+  detailCodeValue: { color: '#0A78D1', fontSize: 56 / 2, fontWeight: '400', letterSpacing: 1.8, marginTop: 2 },
+  detailCopyButton: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
+  detailCopyIcon: { color: '#0A78D1', fontSize: 20, fontWeight: '700' },
+
+  detailSimpleAction: {
+    backgroundColor: '#F2F2F2',
+    borderBottomWidth: 1,
+    borderBottomColor: '#DEDEDE',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  detailSimpleActionText: { color: '#111', fontSize: 19, fontWeight: '400', flex: 1 },
+  detailSimpleActionChevron: { color: '#949494', fontSize: 24 },
+
+  detailActionButtons: {
+    flexDirection: 'row',
+    paddingHorizontal: 14,
+    gap: 8,
+    marginTop: 12,
+  },
 
   fab: {
     position: 'absolute',
@@ -890,6 +1791,53 @@ const styles = StyleSheet.create({
   },
   scannerHelp: { color: '#94A3B8', textAlign: 'center', paddingBottom: 20 },
 
+  accountSettingsSafe: { flex: 1, backgroundColor: '#EAEAEA' },
+  accountSettingsHeader: {
+    height: 78,
+    backgroundColor: '#0A78D1',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+  },
+  accountSettingsBackButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
+  accountSettingsBackText: { color: '#fff', fontSize: 40, fontWeight: '400', marginTop: -2 },
+  accountSettingsTitle: { color: '#fff', fontSize: 20, fontWeight: '700', flex: 1, textAlign: 'center' },
+  accountSettingsHeaderSpacer: { width: 42 },
+  accountSettingsContent: { flex: 1 },
+  accountSettingsRow: {
+    backgroundColor: '#F4F4F4',
+    minHeight: 72,
+    borderBottomWidth: 1,
+    borderBottomColor: '#DADADA',
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  accountSettingsRowLabel: { color: '#111', fontSize: 19, fontWeight: '400', flex: 1, paddingRight: 10 },
+  accountSettingsValueWrap: { flexDirection: 'row', alignItems: 'center', maxWidth: '55%' },
+  accountSettingsRowValue: { color: '#5C5C5C', fontSize: 18, marginRight: 8 },
+  accountSettingsChevron: { color: '#A2A2A2', fontSize: 30, lineHeight: 30 },
+  accountSettingsHelp: {
+    color: '#7A7A7A',
+    fontSize: 16,
+    lineHeight: 28,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: '#EAEAEA',
+  },
+  accountSettingsRemoveButton: {
+    backgroundColor: '#F4F4F4',
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#DADADA',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 72,
+    marginTop: 8,
+  },
+  accountSettingsRemoveText: { color: '#D62525', fontSize: 22, fontWeight: '400' },
+
   blockingOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.28)',
@@ -908,6 +1856,93 @@ const styles = StyleSheet.create({
     marginTop: 10,
     color: '#0F172A',
     fontWeight: '600',
+    fontSize: 14,
+  },
+  approvalModalCard: {
+    width: '86%',
+    maxWidth: 360,
+    borderRadius: 16,
+    backgroundColor: '#fff',
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
+  },
+  approvalModalTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#1A2C45',
+    marginBottom: 8,
+  },
+  approvalModalText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#4B5F79',
+    marginBottom: 12,
+  },
+  manualCodeBox: {
+    borderWidth: 1,
+    borderColor: '#D9E5F3',
+    backgroundColor: '#F6FAFF',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+  },
+  manualCodeLabel: {
+    fontSize: 12,
+    color: '#4B5F79',
+    marginBottom: 4,
+    fontWeight: '600',
+  },
+  manualCodeValue: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#103A63',
+    textAlign: 'center',
+    letterSpacing: 5,
+  },
+  approvalNumberInput: {
+    borderWidth: 1,
+    borderColor: '#C8D4E5',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    textAlign: 'center',
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#103A63',
+    letterSpacing: 4,
+    marginBottom: 14,
+  },
+  approvalModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  approvalCancelButton: {
+    backgroundColor: '#EFF4FA',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  approvalCancelText: {
+    color: '#4B5F79',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  approvalConfirmButton: {
+    backgroundColor: '#0A78D1',
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  approvalConfirmText: {
+    color: '#fff',
+    fontWeight: '700',
     fontSize: 14,
   },
 });

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Palette, Upload, Eye, Save, RotateCcw, Type, MessageSquare, Wand2, Settings } from 'lucide-react';
 import { applicationService } from '../../services/applicationService';
 import { useEffect } from 'react';
@@ -7,6 +7,32 @@ import NotificationModal from '../ui/NotificationModal';
 import BrandingExtendedControls from './BrandingExtendedControls';
 import { applyThemePreset } from '../../utils/themePresets';
 import BrandedPublicAuth from '../auth/BrandedPublicAuth';
+import { FORM_TEXT_TRANSLATIONS, MESSAGE_TRANSLATIONS, BrandingLanguage, getLanguageFromCustomTexts } from '../../utils/brandingTranslations';
+import { generateThemeFromPrompt, generateThemeLabelFromPrompt, generateThemeDescriptionFromPrompt } from '../../utils/themePromptGenerator';
+import { BrandingConfig } from '../../types';
+import { applyFaviconToDocument } from '../../utils/favicon';
+
+type GeneratedThemeStatus = 'draft' | 'saved';
+
+interface GeneratedThemeDraft {
+  id: string;
+  label: string;
+  description: string;
+  status: GeneratedThemeStatus;
+  prompt: string;
+  created_at: string;
+  config: Partial<BrandingConfig>;
+}
+
+function isGeneratedThemeDraft(value: unknown): value is GeneratedThemeDraft {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.label === 'string' &&
+    typeof candidate.status === 'string' &&
+    typeof candidate.created_at === 'string' &&
+    typeof candidate.config === 'object' &&
+    candidate.config !== null;
+}
 
 export default function BrandingManager() {
   const [applications, setApplications] = useState<any[]>([]);
@@ -26,68 +52,10 @@ export default function BrandingManager() {
     button_style: 'rounded'
   });
 
-  const [texts, setTexts] = useState({
-    // Login form texts
-    login_title: 'Iniciar Sesión',
-    login_subtitle: 'Ingresa tus credenciales',
-    login_email_label: 'Email',
-    login_email_placeholder: 'tu@email.com',
-    login_password_label: 'Contraseña',
-    login_password_placeholder: '••••••••',
-    login_button_text: 'Iniciar Sesión',
-    login_forgot_password_text: '¿Olvidaste tu contraseña?',
-    login_register_link_text: '¿No tienes cuenta? Regístrate aquí',
-    login_success_message: '¡Bienvenido de vuelta!',
-    login_error_message: 'Email o contraseña incorrectos',
-
-    // Register form texts
-    register_title: 'Crear Cuenta',
-    register_subtitle: 'Regístrate para comenzar',
-    register_name_label: 'Nombre Completo',
-    register_name_placeholder: 'Tu nombre completo',
-    register_email_label: 'Email',
-    register_email_placeholder: 'tu@email.com',
-    register_password_label: 'Contraseña',
-    register_password_placeholder: '••••••••',
-    register_confirm_password_label: 'Confirmar Contraseña',
-    register_confirm_password_placeholder: '••••••••',
-    register_button_text: 'Crear Cuenta',
-    register_login_link_text: '¿Ya tienes cuenta? Inicia sesión',
-    register_success_message: 'Cuenta creada exitosamente',
-    register_error_message: 'Error al crear la cuenta',
-
-    // Reset password form texts
-    reset_title: 'Recuperar Contraseña',
-    reset_subtitle: 'Te enviaremos un email para recuperar tu contraseña',
-    reset_email_label: 'Email',
-    reset_email_placeholder: 'tu@email.com',
-    reset_button_text: 'Enviar Email de Recuperación',
-    reset_login_link_text: '¿Recordaste tu contraseña? Inicia sesión',
-    reset_success_message: 'Email de recuperación enviado',
-    reset_error_message: 'Error al enviar email de recuperación',
-
-    // Confirm reset password form texts
-    confirm_reset_title: 'Nueva Contraseña',
-    confirm_reset_subtitle: 'Ingresa tu nueva contraseña',
-    confirm_reset_password_label: 'Nueva Contraseña',
-    confirm_reset_password_placeholder: '••••••••',
-    confirm_reset_confirm_password_label: 'Confirmar Nueva Contraseña',
-    confirm_reset_confirm_password_placeholder: '••••••••',
-    confirm_reset_button_text: 'Cambiar Contraseña',
-    confirm_reset_success_message: 'Contraseña actualizada exitosamente',
-    confirm_reset_error_message: 'Error al actualizar la contraseña',
-
-    // Common texts
-    loading_text: 'Cargando...',
-    processing_text: 'Procesando...',
-    security_badge_text: 'Protegido por AuthSystem',
-    password_mismatch_error: 'Las contraseñas no coinciden',
-
-    // Role selection texts
-    role_selection_label: 'Tipo de Usuario',
-    role_selection_placeholder: 'Selecciona un rol',
-    role_selection_description: 'Selecciona el tipo de acceso que necesitas'
-  });
+  const [texts, setTexts] = useState({ ...FORM_TEXT_TRANSLATIONS.es });
+  const [selectedLanguage, setSelectedLanguage] = useState<BrandingLanguage>('es');
+  const [generatedThemeDraft, setGeneratedThemeDraft] = useState<GeneratedThemeDraft | null>(null);
+  const [isGeneratingTheme, setIsGeneratingTheme] = useState(false);
 
   const [extendedBranding, setExtendedBranding] = useState({
     theme_style: 'corporate',
@@ -116,10 +84,10 @@ export default function BrandingManager() {
     animation_speed: 'normal',
     form_width: 'medium',
     spacing: 'normal',
-    message_loading_text: 'Authenticating...',
-    message_success_text: 'Welcome back! Redirecting...',
-    message_error_text: 'Invalid credentials. Please try again.',
-    message_error_help_text: 'Please check your email and password.',
+    message_loading_text: MESSAGE_TRANSLATIONS.es.message_loading_text,
+    message_success_text: MESSAGE_TRANSLATIONS.es.message_success_text,
+    message_error_text: MESSAGE_TRANSLATIONS.es.message_error_text,
+    message_error_help_text: MESSAGE_TRANSLATIONS.es.message_error_help_text,
     redirect_delay: 2000,
     message_loading_bg: '#DBEAFE',
     message_success_bg: '#DCFCE7',
@@ -128,6 +96,8 @@ export default function BrandingManager() {
 
   const [previewMode, setPreviewMode] = useState('login');
   const [activeTab, setActiveTab] = useState<'basic' | 'advanced' | 'texts'>('basic');
+  const logoFileInputRef = useRef<HTMLInputElement | null>(null);
+  const faviconFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const {
     notification,
@@ -146,6 +116,10 @@ export default function BrandingManager() {
     }
   }, [selectedApp]);
 
+  useEffect(() => {
+    applyFaviconToDocument(branding.favicon_url);
+  }, [branding.favicon_url]);
+
   const loadApplications = async () => {
     try {
       const apps = await applicationService.getApplications();
@@ -163,6 +137,16 @@ export default function BrandingManager() {
       setLoading(true);
       const brandingConfig = await applicationService.getBranding(selectedApp);
       if (brandingConfig) {
+        const customTexts = brandingConfig.custom_texts || {};
+        const language = getLanguageFromCustomTexts(customTexts);
+        setSelectedLanguage(language);
+
+        if (isGeneratedThemeDraft(customTexts.__generated_theme)) {
+          setGeneratedThemeDraft(customTexts.__generated_theme);
+        } else {
+          setGeneratedThemeDraft(null);
+        }
+
         setBranding({
           primary_color: brandingConfig.primary_color || '#3B82F6',
           secondary_color: brandingConfig.secondary_color || '#1E40AF',
@@ -204,10 +188,10 @@ export default function BrandingManager() {
           animation_speed: brandingConfig.animation_speed || 'normal',
           form_width: brandingConfig.form_width || 'medium',
           spacing: brandingConfig.spacing || 'normal',
-          message_loading_text: brandingConfig.message_loading_text || 'Authenticating...',
-          message_success_text: brandingConfig.message_success_text || 'Welcome back! Redirecting...',
-          message_error_text: brandingConfig.message_error_text || 'Invalid credentials. Please try again.',
-          message_error_help_text: brandingConfig.message_error_help_text || 'Please check your email and password.',
+          message_loading_text: brandingConfig.message_loading_text || customTexts.message_loading_text || MESSAGE_TRANSLATIONS[language].message_loading_text,
+          message_success_text: brandingConfig.message_success_text || customTexts.message_success_text || MESSAGE_TRANSLATIONS[language].message_success_text,
+          message_error_text: brandingConfig.message_error_text || customTexts.message_error_text || MESSAGE_TRANSLATIONS[language].message_error_text,
+          message_error_help_text: brandingConfig.message_error_help_text || customTexts.message_error_help_text || MESSAGE_TRANSLATIONS[language].message_error_help_text,
           redirect_delay: brandingConfig.redirect_delay || 2000,
           message_loading_bg: brandingConfig.message_loading_bg || '#DBEAFE',
           message_success_bg: brandingConfig.message_success_bg || '#DCFCE7',
@@ -215,10 +199,10 @@ export default function BrandingManager() {
         });
 
         // Load custom texts if they exist
-        if (brandingConfig.custom_texts) {
+        if (customTexts) {
           setTexts(prev => ({
             ...prev,
-            ...brandingConfig.custom_texts
+            ...customTexts
           }));
         }
       }
@@ -243,6 +227,219 @@ export default function BrandingManager() {
 
   const handleExtendedChange = (field: string, value: any) => {
     setExtendedBranding(prev => ({ ...prev, [field]: value }));
+  };
+
+  const readFileAsDataUrl = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result);
+          return;
+        }
+        reject(new Error('No se pudo leer el archivo'));
+      };
+      reader.onerror = () => reject(new Error('Error leyendo archivo'));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleAssetUpload = async (assetType: 'logo' | 'favicon', file?: File) => {
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      showError('Archivo inválido', 'Solo se permiten imágenes para logo y favicon.');
+      return;
+    }
+
+    const maxSizeBytes = assetType === 'favicon' ? 1024 * 1024 : 3 * 1024 * 1024;
+    if (file.size > maxSizeBytes) {
+      showError(
+        'Archivo muy grande',
+        assetType === 'favicon'
+          ? 'El favicon debe ser menor o igual a 1MB.'
+          : 'El logo debe ser menor o igual a 3MB.'
+      );
+      return;
+    }
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      setBranding(prev => ({
+        ...prev,
+        [assetType === 'logo' ? 'logo_url' : 'favicon_url']: dataUrl
+      }));
+
+      showSuccess(
+        assetType === 'logo' ? 'Logo cargado' : 'Favicon cargado',
+        'Se cargó la imagen desde tu PC. Guarda cambios para persistirla.'
+      );
+    } catch (error) {
+      console.error(`Error uploading ${assetType}:`, error);
+      showError('Error al cargar imagen', 'No se pudo procesar la imagen seleccionada.');
+    }
+  };
+
+  const handleTranslateMessages = (language: BrandingLanguage) => {
+    setSelectedLanguage(language);
+
+    setTexts(prev => ({
+      ...prev,
+      ...FORM_TEXT_TRANSLATIONS[language],
+      processing_text: MESSAGE_TRANSLATIONS[language].processing_text
+    }));
+
+    setExtendedBranding(prev => ({
+      ...prev,
+      message_loading_text: MESSAGE_TRANSLATIONS[language].message_loading_text,
+      message_success_text: MESSAGE_TRANSLATIONS[language].message_success_text,
+      message_error_text: MESSAGE_TRANSLATIONS[language].message_error_text,
+      message_error_help_text: MESSAGE_TRANSLATIONS[language].message_error_help_text
+    }));
+  };
+
+  const handleGenerateThemeFromPrompt = async (prompt: string) => {
+    setIsGeneratingTheme(true);
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+
+      const generatedTheme = generateThemeFromPrompt(prompt, {
+        ...branding,
+        ...extendedBranding,
+        border_radius: parseInt(branding.border_radius)
+      });
+
+      const {
+        primary_color,
+        secondary_color,
+        accent_color,
+        background_color,
+        text_color,
+        border_radius,
+        button_style,
+        font_family,
+        ...extendedGeneratedTheme
+      } = generatedTheme;
+
+      setBranding(prev => ({
+        ...prev,
+        primary_color: primary_color || prev.primary_color,
+        secondary_color: secondary_color || prev.secondary_color,
+        accent_color: accent_color || prev.accent_color,
+        background_color: background_color || prev.background_color,
+        text_color: text_color || prev.text_color,
+        font_family: font_family || prev.font_family,
+        border_radius: (border_radius ?? parseInt(prev.border_radius)).toString(),
+        button_style: (button_style as 'rounded' | 'square') || prev.button_style
+      }));
+
+      setExtendedBranding(prev => ({
+        ...prev,
+        ...extendedGeneratedTheme
+      } as any));
+
+      const now = new Date().toISOString();
+      const shortPrompt = prompt.trim().replace(/\s+/g, ' ');
+      const label = generateThemeLabelFromPrompt(shortPrompt);
+      const description = generateThemeDescriptionFromPrompt(shortPrompt);
+
+      setGeneratedThemeDraft({
+        id: `ai-theme-${Date.now()}`,
+        label: label || 'Modern Fusion',
+        description,
+        status: 'draft',
+        prompt: shortPrompt,
+        created_at: now,
+        config: generatedTheme
+      });
+
+      showSuccess('Tema generado', 'Se aplicó un tema generado desde tu prompt. Si te gusta, guarda los cambios.');
+    } catch (error) {
+      console.error('Error generating theme from prompt:', error);
+      showError('Error al generar tema', 'No se pudo generar el tema. Intenta con otro prompt.');
+    } finally {
+      setIsGeneratingTheme(false);
+    }
+  };
+
+  const handleSelectGeneratedTheme = () => {
+    if (!generatedThemeDraft) {
+      showError('Sin tema generado', 'Primero genera un tema con prompt para poder seleccionarlo.');
+      return;
+    }
+
+    const generatedTheme = generatedThemeDraft.config;
+    const {
+      primary_color,
+      secondary_color,
+      accent_color,
+      background_color,
+      text_color,
+      border_radius,
+      button_style,
+      font_family,
+      ...extendedGeneratedTheme
+    } = generatedTheme;
+
+    setBranding(prev => ({
+      ...prev,
+      primary_color: primary_color || prev.primary_color,
+      secondary_color: secondary_color || prev.secondary_color,
+      accent_color: accent_color || prev.accent_color,
+      background_color: background_color || prev.background_color,
+      text_color: text_color || prev.text_color,
+      font_family: font_family || prev.font_family,
+      border_radius: (border_radius ?? parseInt(prev.border_radius)).toString(),
+      button_style: (button_style as 'rounded' | 'square') || prev.button_style
+    }));
+
+    setExtendedBranding(prev => ({
+      ...prev,
+      ...extendedGeneratedTheme
+    } as any));
+
+    showSuccess('Tema aplicado', 'Se aplicó el tema generado para que puedas seguir ajustándolo.');
+  };
+
+  const handleSaveGeneratedTheme = async () => {
+    if (!generatedThemeDraft) {
+      showError('Sin tema generado', 'Primero genera un tema para poder guardarlo.');
+      return;
+    }
+
+    if (!selectedApp) {
+      showError('Sin aplicación', 'Selecciona una aplicación antes de guardar el tema.');
+      return;
+    }
+
+    const savedTheme: GeneratedThemeDraft = {
+      ...generatedThemeDraft,
+      status: 'saved'
+    };
+
+    setGeneratedThemeDraft(savedTheme);
+
+    const customTextsToPersist = {
+      ...texts,
+      __language: selectedLanguage,
+      message_loading_text: extendedBranding.message_loading_text,
+      message_success_text: extendedBranding.message_success_text,
+      message_error_text: extendedBranding.message_error_text,
+      message_error_help_text: extendedBranding.message_error_help_text,
+      __generated_theme: savedTheme
+    };
+
+    try {
+      await applicationService.updateBranding(selectedApp, {
+        custom_texts: customTextsToPersist
+      } as any);
+
+      showSuccess('Tema guardado', 'El tema generado quedó guardado y marcado como listo para usar.');
+    } catch (error) {
+      console.error('Error saving generated theme:', error);
+      showError('Error al guardar tema', 'No se pudo guardar el tema generado. Inténtalo nuevamente.');
+    }
   };
 
   const applyTheme = (themeName: string) => {
@@ -289,10 +486,10 @@ export default function BrandingManager() {
       animation_speed: preset.animation_speed || 'normal',
       form_width: preset.form_width || 'medium',
       spacing: preset.spacing || 'normal',
-      message_loading_text: preset.message_loading_text || 'Authenticating...',
-      message_success_text: preset.message_success_text || 'Welcome back! Redirecting...',
-      message_error_text: preset.message_error_text || 'Invalid credentials. Please try again.',
-      message_error_help_text: preset.message_error_help_text || 'Please check your email and password.',
+      message_loading_text: preset.message_loading_text || MESSAGE_TRANSLATIONS[selectedLanguage].message_loading_text,
+      message_success_text: preset.message_success_text || MESSAGE_TRANSLATIONS[selectedLanguage].message_success_text,
+      message_error_text: preset.message_error_text || MESSAGE_TRANSLATIONS[selectedLanguage].message_error_text,
+      message_error_help_text: preset.message_error_help_text || MESSAGE_TRANSLATIONS[selectedLanguage].message_error_help_text,
       redirect_delay: preset.redirect_delay || 2000,
       message_loading_bg: preset.message_loading_bg || '#DBEAFE',
       message_success_bg: preset.message_success_bg || '#DCFCE7',
@@ -314,73 +511,33 @@ export default function BrandingManager() {
       button_style: 'rounded'
     });
 
-    setTexts({
-      // Login form texts
-      login_title: 'Iniciar Sesión',
-      login_subtitle: 'Ingresa tus credenciales',
-      login_email_label: 'Email',
-      login_email_placeholder: 'tu@email.com',
-      login_password_label: 'Contraseña',
-      login_password_placeholder: '••••••••',
-      login_button_text: 'Iniciar Sesión',
-      login_forgot_password_text: '¿Olvidaste tu contraseña?',
-      login_register_link_text: '¿No tienes cuenta? Regístrate aquí',
-      login_success_message: '¡Bienvenido de vuelta!',
-      login_error_message: 'Email o contraseña incorrectos',
+    setTexts({ ...FORM_TEXT_TRANSLATIONS[selectedLanguage] });
 
-      // Register form texts
-      register_title: 'Crear Cuenta',
-      register_subtitle: 'Regístrate para comenzar',
-      register_name_label: 'Nombre Completo',
-      register_name_placeholder: 'Tu nombre completo',
-      register_email_label: 'Email',
-      register_email_placeholder: 'tu@email.com',
-      register_password_label: 'Contraseña',
-      register_password_placeholder: '••••••••',
-      register_confirm_password_label: 'Confirmar Contraseña',
-      register_confirm_password_placeholder: '••••••••',
-      register_button_text: 'Crear Cuenta',
-      register_login_link_text: '¿Ya tienes cuenta? Inicia sesión',
-      register_success_message: 'Cuenta creada exitosamente',
-      register_error_message: 'Error al crear la cuenta',
+    setExtendedBranding(prev => ({
+      ...prev,
+      message_loading_text: MESSAGE_TRANSLATIONS[selectedLanguage].message_loading_text,
+      message_success_text: MESSAGE_TRANSLATIONS[selectedLanguage].message_success_text,
+      message_error_text: MESSAGE_TRANSLATIONS[selectedLanguage].message_error_text,
+      message_error_help_text: MESSAGE_TRANSLATIONS[selectedLanguage].message_error_help_text
+    }));
 
-      // Reset password form texts
-      reset_title: 'Recuperar Contraseña',
-      reset_subtitle: 'Te enviaremos un email para recuperar tu contraseña',
-      reset_email_label: 'Email',
-      reset_email_placeholder: 'tu@email.com',
-      reset_button_text: 'Enviar Email de Recuperación',
-      reset_login_link_text: '¿Recordaste tu contraseña? Inicia sesión',
-      reset_success_message: 'Email de recuperación enviado',
-      reset_error_message: 'Error al enviar email de recuperación',
-
-      // Confirm reset password form texts
-      confirm_reset_title: 'Nueva Contraseña',
-      confirm_reset_subtitle: 'Ingresa tu nueva contraseña',
-      confirm_reset_password_label: 'Nueva Contraseña',
-      confirm_reset_password_placeholder: '••••••••',
-      confirm_reset_confirm_password_label: 'Confirmar Nueva Contraseña',
-      confirm_reset_confirm_password_placeholder: '••••••••',
-      confirm_reset_button_text: 'Cambiar Contraseña',
-      confirm_reset_success_message: 'Contraseña actualizada exitosamente',
-      confirm_reset_error_message: 'Error al actualizar la contraseña',
-
-      // Common texts
-      loading_text: 'Cargando...',
-      processing_text: 'Procesando...',
-      security_badge_text: 'Protegido por AuthSystem',
-      password_mismatch_error: 'Las contraseñas no coinciden',
-
-      // Role selection texts
-      role_selection_label: 'Tipo de Usuario',
-      role_selection_placeholder: 'Selecciona un rol',
-      role_selection_description: 'Selecciona el tipo de acceso que necesitas'
-    });
+    setGeneratedThemeDraft(null);
   };
 
   const handleSave = async () => {
     try {
       setSaveLoading(true);
+
+      const customTextsToPersist = {
+        ...texts,
+        __language: selectedLanguage,
+        message_loading_text: extendedBranding.message_loading_text,
+        message_success_text: extendedBranding.message_success_text,
+        message_error_text: extendedBranding.message_error_text,
+        message_error_help_text: extendedBranding.message_error_help_text,
+        __generated_theme: generatedThemeDraft
+      };
+
       await applicationService.updateBranding(selectedApp, {
         primary_color: branding.primary_color,
         secondary_color: branding.secondary_color,
@@ -392,7 +549,7 @@ export default function BrandingManager() {
         favicon_url: branding.favicon_url,
         border_radius: parseInt(branding.border_radius),
         button_style: branding.button_style as 'rounded' | 'square',
-        custom_texts: texts,
+        custom_texts: customTextsToPersist,
         // Extended branding fields
         ...extendedBranding
       } as any);
@@ -425,7 +582,9 @@ export default function BrandingManager() {
             {/* Logo */}
             <div className="text-center mb-8">
               {branding.logo_url ? (
-                <img src={branding.logo_url} alt="Logo" className="h-12 mx-auto mb-4" />
+                <div className="w-20 h-20 mx-auto mb-4 rounded-xl border border-gray-200 bg-white/80 p-2 flex items-center justify-center overflow-hidden">
+                  <img src={branding.logo_url} alt="Logo" className="w-full h-full object-contain" />
+                </div>
               ) : (
                 <div 
                   className="w-16 h-16 rounded-lg mx-auto mb-4 flex items-center justify-center text-white font-bold text-xl"
@@ -523,7 +682,9 @@ export default function BrandingManager() {
             {/* Logo */}
             <div className="text-center mb-8">
               {branding.logo_url ? (
-                <img src={branding.logo_url} alt="Logo" className="h-12 mx-auto mb-4" />
+                <div className="w-20 h-20 mx-auto mb-4 rounded-xl border border-gray-200 bg-white/80 p-2 flex items-center justify-center overflow-hidden">
+                  <img src={branding.logo_url} alt="Logo" className="w-full h-full object-contain" />
+                </div>
               ) : (
                 <div 
                   className="w-16 h-16 rounded-lg mx-auto mb-4 flex items-center justify-center text-white font-bold text-xl"
@@ -672,7 +833,9 @@ export default function BrandingManager() {
             {/* Logo */}
             <div className="text-center mb-8">
               {branding.logo_url ? (
-                <img src={branding.logo_url} alt="Logo" className="h-12 mx-auto mb-4" />
+                <div className="w-20 h-20 mx-auto mb-4 rounded-xl border border-gray-200 bg-white/80 p-2 flex items-center justify-center overflow-hidden">
+                  <img src={branding.logo_url} alt="Logo" className="w-full h-full object-contain" />
+                </div>
               ) : (
                 <div 
                   className="w-16 h-16 rounded-lg mx-auto mb-4 flex items-center justify-center text-white font-bold text-xl"
@@ -745,7 +908,9 @@ export default function BrandingManager() {
             {/* Logo */}
             <div className="text-center mb-8">
               {branding.logo_url ? (
-                <img src={branding.logo_url} alt="Logo" className="h-12 mx-auto mb-4" />
+                <div className="w-20 h-20 mx-auto mb-4 rounded-xl border border-gray-200 bg-white/80 p-2 flex items-center justify-center overflow-hidden">
+                  <img src={branding.logo_url} alt="Logo" className="w-full h-full object-contain" />
+                </div>
               ) : (
                 <div
                   className="w-16 h-16 rounded-lg mx-auto mb-4 flex items-center justify-center text-white font-bold text-xl"
@@ -863,7 +1028,7 @@ export default function BrandingManager() {
             }`}
           >
             <Palette className="w-5 h-5" />
-            <span>Básico</span>
+            <span>Diseño Base</span>
           </button>
           <button
             onClick={() => setActiveTab('advanced')}
@@ -885,14 +1050,16 @@ export default function BrandingManager() {
             }`}
           >
             <MessageSquare className="w-5 h-5" />
-            <span>Textos</span>
+            <span>Contenido</span>
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Configuration Panel */}
-        <div className="space-y-6">{activeTab === 'basic' && (
+        <div className="space-y-6">{(activeTab === 'basic' || activeTab === 'texts') && (
+          <>
+          {activeTab === 'basic' && (
           <>
           {/* Colors */}
           <div className="bg-white rounded-lg border border-gray-200 p-6">
@@ -1034,11 +1201,22 @@ export default function BrandingManager() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Logo Principal
                 </label>
-                <div className="flex items-center space-x-4">
-                  <button className="flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                <div className="flex items-center space-x-4 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => logoFileInputRef.current?.click()}
+                    className="flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                  >
                     <Upload className="w-4 h-4" />
                     <span>Subir Logo</span>
                   </button>
+                  <input
+                    ref={logoFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => handleAssetUpload('logo', e.target.files?.[0])}
+                  />
                   <input
                     type="url"
                     placeholder="O ingresa URL del logo"
@@ -1047,17 +1225,33 @@ export default function BrandingManager() {
                     className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
+                {branding.logo_url && (
+                  <div className="w-28 h-16 rounded-lg border border-gray-200 bg-gray-50 p-2 flex items-center justify-center overflow-hidden">
+                    <img src={branding.logo_url} alt="Preview logo" className="w-full h-full object-contain" />
+                  </div>
+                )}
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Favicon
                 </label>
-                <div className="flex items-center space-x-4">
-                  <button className="flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                <div className="flex items-center space-x-4 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => faviconFileInputRef.current?.click()}
+                    className="flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                  >
                     <Upload className="w-4 h-4" />
                     <span>Subir Favicon</span>
                   </button>
+                  <input
+                    ref={faviconFileInputRef}
+                    type="file"
+                    accept="image/png,image/x-icon,image/vnd.microsoft.icon,image/svg+xml,image/webp"
+                    className="hidden"
+                    onChange={(e) => handleAssetUpload('favicon', e.target.files?.[0])}
+                  />
                   <input
                     type="url"
                     placeholder="O ingresa URL del favicon"
@@ -1066,6 +1260,11 @@ export default function BrandingManager() {
                     className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
+                {branding.favicon_url && (
+                  <div className="w-10 h-10 rounded-md border border-gray-200 bg-gray-50 p-1 flex items-center justify-center overflow-hidden">
+                    <img src={branding.favicon_url} alt="Preview favicon" className="w-full h-full object-contain" />
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1123,7 +1322,11 @@ export default function BrandingManager() {
             </div>
           </div>
 
+          </>
+          )}
+
           {/* Custom Texts */}
+          {activeTab === 'texts' && (
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
               <MessageSquare className="w-5 h-5" />
@@ -1486,6 +1689,7 @@ export default function BrandingManager() {
               )}
             </div>
           </div>
+          )}
           </>
           )}
 
@@ -1494,43 +1698,41 @@ export default function BrandingManager() {
               branding={extendedBranding}
               onChange={handleExtendedChange}
               onApplyTheme={applyTheme}
+              selectedLanguage={selectedLanguage}
+              onLanguageChange={setSelectedLanguage}
+              onTranslateMessages={handleTranslateMessages}
+              onGenerateThemeFromPrompt={handleGenerateThemeFromPrompt}
+              isGeneratingTheme={isGeneratingTheme}
+              generatedThemeDraft={generatedThemeDraft}
+              onSelectGeneratedTheme={handleSelectGeneratedTheme}
+              onSaveGeneratedTheme={handleSaveGeneratedTheme}
             />
           )}
 
-          {activeTab === 'texts' && (
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Textos Personalizados</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                Los textos se configuran por tipo de formulario. Usa los botones de la vista previa para cambiar entre Login, Registro y Recuperación.
-              </p>
-              <div className="text-center py-8 text-gray-500">
-                Selecciona un formulario en la vista previa para ver y editar sus textos
-              </div>
-            </div>
-          )}
-
           {/* Actions */}
-          <div className="flex items-center space-x-4">
-            <button 
-              onClick={resetToDefaults}
-              className="flex items-center space-x-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <RotateCcw className="w-4 h-4" />
-              <span>Restablecer</span>
-            </button>
-            <button 
-              onClick={handleSave}
-              disabled={saveLoading || !selectedApp}
-              className="flex items-center space-x-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex-1 disabled:opacity-50"
-            >
-              <Save className="w-4 h-4" />
-              <span>{saveLoading ? 'Guardando...' : 'Guardar Cambios'}</span>
-            </button>
+          <div className="sticky bottom-0 z-20 -mx-2 px-2 py-3 bg-white/95 backdrop-blur border-t border-gray-200">
+            <div className="flex items-center space-x-4">
+              <button 
+                onClick={resetToDefaults}
+                className="flex items-center space-x-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>Restablecer</span>
+              </button>
+              <button 
+                onClick={handleSave}
+                disabled={saveLoading || !selectedApp}
+                className="flex items-center space-x-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex-1 disabled:opacity-50"
+              >
+                <Save className="w-4 h-4" />
+                <span>{saveLoading ? 'Guardando...' : 'Guardar Cambios'}</span>
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Preview Panel */}
-        <div className="space-y-6">
+        <div className="space-y-6 lg:sticky lg:top-24 self-start">
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-900 flex items-center space-x-2">
@@ -1573,7 +1775,7 @@ export default function BrandingManager() {
             </div>
 
             {/* Preview Window */}
-            <div className="border-2 border-gray-200 rounded-lg overflow-hidden">
+            <div className="preview-scroll border-2 border-gray-200 rounded-lg overflow-y-auto overflow-x-hidden max-h-[70vh] lg:max-h-[calc(100vh-13rem)]">
               <BrandedPublicAuth
                 applicationId={selectedApp || 'preview'}
                 formType={previewMode === 'confirm-reset' ? 'reset-password-confirm' : previewMode as 'login' | 'register' | 'reset-password' | 'reset-password-confirm'}

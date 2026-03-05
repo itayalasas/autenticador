@@ -12,6 +12,9 @@ interface RegisterDeviceRequest {
   pairing_token: string;
   device_id: string;
   device_name?: string;
+  push_token?: string;
+  push_provider?: 'expo';
+  device_platform?: string;
 }
 
 Deno.serve(async (req) => {
@@ -26,7 +29,7 @@ Deno.serve(async (req) => {
     }
 
     const body: RegisterDeviceRequest = await req.json();
-    const { pairing_token, device_id, device_name } = body;
+    const { pairing_token, device_id, device_name, push_token, push_provider, device_platform } = body;
 
     if (!pairing_token || !device_id) {
       return new Response(JSON.stringify({ success: false, error: { code: 'MISSING_FIELDS', message: 'pairing_token and device_id are required' } }), {
@@ -107,10 +110,13 @@ Deno.serve(async (req) => {
         app_user_id: pairing.app_user_id,
         device_id,
         device_name: device_name || 'AuthSystem Mobile',
+        push_token: push_token || null,
+        push_provider: push_provider || (push_token ? 'expo' : null),
+        device_platform: device_platform || null,
         is_active: true,
         last_seen_at: new Date().toISOString(),
       }, { onConflict: 'application_id,app_user_id,device_id' })
-      .select('id, application_id, app_user_id, device_id, device_name, is_active, created_at')
+      .select('id, application_id, app_user_id, device_id, device_name, push_token, push_provider, device_platform, is_active, created_at')
       .single();
 
     if (deviceError || !deviceRow) {
@@ -123,10 +129,18 @@ Deno.serve(async (req) => {
 
     const linkedAt = new Date().toISOString();
 
-    await supabase
+    const { error: markUsedError } = await supabase
       .from('mfa_pairing_tokens')
       .update({ used_at: linkedAt })
       .eq('id', pairing.id);
+
+    if (markUsedError) {
+      console.error('Error marking pairing token as used:', markUsedError);
+      return new Response(JSON.stringify({ success: false, error: { code: 'PAIRING_CONFIRMATION_ERROR', message: 'No se pudo confirmar la vinculación' } }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
 
     return new Response(JSON.stringify({
       success: true,

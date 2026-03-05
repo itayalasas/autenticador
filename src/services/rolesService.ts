@@ -8,10 +8,16 @@ export interface ApplicationRole {
   description: string;
   permissions: string[];
   is_default: boolean;
+  is_active: boolean;
+  available_for_registration?: boolean;
   created_at: string;
 }
 
 export const rolesService = {
+  isMissingIsActiveColumnError(error: any): boolean {
+    return error?.code === 'PGRST204' && String(error?.message || '').includes('is_active');
+  },
+
   // Get all roles for an application
   async getApplicationRoles(applicationId: string): Promise<ApplicationRole[]> {
     const { data, error } = await supabase
@@ -21,7 +27,11 @@ export const rolesService = {
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-    return data || [];
+
+    return (data || []).map((role: any) => ({
+      ...role,
+      is_active: role?.is_active ?? true,
+    }));
   },
 
   // Create new application role
@@ -49,7 +59,8 @@ export const rolesService = {
         display_name: roleData.display_name,
         description: roleData.description,
         permissions: roleData.permissions,
-        is_default: roleData.is_default
+        is_default: roleData.is_default,
+        is_active: true
       })
       .select()
       .single();
@@ -139,26 +150,95 @@ export const rolesService = {
 
   // Get available roles for registration form
   async getAvailableRolesForRegistration(applicationId: string): Promise<ApplicationRole[]> {
-    const { data, error } = await supabase
+    const queryWithActive = await supabase
       .from('application_roles')
       .select('*')
       .eq('application_id', applicationId)
+      .eq('is_active', true)
+      .eq('available_for_registration', true)
       .order('display_name', { ascending: true });
 
-    if (error) throw error;
-    return data || [];
+    if (!queryWithActive.error) {
+      return queryWithActive.data || [];
+    }
+
+    if (this.isMissingIsActiveColumnError(queryWithActive.error)) {
+      const fallbackQuery = await supabase
+        .from('application_roles')
+        .select('*')
+        .eq('application_id', applicationId)
+        .eq('available_for_registration', true)
+        .order('display_name', { ascending: true });
+
+      if (fallbackQuery.error) throw fallbackQuery.error;
+      return fallbackQuery.data || [];
+    }
+
+    throw queryWithActive.error;
   },
 
   // Get default role for application
   async getDefaultRole(applicationId: string): Promise<ApplicationRole | null> {
-    const { data, error } = await supabase
+    const queryWithActive = await supabase
       .from('application_roles')
       .select('*')
       .eq('application_id', applicationId)
       .eq('is_default', true)
+      .eq('is_active', true)
       .single();
 
-    if (error && error.code !== 'PGRST116') throw error;
-    return data;
+    if (!queryWithActive.error) {
+      return queryWithActive.data;
+    }
+
+    if (this.isMissingIsActiveColumnError(queryWithActive.error)) {
+      const fallbackQuery = await supabase
+        .from('application_roles')
+        .select('*')
+        .eq('application_id', applicationId)
+        .eq('is_default', true)
+        .single();
+
+      if (fallbackQuery.error && fallbackQuery.error.code !== 'PGRST116') throw fallbackQuery.error;
+      return fallbackQuery.data;
+    }
+
+    if (queryWithActive.error.code !== 'PGRST116') throw queryWithActive.error;
+    return null;
+  },
+
+  async setRoleActiveStatus(roleId: string, isActive: boolean) {
+    const { data, error } = await supabase
+      .from('application_roles')
+      .update({
+        is_active: isActive,
+        ...(isActive ? {} : { is_default: false, available_for_registration: false })
+      })
+      .eq('id', roleId)
+      .select()
+      .single();
+
+    if (!error) return data;
+
+    if (this.isMissingIsActiveColumnError(error)) {
+      const fallback = await supabase
+        .from('application_roles')
+        .update({
+          ...(isActive
+            ? { available_for_registration: true }
+            : { is_default: false, available_for_registration: false })
+        })
+        .eq('id', roleId)
+        .select()
+        .single();
+
+      if (fallback.error) throw fallback.error;
+      return {
+        ...fallback.data,
+        is_active: isActive,
+      };
+    }
+
+    throw error;
   }
 };

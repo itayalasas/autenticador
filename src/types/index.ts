@@ -171,11 +171,24 @@ export interface AppUser {
   email: string;
   name: string;
   application_id: string;
+  role_id?: string | null;
   user_roles: UserRole[];
+  roles?: string[];
+  role_display_name?: string | null;
+  role_permissions?: string[];
   status: 'active' | 'inactive' | 'pending';
   created_at: string;
   last_login?: string;
   metadata?: Record<string, any>;
+}
+
+export interface MfaManagedDevice {
+  id: string;
+  device_name: string;
+  device_platform?: string;
+  created_at: string;
+  last_seen_at?: string;
+  is_active: boolean;
 }
 
 export interface UserRole {
@@ -207,6 +220,8 @@ export interface ApplicationRole {
   description: string;
   permissions: string[];
   is_default: boolean;
+  is_active: boolean;
+  available_for_registration?: boolean;
   created_at: string;
 }
 export interface AuthFormConfig {

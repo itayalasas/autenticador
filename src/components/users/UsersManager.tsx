@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Plus, Search, MoreVertical, Shield, Mail, Calendar, Filter, CreditCard as Edit, Trash2, UserCheck, UserX, X } from 'lucide-react';
-import { AppUser } from '../../types';
+import { Users, Plus, Search, Shield, Filter, CreditCard as Edit, Trash2, UserCheck, UserX, X } from 'lucide-react';
+import { AppUser, ApplicationRole, MfaManagedDevice } from '../../types';
 import { userService } from '../../services/userService';
 import { applicationService } from '../../services/applicationService';
 import { subscriptionService } from '../../services/subscriptionService';
@@ -9,12 +9,28 @@ import { useNotification } from '../../hooks/useNotification';
 import ConfirmationModal from '../ui/ConfirmationModal';
 import NotificationModal from '../ui/NotificationModal';
 
+type UserCreateForm = {
+  email: string;
+  name: string;
+  password: string;
+  roles: string[];
+  metadata: Record<string, any>;
+};
+
+type UserEditForm = {
+  name: string;
+  email: string;
+  status: 'active' | 'inactive' | 'pending';
+  roles: string[];
+  metadata: Record<string, any>;
+};
+
 export default function UsersManager() {
   const { notification, showSuccess, showError, closeNotification } = useNotification();
   const [applications, setApplications] = useState<any[]>([]);
   const [selectedApp, setSelectedApp] = useState('');
   const [users, setUsers] = useState<AppUser[]>([]);
-  const [applicationRoles, setApplicationRoles] = useState<any[]>([]);
+  const [applicationRoles, setApplicationRoles] = useState<ApplicationRole[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -25,8 +41,13 @@ export default function UsersManager() {
   const [editLoading, setEditLoading] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ show: boolean; userId: string | null }>({ show: false, userId: null });
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [showMfaModal, setShowMfaModal] = useState(false);
+  const [mfaUser, setMfaUser] = useState<AppUser | null>(null);
+  const [mfaDevices, setMfaDevices] = useState<MfaManagedDevice[]>([]);
+  const [mfaLoading, setMfaLoading] = useState(false);
+  const [mfaActionLoading, setMfaActionLoading] = useState(false);
 
-  const [newUser, setNewUser] = useState({
+  const [newUser, setNewUser] = useState<UserCreateForm>({
     email: '',
     name: '',
     password: '',
@@ -34,7 +55,7 @@ export default function UsersManager() {
     metadata: {}
   });
 
-  const [editUser, setEditUser] = useState({
+  const [editUser, setEditUser] = useState<UserEditForm>({
     name: '',
     email: '',
     status: 'active' as 'active' | 'inactive' | 'pending',
@@ -68,20 +89,43 @@ export default function UsersManager() {
   const loadApplicationRoles = async () => {
     try {
       console.log('Loading application roles for app:', selectedApp);
-      const { data: roles, error } = await supabase
+      const queryWithActive = await supabase
         .from('application_roles')
         .select('*')
         .eq('application_id', selectedApp)
+        .eq('is_active', true)
         .order('display_name', { ascending: true });
 
-      if (error) {
-        console.error('Error loading application roles:', error);
-        setApplicationRoles([]);
+      if (!queryWithActive.error) {
+        setApplicationRoles(queryWithActive.data || []);
+        console.log('✅ Loaded application roles:', queryWithActive.data?.length || 0, 'roles:', queryWithActive.data);
         return;
       }
 
-      setApplicationRoles(roles || []);
-      console.log('✅ Loaded application roles:', roles?.length || 0, 'roles:', roles);
+      const isMissingIsActiveColumn =
+        queryWithActive.error?.code === 'PGRST204' &&
+        String(queryWithActive.error?.message || '').includes('is_active');
+
+      if (isMissingIsActiveColumn) {
+        const fallbackQuery = await supabase
+          .from('application_roles')
+          .select('*')
+          .eq('application_id', selectedApp)
+          .order('display_name', { ascending: true });
+
+        if (fallbackQuery.error) {
+          console.error('Error loading application roles (fallback):', fallbackQuery.error);
+          setApplicationRoles([]);
+          return;
+        }
+
+        setApplicationRoles(fallbackQuery.data || []);
+        console.warn('⚠️ application_roles.is_active is missing; using fallback query without active filter');
+        return;
+      }
+
+      console.error('Error loading application roles:', queryWithActive.error);
+      setApplicationRoles([]);
     } catch (error) {
       console.error('Error loading application roles:', error);
       setApplicationRoles([]);
@@ -186,6 +230,55 @@ export default function UsersManager() {
 
   const handleDeleteUser = async (userId: string) => {
     setDeleteConfirm({ show: true, userId });
+  };
+
+  const handleOpenMfaModal = async (user: AppUser) => {
+    try {
+      setMfaUser(user);
+      setShowMfaModal(true);
+      setMfaLoading(true);
+      const devices = await userService.listUserMfaDevices(user.id);
+      setMfaDevices(devices);
+    } catch (error) {
+      console.error('Error loading MFA devices:', error);
+      showError('Error', error instanceof Error ? error.message : 'No se pudieron cargar los dispositivos MFA del usuario.');
+      setShowMfaModal(false);
+      setMfaUser(null);
+    } finally {
+      setMfaLoading(false);
+    }
+  };
+
+  const handleRevokeMfaDevice = async (deviceId: string) => {
+    if (!mfaUser) return;
+    try {
+      setMfaActionLoading(true);
+      await userService.revokeUserMfaDevice(mfaUser.id, deviceId);
+      const devices = await userService.listUserMfaDevices(mfaUser.id);
+      setMfaDevices(devices);
+      showSuccess('Dispositivo eliminado', 'El dispositivo MFA fue eliminado. En el próximo login se podrá registrar nuevamente si no quedan dispositivos activos.');
+    } catch (error) {
+      console.error('Error revoking MFA device:', error);
+      showError('Error', 'No se pudo revocar el dispositivo MFA.');
+    } finally {
+      setMfaActionLoading(false);
+    }
+  };
+
+  const handleResetMfa = async () => {
+    if (!mfaUser) return;
+    try {
+      setMfaActionLoading(true);
+      await userService.resetUserMfaDevices(mfaUser.id);
+      const devices = await userService.listUserMfaDevices(mfaUser.id);
+      setMfaDevices(devices);
+      showSuccess('MFA reseteado', 'Se eliminaron todos los dispositivos. En el próximo login se solicitará registrar un nuevo móvil.');
+    } catch (error) {
+      console.error('Error resetting MFA:', error);
+      showError('Error', 'No se pudo resetear MFA del usuario.');
+    } finally {
+      setMfaActionLoading(false);
+    }
   };
 
   const confirmDeleteUser = async () => {
@@ -413,6 +506,13 @@ export default function UsersManager() {
                               <Edit className="w-4 h-4" />
                             </button>
                             <button
+                              onClick={() => handleOpenMfaModal(user)}
+                              className="text-indigo-600 hover:text-indigo-900"
+                              title="Gestionar Authenticator"
+                            >
+                              <Shield className="w-4 h-4" />
+                            </button>
+                            <button
                               onClick={() => handleToggleUserStatus(user.id, user.status)}
                               className={user.status === 'active' ? 'text-red-600 hover:text-red-900' : 'text-green-600 hover:text-green-900'}
                             >
@@ -434,6 +534,75 @@ export default function UsersManager() {
             )}
           </div>
         </>
+      )}
+
+      {showMfaModal && mfaUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Authenticator de usuario</h3>
+                <p className="text-sm text-gray-500">{mfaUser.name} · {mfaUser.email}</p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowMfaModal(false);
+                  setMfaUser(null);
+                  setMfaDevices([]);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm text-gray-600">Administra los dispositivos vinculados para login con aprobación móvil.</p>
+              <button
+                onClick={handleResetMfa}
+                disabled={mfaActionLoading || mfaLoading}
+                className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50"
+              >
+                Eliminar todos
+              </button>
+            </div>
+
+            {mfaLoading ? (
+              <div className="flex items-center justify-center h-24">
+                <div className="w-7 h-7 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+              </div>
+            ) : mfaDevices.length === 0 ? (
+              <div className="text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded-lg p-4">
+                Este usuario no tiene dispositivos activos. En el próximo login verá la pantalla de configuración con QR.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {mfaDevices.map((device) => (
+                  <div key={device.id} className="border border-gray-200 rounded-lg p-4 flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">{device.device_name || 'Dispositivo móvil'}</p>
+                      <p className="text-xs text-gray-500">
+                        {device.device_platform || 'mobile'} · Alta: {new Date(device.created_at).toLocaleDateString()} · Última actividad: {device.last_seen_at ? new Date(device.last_seen_at).toLocaleString() : 'Sin actividad'}
+                      </p>
+                      <p className="text-xs mt-1">
+                        <span className={device.is_active ? 'text-green-600' : 'text-gray-500'}>
+                          {device.is_active ? 'Activo' : 'Revocado'}
+                        </span>
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleRevokeMfaDevice(device.id)}
+                      disabled={!device.is_active || mfaActionLoading}
+                      className="px-3 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Create User Modal */}

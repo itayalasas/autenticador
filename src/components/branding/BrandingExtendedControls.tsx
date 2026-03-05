@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Palette, Wand2, Layers, Type, Sparkles, Settings } from 'lucide-react';
 import { themePresets } from '../../utils/themePresets';
 import { ThemeStyle, CardStyle, InputStyle, ButtonVariant, ButtonSize, ShadowIntensity, AnimationSpeed, FormWidth, Spacing } from '../../types';
@@ -45,13 +46,36 @@ interface BrandingExtendedControlsProps {
   branding: ExtendedBrandingState;
   onChange: (field: string, value: any) => void;
   onApplyTheme: (themeName: string) => void;
+  selectedLanguage: 'es' | 'en';
+  onLanguageChange: (language: 'es' | 'en') => void;
+  onTranslateMessages: (language: 'es' | 'en') => void;
+  onGenerateThemeFromPrompt: (prompt: string) => Promise<void>;
+  isGeneratingTheme: boolean;
+  generatedThemeDraft: {
+    label: string;
+    description: string;
+    status: 'draft' | 'saved';
+    created_at: string;
+  } | null;
+  onSelectGeneratedTheme: () => void;
+  onSaveGeneratedTheme: () => void;
 }
 
 export default function BrandingExtendedControls({
   branding,
   onChange,
-  onApplyTheme
+  onApplyTheme,
+  selectedLanguage,
+  onLanguageChange,
+  onTranslateMessages,
+  onGenerateThemeFromPrompt,
+  isGeneratingTheme,
+  generatedThemeDraft,
+  onSelectGeneratedTheme,
+  onSaveGeneratedTheme
 }: BrandingExtendedControlsProps) {
+  const [prompt, setPrompt] = useState('');
+
   return (
     <div className="space-y-8">
       {/* Theme Selector */}
@@ -81,6 +105,60 @@ export default function BrandingExtendedControls({
               </div>
             </button>
           ))}
+        </div>
+
+        <div className="mt-6 pt-6 border-t border-gray-200 space-y-3">
+          <label className="block text-sm font-medium text-gray-700">
+            Generar tema con prompt
+          </label>
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            rows={3}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            placeholder="Ej: Quiero un diseño oscuro elegante con gradiente morado y botones redondeados"
+          />
+          <div className="flex items-center gap-3">
+            <button
+              onClick={async () => {
+                if (!prompt.trim()) return;
+                await onGenerateThemeFromPrompt(prompt);
+              }}
+              disabled={!prompt.trim() || isGeneratingTheme}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              {isGeneratingTheme ? 'Generando...' : 'Generar Diseño'}
+            </button>
+            <button
+              onClick={onSaveGeneratedTheme}
+              disabled={!generatedThemeDraft || isGeneratingTheme}
+              className="px-4 py-2 border border-blue-300 text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 disabled:opacity-50"
+            >
+              Guardar Tema
+            </button>
+          </div>
+
+          {generatedThemeDraft && (
+            <button
+              onClick={onSelectGeneratedTheme}
+              className="w-full mt-3 p-4 border rounded-lg text-left transition-all hover:border-blue-400 hover:bg-blue-50"
+            >
+              <div className="flex items-center justify-between mb-1">
+                <p className="font-semibold text-gray-900">{generatedThemeDraft.label}</p>
+                <span className={`text-xs px-2 py-1 rounded-full ${
+                  generatedThemeDraft.status === 'saved'
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-amber-100 text-amber-700'
+                }`}>
+                  {generatedThemeDraft.status === 'saved' ? 'guardado' : 'borrador'}
+                </span>
+              </div>
+              <p className="text-xs text-gray-600">{generatedThemeDraft.description}</p>
+              <p className="text-xs text-gray-500 mt-1">
+                Generado: {new Date(generatedThemeDraft.created_at).toLocaleString()}
+              </p>
+            </button>
+          )}
         </div>
       </div>
 
@@ -543,6 +621,24 @@ export default function BrandingExtendedControls({
       {/* Custom Messages */}
       <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Mensajes Personalizados</h3>
+
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <label className="text-sm font-medium text-gray-700">Idioma activo</label>
+          <select
+            value={selectedLanguage}
+            onChange={(e) => onLanguageChange(e.target.value as 'es' | 'en')}
+            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="es">Español</option>
+            <option value="en">English</option>
+          </select>
+          <button
+            onClick={() => onTranslateMessages(selectedLanguage)}
+            className="px-3 py-2 border border-blue-200 text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100"
+          >
+            Traducir mensajes al idioma activo
+          </button>
+        </div>
 
         <div className="space-y-4">
           <div>

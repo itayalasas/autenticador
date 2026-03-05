@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Plus, CreditCard as Edit, Trash2, Users, Settings, Save, X, UserPlus, Menu, Lock } from 'lucide-react';
+import { Shield, Plus, CreditCard as Edit, Trash2, Users, Settings, Save, X, UserPlus, Menu, Lock, Power } from 'lucide-react';
 import { applicationService } from '../../services/applicationService';
 import { rolesService } from '../../services/rolesService';
 import { useNotification } from '../../hooks/useNotification';
@@ -15,6 +15,7 @@ interface ApplicationRole {
   description: string;
   permissions: string[];
   is_default: boolean;
+  is_active: boolean;
   created_at: string;
 }
 
@@ -220,6 +221,31 @@ export default function RolesManager() {
     }
   };
 
+  const handleToggleRoleStatus = (role: ApplicationRole) => {
+    const action = role.is_active ? 'deshabilitar' : 'habilitar';
+    showConfirmation(
+      `${role.is_active ? 'Deshabilitar' : 'Habilitar'} rol`,
+      `¿Seguro que deseas ${action} el rol "${role.display_name}"?`,
+      async () => {
+        try {
+          setConfirmationLoading(true);
+          await rolesService.setRoleActiveStatus(role.id, !role.is_active);
+          await loadRoles();
+          closeConfirmation();
+          showSuccess(
+            'Estado actualizado',
+            `El rol "${role.display_name}" fue ${!role.is_active ? 'habilitado' : 'deshabilitado'}.`
+          );
+        } catch (error) {
+          console.error('Error toggling role status:', error);
+          closeConfirmation();
+          showError('Error', 'No se pudo actualizar el estado del rol.');
+        }
+      },
+      { type: 'warning', confirmText: role.is_active ? 'Deshabilitar' : 'Habilitar' }
+    );
+  };
+
   const getPermissionColor = (permission: string) => {
     switch (permission) {
       case 'read': return 'bg-blue-100 text-blue-800';
@@ -325,7 +351,7 @@ export default function RolesManager() {
             ) : (
               <div className="divide-y divide-gray-200">
                 {roles.map((role) => (
-                  <div key={role.id} className="p-6 hover:bg-gray-50">
+                  <div key={role.id} className={`p-6 hover:bg-gray-50 ${!role.is_active ? 'opacity-60' : ''}`}>
                     <div className="flex items-center justify-between">
                       <div className="flex-1">
                         <div className="flex items-center space-x-3 mb-2">
@@ -338,6 +364,9 @@ export default function RolesManager() {
                               Por defecto
                             </span>
                           )}
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${role.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-700'}`}>
+                            {role.is_active ? 'Activo' : 'Deshabilitado'}
+                          </span>
                         </div>
 
                         {role.description && (
@@ -378,12 +407,21 @@ export default function RolesManager() {
                         {!role.is_default && (
                           <button
                             onClick={() => handleSetDefaultRole(role.id)}
+                            disabled={!role.is_active}
                             className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
                             title="Establecer como rol por defecto"
                           >
                             <UserPlus className="w-4 h-4" />
                           </button>
                         )}
+                        <button
+                          onClick={() => handleToggleRoleStatus(role)}
+                          className={`p-2 rounded-lg transition-colors ${role.is_active ? 'text-yellow-700 hover:bg-yellow-50' : 'text-green-700 hover:bg-green-50'}`}
+                          disabled={role.is_default && role.is_active}
+                          title={role.is_default && role.is_active ? 'No puedes deshabilitar un rol por defecto' : (role.is_active ? 'Deshabilitar rol' : 'Habilitar rol')}
+                        >
+                          <Power className="w-4 h-4" />
+                        </button>
                         <button
                           onClick={() => handleEditRole(role)}
                           className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"

@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Database, Globe, Play, Settings, Trash2, Plus, CheckCircle, AlertTriangle, Terminal, X, RotateCcw, ExternalLink, Eye, Code, FileText, Shield, CreditCard as Edit, Power, MoreVertical, Upload, Cloud, AlertCircle, History, Download } from 'lucide-react';
+import { Database, Globe, Play, Settings, Trash2, Plus, CheckCircle, AlertTriangle, Terminal, X, RotateCcw, ExternalLink, Eye, Code, FileText, Shield, CreditCard as Edit, Power, MoreVertical, Upload, Cloud, AlertCircle, History, Download, Github, Unlink } from 'lucide-react';
 import { applicationService } from '../../services/applicationService';
 import { subscriptionService } from '../../services/subscriptionService';
 import { netlifyService } from '../../services/netlifyService';
-import { githubService } from '../../services/githubService';
+import { githubService, type GitRepository, type GitHubRepo } from '../../services/githubService';
 import { connectorsService } from '../../services/connectorsService';
 import { environmentVariablesService } from '../../services/environmentVariablesService';
 import { getStaticProjectFiles } from '../../utils/projectFilesHelper';
@@ -11,7 +11,9 @@ import { getReactConfigFiles, getCommitMessage } from '../../utils/reactProjectH
 import { getReactProjectFiles } from '../../utils/netlifyReactProjectHelper';
 import { deploymentService } from '../../services/deploymentService';
 import { deploymentSnapshotService } from '../../services/deploymentSnapshotService';
+import { environmentDeployBindingService, type EnvironmentDeployBinding } from '../../services/environmentDeployBindingService';
 import { supabase } from '../../lib/supabase';
+import { requireSupabaseAnonKey, requireSupabaseUrl } from '../../lib/supabaseRuntime';
 import ConfirmationModal from '../ui/ConfirmationModal';
 import NotificationModal from '../ui/NotificationModal';
 
@@ -43,6 +45,14 @@ interface LogEntry {
   timestamp: string;
   level: 'info' | 'success' | 'warning' | 'error';
   message: string;
+}
+
+interface RepoSelectionOption {
+  key: string;
+  label: string;
+  source: 'saved' | 'github';
+  savedRepo?: GitRepository;
+  githubRepo?: GitHubRepo;
 }
 
 export default function EnvironmentsManager() {
@@ -79,6 +89,7 @@ export default function EnvironmentsManager() {
   const [pendingDeployData, setPendingDeployData] = useState<{
     files: Record<string, string>;
     repo: any;
+    deployBranch: string;
     environmentId: string;
     environmentName: string;
     environment: any;
@@ -90,6 +101,20 @@ export default function EnvironmentsManager() {
   const [currentEnvironmentId, setCurrentEnvironmentId] = useState<string>('');
   const [currentEnvironmentName, setCurrentEnvironmentName] = useState<string>('');
   const [savedRepo, setSavedRepo] = useState<any>(null);
+  const [environmentBindingsMap, setEnvironmentBindingsMap] = useState<Record<string, EnvironmentDeployBinding>>({});
+  const [showRepoBindingModal, setShowRepoBindingModal] = useState<string | null>(null);
+  const [repoOptions, setRepoOptions] = useState<GitRepository[]>([]);
+  const [repoSelectionOptions, setRepoSelectionOptions] = useState<RepoSelectionOption[]>([]);
+  const [repoBindingNetlifySites, setRepoBindingNetlifySites] = useState<any[]>([]);
+  const [loadingRepoBindingNetlifySites, setLoadingRepoBindingNetlifySites] = useState(false);
+  const [loadingRepoOptions, setLoadingRepoOptions] = useState(false);
+  const [savingRepoBinding, setSavingRepoBinding] = useState(false);
+  const [repoBindingForm, setRepoBindingForm] = useState({
+    repoKey: '',
+    branch: 'main',
+    netlifySiteId: ''
+  });
+  const [bindingsFilter, setBindingsFilter] = useState<'all' | 'development' | 'testing' | 'production'>('all');
   const consoleRef = useRef<HTMLDivElement>(null);
   const logIdCounter = useRef(0);
   const logsRef = useRef<LogEntry[]>([]);
@@ -234,18 +259,214 @@ export default function EnvironmentsManager() {
     }
   };
 
-  const loadEnvironments = async () => {
+  const loadEnvironments = async (silent: boolean = false) => {
     try {
-      setLoading(true);
+      if (!silent) {
+        setLoading(true);
+      }
       const envs = await applicationService.getEnvironments(selectedApp);
       setEnvironments(envs);
+
+      await loadEnvironmentBindings(selectedApp);
 
       // Load latest deployment logs for all environments
       await loadLatestLogs(envs);
     } catch (error) {
       console.error('Error loading environments:', error);
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
+    }
+  };
+
+  const loadEnvironmentBindings = async (applicationId: string) => {
+    try {
+      const bindings = await environmentDeployBindingService.getBindingsForApplication(applicationId);
+      const nextMap: Record<string, EnvironmentDeployBinding> = {};
+      bindings.forEach((binding) => {
+        nextMap[binding.environment_id] = binding;
+      });
+      setEnvironmentBindingsMap(nextMap);
+    } catch (error) {
+      console.warn('Error loading environment deploy bindings:', error);
+      setEnvironmentBindingsMap({});
+    }
+  };
+
+  const handleOpenRepoBindingModal = async (environmentId: string) => {
+    try {
+      setLoadingRepoOptions(true);
+      setLoadingRepoBindingNetlifySites(true);
+      const savedRepos = await githubService.getSavedRepositories();
+      setRepoOptions(savedRepos);
+
+      let githubRepos: GitHubRepo[] = [];
+      try {
+        githubRepos = await githubService.listRepositories(1, 100);
+      } catch (error) {
+        console.warn('Could not list GitHub repositories for binding modal:', error);
+      }
+
+      const options: RepoSelectionOption[] = [];
+      const added = new Set<string>();
+
+      savedRepos.forEach((repo) => {
+        options.push({
+          key: `saved:${repo.id}`,
+          label: repo.repo_full_name,
+          source: 'saved',
+          savedRepo: repo,
+        });
+        added.add(repo.repo_full_name);
+      });
+
+      githubRepos.forEach((repo) => {
+        if (added.has(repo.full_name)) return;
+        options.push({
+          key: `github:${repo.id}`,
+          label: `${repo.full_name} (GitHub)`,
+          source: 'github',
+          githubRepo: repo,
+        });
+      });
+
+      setRepoSelectionOptions(options);
+
+      let netlifySitesOptions: any[] = [];
+      try {
+        const netlifyConfig = await netlifyService.loadConfigFromDatabase();
+        if (netlifyConfig?.access_token) {
+          netlifySitesOptions = await netlifyService.listSites();
+        }
+      } catch (error) {
+        console.warn('Could not load Netlify sites for binding modal:', error);
+      }
+      setRepoBindingNetlifySites(netlifySitesOptions);
+
+      const envBinding = environmentBindingsMap[environmentId];
+      const selectedRepo = envBinding?.git_repository_id
+        ? savedRepos.find(repo => repo.id === envBinding.git_repository_id)
+        : envBinding?.repo_full_name
+          ? savedRepos.find(repo => repo.repo_full_name === envBinding.repo_full_name)
+          : null;
+
+      const selectedOption = selectedRepo
+        ? options.find(option => option.source === 'saved' && option.savedRepo?.id === selectedRepo.id)
+        : envBinding?.repo_full_name
+          ? options.find(option =>
+              (option.source === 'saved' && option.savedRepo?.repo_full_name === envBinding.repo_full_name) ||
+              (option.source === 'github' && option.githubRepo?.full_name === envBinding.repo_full_name)
+            )
+          : null;
+
+      setRepoBindingForm({
+        repoKey: selectedOption?.key || '',
+        branch: envBinding?.branch || selectedRepo?.default_branch || 'main',
+        netlifySiteId: envBinding?.netlify_site_id || ''
+      });
+
+      setShowRepoBindingModal(environmentId);
+      setOpenMenuId(null);
+    } catch (error) {
+      console.error('Error loading repositories for binding:', error);
+      showNotification('error', 'Error', 'No se pudieron cargar los repositorios guardados.');
+    } finally {
+      setLoadingRepoOptions(false);
+      setLoadingRepoBindingNetlifySites(false);
+    }
+  };
+
+  const handleSaveRepoBinding = async () => {
+    if (!showRepoBindingModal) return;
+    if (!repoBindingForm.repoKey) {
+      showNotification('warning', 'Repositorio requerido', 'Selecciona un repositorio para el ambiente.');
+      return;
+    }
+
+    const selectedOption = repoSelectionOptions.find(option => option.key === repoBindingForm.repoKey);
+    if (!selectedOption) {
+      showNotification('error', 'Repositorio inválido', 'El repositorio seleccionado no es válido.');
+      return;
+    }
+
+    try {
+      setSavingRepoBinding(true);
+      let selectedRepo: GitRepository | null = null;
+
+      if (selectedOption.source === 'saved' && selectedOption.savedRepo) {
+        selectedRepo = selectedOption.savedRepo;
+      } else if (selectedOption.source === 'github' && selectedOption.githubRepo) {
+        selectedRepo = await githubService.saveRepository(selectedOption.githubRepo);
+      }
+
+      if (!selectedRepo) {
+        showNotification('error', 'Repositorio inválido', 'No se pudo resolver el repositorio seleccionado.');
+        return;
+      }
+
+      const selectedSite = repoBindingNetlifySites.find(site => site.id === repoBindingForm.netlifySiteId);
+      const savedBinding = await environmentDeployBindingService.upsertBinding({
+        application_id: selectedApp,
+        environment_id: showRepoBindingModal,
+        git_repository_id: selectedRepo.id,
+        repo_full_name: selectedRepo.repo_full_name,
+        branch: repoBindingForm.branch || selectedRepo.default_branch || 'main',
+        netlify_site_id: selectedSite?.id || null,
+        netlify_site_name: selectedSite?.name || null,
+        netlify_site_url: selectedSite?.ssl_url || selectedSite?.url || null,
+      });
+
+      if (savedBinding) {
+        setEnvironmentBindingsMap(prev => ({
+          ...prev,
+          [showRepoBindingModal]: savedBinding,
+        }));
+      }
+
+      setShowRepoBindingModal(null);
+      showNotification('success', 'Vínculo guardado', 'Repositorio, branch y sitio Netlify guardados para este ambiente.');
+    } catch (error) {
+      console.error('Error saving environment repo binding:', error);
+      showNotification('error', 'Error', 'No se pudo guardar la configuración del repositorio.');
+    } finally {
+      setSavingRepoBinding(false);
+    }
+  };
+
+  const handleDisconnectEnvironmentDeploy = async (env: Environment) => {
+    if (!confirm(`¿Desconectar Git/Netlify del ambiente "${env.name}"?`)) {
+      return;
+    }
+
+    try {
+      await environmentDeployBindingService.deleteBinding(env.id);
+      setEnvironmentBindingsMap(prev => {
+        const next = { ...prev };
+        delete next[env.id];
+        return next;
+      });
+
+      const envMetadata = env.metadata || {};
+      const {
+        github_repo,
+        netlify_site_id,
+        netlify_site_name,
+        netlify_site_url,
+        ...cleanMetadata
+      } = envMetadata as any;
+
+      await applicationService.updateEnvironment(env.id, {
+        metadata: cleanMetadata
+      });
+
+      await loadEnvironments(true);
+      showNotification('success', 'Desconectado', 'Se eliminó la asociación Git/Netlify para este ambiente.');
+    } catch (error) {
+      console.error('Error disconnecting environment deploy binding:', error);
+      showNotification('error', 'Error', 'No se pudo desconectar la configuración del ambiente.');
+    } finally {
+      setOpenMenuId(null);
     }
   };
 
@@ -274,6 +495,56 @@ export default function EnvironmentsManager() {
     } catch (error) {
       console.error('Error loading latest logs:', error);
     }
+  };
+
+  const resolveRepositoryForEnvironment = async (environmentId: string, environment: any) => {
+    const savedRepos = await githubService.getSavedRepositories();
+
+    let binding: EnvironmentDeployBinding | null = null;
+    try {
+      binding = await environmentDeployBindingService.getBinding(environmentId);
+    } catch (error) {
+      console.warn('Could not load environment binding for repository resolution:', error);
+    }
+
+    if (savedRepos.length === 0) {
+      if (binding?.repo_full_name) {
+        return {
+          repo: {
+            id: binding.git_repository_id,
+            repo_full_name: binding.repo_full_name,
+            default_branch: binding.branch || 'main',
+          },
+          source: 'binding' as const,
+        };
+      }
+      return { repo: null, source: 'none' as const };
+    }
+
+    try {
+      if (binding) {
+        const boundRepo = savedRepos.find(r =>
+          (binding.git_repository_id && r.id === binding.git_repository_id) ||
+          (binding.repo_full_name && r.repo_full_name === binding.repo_full_name)
+        );
+
+        if (boundRepo) {
+          return { repo: boundRepo, source: 'binding' as const };
+        }
+      }
+    } catch (error) {
+      console.warn('Could not resolve repository using environment binding:', error);
+    }
+
+    const metadataRepo = environment?.metadata?.github_repo;
+    if (metadataRepo) {
+      const metadataMatch = savedRepos.find(r => r.repo_full_name === metadataRepo);
+      if (metadataMatch) {
+        return { repo: metadataMatch, source: 'metadata' as const };
+      }
+    }
+
+    return { repo: savedRepos[0], source: 'fallback' as const };
   };
 
   const generateApiKey = (environment: string) => {
@@ -368,7 +639,7 @@ export default function EnvironmentsManager() {
         base_url: '',
         callback_url: ''
       });
-      await loadEnvironments();
+      await loadEnvironments(true);
     } catch (error) {
       console.error('Error creating environment:', error);
     }
@@ -558,7 +829,7 @@ export default function EnvironmentsManager() {
 
       // Test API endpoints
       addLog('🧪 Paso 7: Probando endpoints de Edge Functions...', 'info');
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseUrl = requireSupabaseUrl();
       const testResults = await testAllEndpoints(supabaseUrl, applicationId, apiKey);
       addLog('', 'info');
 
@@ -580,7 +851,7 @@ export default function EnvironmentsManager() {
         addLog('', 'info');
 
         // Reload environments to show updated data
-        await loadEnvironments();
+        await loadEnvironments(true);
       } catch (updateError) {
         addLog(`⚠️ Advertencia: No se pudo actualizar el ambiente: ${updateError.message}`, 'warning');
       }
@@ -645,9 +916,9 @@ export default function EnvironmentsManager() {
       // PASO 11: OBTENER REPOSITORIO
       // =================================================================
       addLog('📦 Paso 11: Obteniendo repositorio de GitHub...', 'info');
-      const savedRepos = await githubService.getSavedRepositories();
+      const repoResolution = await resolveRepositoryForEnvironment(environmentId, environment);
 
-      if (savedRepos.length === 0) {
+      if (!repoResolution.repo) {
         addLog('⚠️  No hay repositorios guardados', 'warning');
         addLog('📋 Crea o selecciona un repositorio en "Conectores"', 'info');
         addLog('', 'info');
@@ -655,8 +926,19 @@ export default function EnvironmentsManager() {
         return true;
       }
 
-      const repo = savedRepos[0];
+      const repo = repoResolution.repo;
+      const deployBranch = environmentBindingsMap[environmentId]?.branch || repo.default_branch || 'main';
+      if (repoResolution.source === 'binding') {
+        addLog('   ✓ Repositorio resuelto por vínculo del ambiente', 'success');
+      } else if (repoResolution.source === 'metadata') {
+        addLog('   ✓ Repositorio resuelto por metadata del ambiente', 'info');
+      } else {
+        addLog('   ℹ️ Usando repositorio por fallback (primero guardado)', 'warning');
+      }
+
+      setSavedRepo(repo);
       addLog(`✅ Repositorio: ${repo.repo_full_name}`, 'success');
+      addLog(`   🌿 Branch: ${deployBranch}`, 'info');
       addLog('', 'info');
 
       // =================================================================
@@ -706,7 +988,51 @@ export default function EnvironmentsManager() {
       // PASO 13: SELECCIONAR SITIO DE NETLIFY
       // =================================================================
       addLog('🌐 Paso 13: Preparando deploy a Netlify...', 'info');
+      const environmentBinding = environmentBindingsMap[environmentId];
+
+      // Guardar datos para continuar (manual o automático)
+      const deployData = {
+        files,
+        repo,
+        deployBranch,
+        environmentId,
+        environmentName,
+        environment,
+        applicationId,
+        apiKey
+      };
+      setPendingDeployData(deployData);
+
+      // Si ya hay sitio vinculado al ambiente, reutilizarlo automáticamente
+      if (environmentBinding?.netlify_site_id) {
+        addLog('🔁 Sitio Netlify encontrado en el vínculo del ambiente', 'success');
+        addLog('🧭 Modo: Auto-site con commit obligatorio', 'info');
+        addLog('   Flujo esperado: Paso 13 -> Paso 14 (GitHub commit) -> Paso 15 (Netlify build)', 'info');
+        const boundSiteId = environmentBinding.netlify_site_id;
+        let boundSiteName = environmentBinding.netlify_site_name || 'Sitio vinculado';
+        let boundSiteUrl = environmentBinding.netlify_site_url || '';
+
+        try {
+          await netlifyService.loadConfigFromDatabase();
+          const site = await netlifyService.getSite(boundSiteId);
+          boundSiteName = site.name || boundSiteName;
+          boundSiteUrl = site.ssl_url || site.url || boundSiteUrl;
+        } catch (error: any) {
+          addLog(`⚠️ No se pudo validar el sitio vinculado: ${error?.message || 'Error desconocido'}`, 'warning');
+        }
+
+        if (boundSiteUrl) {
+          addLog(`   ✓ Reutilizando sitio: ${boundSiteName}`, 'info');
+          addLog(`   ✓ URL: ${boundSiteUrl}`, 'info');
+          await handleSelectNetlifySite(boundSiteId, boundSiteName, boundSiteUrl, deployData);
+          return true;
+        }
+
+        addLog('⚠️ El sitio vinculado no tiene URL válida, se pedirá selección manual', 'warning');
+      }
+
       addLog('', 'info');
+      addLog('🧭 Modo: Selección manual de sitio (con commit obligatorio después de seleccionar)', 'info');
       addLog('📋 Ahora necesitas seleccionar el sitio de Netlify donde deployar:', 'info');
       addLog('   1. Se abrirá un selector de sitios', 'info');
       addLog('   2. Selecciona un sitio existente o crea uno nuevo', 'info');
@@ -714,17 +1040,6 @@ export default function EnvironmentsManager() {
       addLog('   4. Netlify buildará tu aplicación React completa', 'info');
       addLog('   5. Se deployarán todos los componentes con validaciones', 'info');
       addLog('', 'info');
-
-      // Guardar datos para continuar después de seleccionar sitio
-      setPendingDeployData({
-        files,
-        repo,
-        environmentId,
-        environmentName,
-        environment,
-        applicationId,
-        apiKey
-      });
 
       // Cargar sitios y mostrar selector
       await loadNetlifySites();
@@ -821,15 +1136,15 @@ export default function EnvironmentsManager() {
       }
 
       // STEP 3: Verificar/Obtener repositorios guardados
-      const savedRepos = await githubService.getSavedRepositories();
-      if (savedRepos.length === 0) {
+      const environmentForRepo = environments.find(e => e.id === environmentId);
+      const repoResolution = await resolveRepositoryForEnvironment(environmentId, environmentForRepo);
+      if (!repoResolution.repo) {
         showNotification('warning', 'Repositorio Requerido',
           'Crea o selecciona un repositorio de GitHub en la sección "Conectores" primero.');
         return;
       }
 
-      // Usar el primer repo (o el que esté marcado como principal)
-      const repo = savedRepos[0];
+      const repo = repoResolution.repo;
       setSavedRepo(repo);
 
       setIsNetlifyDeploying(true);
@@ -956,8 +1271,8 @@ export default function EnvironmentsManager() {
       }
 
       addLog('📁 Preparando formularios estáticos...', 'info');
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const supabaseUrl = requireSupabaseUrl();
+      const supabaseAnonKey = requireSupabaseAnonKey();
 
       // Obtener branding actual de la base de datos
       addLog('🎨 Obteniendo configuración de branding...', 'info');
@@ -1409,7 +1724,21 @@ export default function EnvironmentsManager() {
     }
   };
 
-  const handleSelectNetlifySite = async (siteId: string, siteName: string, siteUrl: string) => {
+  const handleSelectNetlifySite = async (
+    siteId: string,
+    siteName: string,
+    siteUrl: string,
+    deployDataOverride?: {
+      files: Record<string, string>;
+      repo: any;
+      deployBranch: string;
+      environmentId: string;
+      environmentName: string;
+      environment: any;
+      applicationId: string;
+      apiKey: string;
+    } | null
+  ) => {
     try {
       addLog('', 'info');
       addLog(`📋 Seleccionando sitio: ${siteName}`, 'info');
@@ -1438,11 +1767,15 @@ export default function EnvironmentsManager() {
 
       setShowNetlifySiteSelector(false);
 
+      const deployData = deployDataOverride || pendingDeployData;
+
       // Si hay un deploy pendiente, continuar con el push a GitHub
-      if (pendingDeployData) {
+      if (deployData) {
+        addLog('🧭 Ruta confirmada: continuar con commit/push a GitHub', 'info');
+        const pendingDeployData = deployData;
         addLog('📤 Paso 14: Subiendo código a GitHub...', 'info');
         addLog(`   Repositorio: ${pendingDeployData.repo.repo_full_name}`, 'info');
-        addLog(`   Branch: ${pendingDeployData.repo.default_branch || 'main'}`, 'info');
+        addLog(`   Branch: ${pendingDeployData.deployBranch}`, 'info');
         addLog(`   Sitio Netlify: ${siteName}`, 'info');
         addLog('', 'info');
 
@@ -1499,7 +1832,7 @@ export default function EnvironmentsManager() {
               application_id: selectedApp!,
               commit_hash: commitResult.sha || 'unknown',
               commit_message: getCommitMessage(pendingDeployData.applicationId, pendingDeployData.environmentName),
-              branch: pendingDeployData.repo.default_branch || 'main',
+              branch: pendingDeployData.deployBranch,
               deployment_url: siteUrl,
               status: 'stable',
               metadata: {
@@ -1535,6 +1868,24 @@ export default function EnvironmentsManager() {
               api_key: pendingDeployData.apiKey
             }
           });
+
+          const updatedBinding = await environmentDeployBindingService.upsertBinding({
+            application_id: selectedApp,
+            environment_id: pendingDeployData.environmentId,
+            git_repository_id: pendingDeployData.repo.id,
+            repo_full_name: pendingDeployData.repo.repo_full_name,
+            branch: pendingDeployData.deployBranch,
+            netlify_site_id: siteId,
+            netlify_site_name: siteName,
+            netlify_site_url: siteUrl,
+          });
+          if (updatedBinding) {
+            setEnvironmentBindingsMap(prev => ({
+              ...prev,
+              [pendingDeployData.environmentId]: updatedBinding,
+            }));
+          }
+          addLog('   ✓ Vínculo de deploy guardado para este ambiente', 'success');
 
           addLog('   ✓ URLs actualizadas con el sitio de Netlify', 'success');
 
@@ -1653,7 +2004,7 @@ export default function EnvironmentsManager() {
 
           // Recargar aplicaciones y ambientes
           await loadApplications();
-          await loadEnvironments();
+          await loadEnvironments(true);
         } catch (error: any) {
           addLog(`❌ Error durante el deploy: ${error.message}`, 'error');
 
@@ -1682,6 +2033,7 @@ export default function EnvironmentsManager() {
         }
       } else {
         // Configuración normal sin deploy pendiente
+        addLog('🧭 Ruta: configuración sin deploy pendiente (no commit)', 'warning');
         addLog('🎉 ¡Configuración completa!', 'success');
         addLog('', 'info');
         addLog('✨ Tu repositorio ya está conectado con Netlify', 'info');
@@ -1741,8 +2093,8 @@ export default function EnvironmentsManager() {
       // Get the current dist files (in a real scenario, we'd need to build first)
       // For now, we'll call the edge function that handles the build and deploy
 
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const supabaseUrl = requireSupabaseUrl();
+      const anonKey = requireSupabaseAnonKey();
 
       addLog('📤 Subiendo archivos a Netlify...', 'info');
       addLog('   Esto puede tomar varios minutos', 'info');
@@ -1929,7 +2281,7 @@ export default function EnvironmentsManager() {
   const handleToggleStatus = async (environmentId: string, currentStatus: boolean) => {
     try {
       await applicationService.toggleEnvironmentStatus(environmentId, !currentStatus);
-      await loadEnvironments();
+      await loadEnvironments(true);
       addLog(`✅ Ambiente ${!currentStatus ? 'activado' : 'desactivado'} exitosamente`, 'success');
     } catch (error) {
       console.error('Error toggling environment status:', error);
@@ -1953,7 +2305,7 @@ export default function EnvironmentsManager() {
 
     try {
       await applicationService.updateEnvironment(showEditModal, editFormData);
-      await loadEnvironments();
+      await loadEnvironments(true);
       setShowEditModal(null);
       addLog('✅ Ambiente actualizado exitosamente', 'success');
     } catch (error) {
@@ -1967,7 +2319,7 @@ export default function EnvironmentsManager() {
 
     try {
       await applicationService.deleteEnvironment(showDeleteConfirm);
-      await loadEnvironments();
+      await loadEnvironments(true);
       setShowDeleteConfirm(null);
       addLog('✅ Ambiente eliminado exitosamente', 'success');
     } catch (error) {
@@ -1977,7 +2329,7 @@ export default function EnvironmentsManager() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className={`space-y-6 ${showConsole ? 'pb-96' : ''}`}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -2031,6 +2383,90 @@ export default function EnvironmentsManager() {
 
       {selectedApp && (
         <>
+          {/* Deploy Bindings Matrix */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Matriz de Bindings de Deploy</h3>
+                <p className="text-sm text-gray-600">Asocia cada ambiente a su repo, branch y sitio Netlify</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-600">Filtrar:</label>
+                <select
+                  value={bindingsFilter}
+                  onChange={(e) => setBindingsFilter(e.target.value as any)}
+                  className="px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="all">Todos</option>
+                  <option value="development">Development</option>
+                  <option value="testing">Testing</option>
+                  <option value="production">Production</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 text-left text-gray-600">
+                    <th className="py-2 pr-4">Ambiente</th>
+                    <th className="py-2 pr-4">Repositorio</th>
+                    <th className="py-2 pr-4">Branch</th>
+                    <th className="py-2 pr-4">Netlify</th>
+                    <th className="py-2 pr-4">Estado</th>
+                    <th className="py-2">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {environments
+                    .filter((env) => bindingsFilter === 'all' || env.name === bindingsFilter)
+                    .map((env) => {
+                    const binding = environmentBindingsMap[env.id];
+                    const isConfigured = !!binding?.repo_full_name;
+
+                    return (
+                      <tr key={`binding-row-${env.id}`} className="border-b border-gray-100">
+                        <td className="py-3 pr-4 font-medium text-gray-900 capitalize">{env.name}</td>
+                        <td className="py-3 pr-4 text-gray-700">{binding?.repo_full_name || '—'}</td>
+                        <td className="py-3 pr-4 text-gray-700">{binding?.branch || '—'}</td>
+                        <td className="py-3 pr-4 text-gray-700">{binding?.netlify_site_name || '—'}</td>
+                        <td className="py-3 pr-4">
+                          {isConfigured ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-green-100 text-green-700 border border-green-200">
+                              Configurado
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-yellow-100 text-yellow-700 border border-yellow-200">
+                              Pendiente
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleOpenRepoBindingModal(env.id)}
+                              className="px-2 py-1 text-xs bg-blue-100 text-blue-700 hover:bg-blue-200 rounded-md transition-colors"
+                            >
+                              Configurar
+                            </button>
+                            {isConfigured && (
+                              <button
+                                onClick={() => handleDisconnectEnvironmentDeploy(env)}
+                                className="px-2 py-1 text-xs bg-red-100 text-red-700 hover:bg-red-200 rounded-md transition-colors"
+                              >
+                                Desconectar
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           {/* Environments Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {loading ? (
@@ -2054,6 +2490,17 @@ export default function EnvironmentsManager() {
                         <div>
                           <h3 className="font-semibold text-gray-900 capitalize">{env.name}</h3>
                           <p className="text-sm text-gray-600">{env.domain}</p>
+                          <div className="mt-1">
+                            {environmentBindingsMap[env.id]?.netlify_site_id ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-green-100 text-green-700 border border-green-200">
+                                Auto Netlify: activado
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600 border border-gray-200">
+                                Auto Netlify: desactivado
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <div className="flex items-center space-x-2">
@@ -2198,6 +2645,20 @@ export default function EnvironmentsManager() {
                           <p className="text-sm text-gray-900 font-mono truncate">{env.metadata.api_key}</p>
                         </div>
                       )}
+
+                      {environmentBindingsMap[env.id]?.repo_full_name && (
+                        <div className="bg-blue-50 border border-blue-200 rounded-md px-2 py-1">
+                          <p className="text-xs text-blue-700 truncate">
+                            Repo deploy: {environmentBindingsMap[env.id].repo_full_name}
+                            {environmentBindingsMap[env.id].branch ? ` (${environmentBindingsMap[env.id].branch})` : ''}
+                          </p>
+                          {environmentBindingsMap[env.id]?.netlify_site_name && (
+                            <p className="text-xs text-blue-600 truncate">
+                              Netlify: {environmentBindingsMap[env.id].netlify_site_name}
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
 
 
@@ -2271,6 +2732,13 @@ export default function EnvironmentsManager() {
                                 <span>{env.is_active ? 'Desactivar' : 'Activar'}</span>
                               </button>
                               <button
+                                onClick={() => handleOpenRepoBindingModal(env.id)}
+                                className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                              >
+                                <Github className="w-4 h-4" />
+                                <span>Configurar repo deploy</span>
+                              </button>
+                              <button
                                 onClick={() => {
                                   loadDeploymentHistory(env.id);
                                   setShowLogsHistory(env.id);
@@ -2280,6 +2748,13 @@ export default function EnvironmentsManager() {
                               >
                                 <Terminal className="w-4 h-4" />
                                 <span>Ver historial de logs</span>
+                              </button>
+                              <button
+                                onClick={() => handleDisconnectEnvironmentDeploy(env)}
+                                className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center space-x-2"
+                              >
+                                <Unlink className="w-4 h-4" />
+                                <span>Desconectar Git/Netlify</span>
                               </button>
                               <hr className="my-1" />
                               <button
@@ -2317,7 +2792,7 @@ export default function EnvironmentsManager() {
 
           {/* Deploy Console */}
           {showConsole && (
-            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+            <div className="fixed bottom-4 right-4 z-50 w-[min(960px,calc(100vw-2rem))] bg-white rounded-lg border border-gray-300 shadow-2xl overflow-hidden">
               {/* Console Header */}
               <div className="bg-gray-800 text-white px-4 py-3 flex items-center justify-between">
                 <div className="flex items-center space-x-3">
@@ -2360,7 +2835,7 @@ export default function EnvironmentsManager() {
               {/* Console Content */}
               <div 
                 ref={consoleRef}
-                className="bg-gray-900 text-gray-100 p-4 font-mono text-sm h-64 overflow-y-auto"
+                className="bg-gray-900 text-gray-100 p-4 font-mono text-sm h-72 overflow-y-auto"
               >
                 {consoleLogs.length === 0 ? (
                   <div className="text-gray-500">Console ready. Click "Desplegar" to start deployment...</div>
@@ -2874,6 +3349,115 @@ try {
                   className="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
                 >
                   Entendido
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Repo Binding Modal */}
+      {showRepoBindingModal && (() => {
+        const environment = environments.find(env => env.id === showRepoBindingModal);
+        if (!environment) return null;
+
+        return (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
+                <Github className="w-5 h-5" />
+                <span>Configurar Repo Deploy - {environment.name}</span>
+              </h3>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Repositorio
+                  </label>
+                  <select
+                    value={repoBindingForm.repoKey}
+                    onChange={(e) => {
+                      const selectedOption = repoSelectionOptions.find(option => option.key === e.target.value);
+                      const branch = selectedOption?.source === 'saved'
+                        ? selectedOption.savedRepo?.default_branch || 'main'
+                        : selectedOption?.githubRepo?.default_branch || 'main';
+
+                      setRepoBindingForm({
+                        repoKey: e.target.value,
+                        branch: branch || 'main',
+                        netlifySiteId: repoBindingForm.netlifySiteId
+                      });
+                    }}
+                    disabled={loadingRepoOptions}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
+                  >
+                    <option value="">Selecciona un repositorio guardado</option>
+                    {repoSelectionOptions.map((option) => (
+                      <option key={option.key} value={option.key}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  {repoSelectionOptions.length === 0 && !loadingRepoOptions && (
+                    <p className="text-xs text-red-600 mt-1">No se encontraron repositorios en GitHub. Verifica conexión en Conectores.</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Branch
+                  </label>
+                  <input
+                    type="text"
+                    value={repoBindingForm.branch}
+                    onChange={(e) => setRepoBindingForm(prev => ({ ...prev, branch: e.target.value }))}
+                    placeholder="main"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Sitio Netlify (opcional)
+                  </label>
+                  <select
+                    value={repoBindingForm.netlifySiteId}
+                    onChange={(e) => setRepoBindingForm(prev => ({ ...prev, netlifySiteId: e.target.value }))}
+                    disabled={loadingRepoBindingNetlifySites}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
+                  >
+                    <option value="">Seleccionar durante deploy</option>
+                    {repoBindingNetlifySites.map((site) => (
+                      <option key={site.id} value={site.id}>
+                        {site.name}
+                      </option>
+                    ))}
+                  </select>
+                  {repoBindingNetlifySites.length === 0 && !loadingRepoBindingNetlifySites && (
+                    <p className="text-xs text-gray-500 mt-1">No hay sitios cargados o Netlify no está configurado.</p>
+                  )}
+                </div>
+
+                <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded p-2">
+                  Este vínculo reutiliza repo/branch y, si lo eliges, también el sitio Netlify en próximos deploys.
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-3 pt-5">
+                <button
+                  type="button"
+                  onClick={() => setShowRepoBindingModal(null)}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveRepoBinding}
+                  disabled={savingRepoBinding || !repoBindingForm.repoKey}
+                  className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50"
+                >
+                  {savingRepoBinding ? 'Guardando...' : 'Guardar'}
                 </button>
               </div>
             </div>

@@ -22,6 +22,7 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
   });
 
   const [menuForm, setMenuForm] = useState({
+    parent_menu_id: '',
     name: '',
     slug: '',
     description: '',
@@ -57,7 +58,12 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
 
       const newMenu = await permissionsService.createMenu({
         application_id: applicationId,
-        ...menuForm
+        parent_menu_id: menuForm.parent_menu_id || null,
+        name: menuForm.name,
+        slug: menuForm.slug,
+        description: menuForm.description,
+        icon: menuForm.icon,
+        order_index: menuForm.order_index
       });
 
       // Create default actions for this menu
@@ -65,7 +71,7 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
 
       showNotification('success', 'Éxito', 'Menú creado exitosamente');
       setShowCreateMenu(false);
-      setMenuForm({ name: '', slug: '', description: '', icon: '', order_index: 0 });
+      setMenuForm({ parent_menu_id: '', name: '', slug: '', description: '', icon: '', order_index: 0 });
       loadMenus();
     } catch (error: any) {
       console.error('Error creating menu:', error);
@@ -81,7 +87,7 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
 
       showNotification('success', 'Éxito', 'Menú actualizado exitosamente');
       setEditingMenu(null);
-      setMenuForm({ name: '', slug: '', description: '', icon: '', order_index: 0 });
+      setMenuForm({ parent_menu_id: '', name: '', slug: '', description: '', icon: '', order_index: 0 });
       loadMenus();
     } catch (error: any) {
       console.error('Error updating menu:', error);
@@ -119,12 +125,126 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
   const startEditMenu = (menu: MenuWithActions) => {
     setEditingMenu(menu);
     setMenuForm({
+      parent_menu_id: menu.parent_menu_id || '',
       name: menu.name,
       slug: menu.slug,
       description: menu.description || '',
       icon: menu.icon || '',
       order_index: menu.order_index
     });
+  };
+
+  const flattenMenus = (items: MenuWithActions[]): MenuWithActions[] => {
+    const result: MenuWithActions[] = [];
+    const walk = (menusToWalk: MenuWithActions[]) => {
+      menusToWalk.forEach(menu => {
+        result.push(menu);
+        if (menu.submenus.length > 0) {
+          walk(menu.submenus);
+        }
+      });
+    };
+
+    walk(items);
+    return result;
+  };
+
+  const getDescendantMenuIds = (menuId: string): Set<string> => {
+    const descendants = new Set<string>();
+    const allMenus = flattenMenus(menus);
+    const byParent = new Map<string, string[]>();
+
+    allMenus.forEach(menu => {
+      if (!menu.parent_menu_id) return;
+      const existing = byParent.get(menu.parent_menu_id) || [];
+      existing.push(menu.id);
+      byParent.set(menu.parent_menu_id, existing);
+    });
+
+    const walk = (currentId: string) => {
+      const children = byParent.get(currentId) || [];
+      children.forEach(childId => {
+        if (descendants.has(childId)) return;
+        descendants.add(childId);
+        walk(childId);
+      });
+    };
+
+    walk(menuId);
+    return descendants;
+  };
+
+  const renderMenuItem = (menu: MenuWithActions, depth = 0) => {
+    const totalChildren = menu.submenus.length;
+
+    return (
+      <div key={menu.id} className="border border-gray-200 rounded-lg overflow-hidden">
+        <div className="bg-gray-50 p-4 flex items-center justify-between" style={{ paddingLeft: `${16 + depth * 20}px` }}>
+          <div className="flex items-center space-x-3 flex-1">
+            <button
+              onClick={() => toggleMenuExpanded(menu.id)}
+              className="p-1 hover:bg-gray-200 rounded transition-colors"
+            >
+              {expandedMenus.has(menu.id) ? (
+                <ChevronUp className="w-5 h-5 text-gray-600" />
+              ) : (
+                <ChevronDown className="w-5 h-5 text-gray-600" />
+              )}
+            </button>
+            {menu.icon && <span className="text-2xl">{menu.icon}</span>}
+            <div>
+              <h3 className="font-semibold text-gray-900">{menu.name}</h3>
+              <p className="text-sm text-gray-500">
+                {menu.slug} • {menu.actions.length} acciones{totalChildren > 0 ? ` • ${totalChildren} submenús` : ''}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => startEditMenu(menu)}
+              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+            >
+              <Edit className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setDeleteModal({ show: true, menuId: menu.id })}
+              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {expandedMenus.has(menu.id) && (
+          <div className="p-4 bg-white border-t border-gray-200" style={{ paddingLeft: `${16 + depth * 20}px` }}>
+            {menu.description && (
+              <p className="text-sm text-gray-600 mb-3">{menu.description}</p>
+            )}
+            {menu.actions.length > 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+                {menu.actions.map(action => (
+                  <div
+                    key={action.id}
+                    className="px-3 py-2 bg-gray-50 rounded-lg border border-gray-200"
+                  >
+                    <div className="font-medium text-sm text-gray-900">{action.name}</div>
+                    <div className="text-xs text-gray-500">{action.slug}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 mb-4">Sin acciones configuradas.</p>
+            )}
+
+            {menu.submenus.length > 0 && (
+              <div className="space-y-3">
+                {menu.submenus.map(submenu => renderMenuItem(submenu, depth + 1))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
   };
 
   const generateSlug = (name: string) => {
@@ -146,6 +266,10 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
 
   return (
     <>
+      {(() => {
+        const allMenus = flattenMenus(menus);
+        const blockedParentIds = editingMenu ? getDescendantMenuIds(editingMenu.id) : new Set<string>();
+        return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
         <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
           {/* Header */}
@@ -173,6 +297,28 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
                   {editingMenu ? 'Editar Menú' : 'Crear Nuevo Menú'}
                 </h3>
                 <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Menú padre
+                    </label>
+                    <select
+                      value={menuForm.parent_menu_id}
+                      onChange={(e) => setMenuForm(prev => ({ ...prev, parent_menu_id: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">(Menú principal)</option>
+                      {allMenus.map(menu => {
+                        const isSelf = editingMenu?.id === menu.id;
+                        const isDescendant = blockedParentIds.has(menu.id);
+
+                        return (
+                          <option key={menu.id} value={menu.id} disabled={isSelf || isDescendant}>
+                            {menu.name}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Nombre *
@@ -245,7 +391,7 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
                     onClick={() => {
                       setShowCreateMenu(false);
                       setEditingMenu(null);
-                      setMenuForm({ name: '', slug: '', description: '', icon: '', order_index: 0 });
+                      setMenuForm({ parent_menu_id: '', name: '', slug: '', description: '', icon: '', order_index: 0 });
                     }}
                     className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
                   >
@@ -285,62 +431,7 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
             ) : (
               <div className="space-y-3">
                 {menus.map(menu => (
-                  <div key={menu.id} className="border border-gray-200 rounded-lg overflow-hidden">
-                    <div className="bg-gray-50 p-4 flex items-center justify-between">
-                      <div className="flex items-center space-x-3 flex-1">
-                        <button
-                          onClick={() => toggleMenuExpanded(menu.id)}
-                          className="p-1 hover:bg-gray-200 rounded transition-colors"
-                        >
-                          {expandedMenus.has(menu.id) ? (
-                            <ChevronUp className="w-5 h-5 text-gray-600" />
-                          ) : (
-                            <ChevronDown className="w-5 h-5 text-gray-600" />
-                          )}
-                        </button>
-                        {menu.icon && <span className="text-2xl">{menu.icon}</span>}
-                        <div>
-                          <h3 className="font-semibold text-gray-900">{menu.name}</h3>
-                          <p className="text-sm text-gray-500">
-                            {menu.slug} • {menu.actions.length} acciones
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <button
-                          onClick={() => startEditMenu(menu)}
-                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => setDeleteModal({ show: true, menuId: menu.id })}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {expandedMenus.has(menu.id) && (
-                      <div className="p-4 bg-white border-t border-gray-200">
-                        {menu.description && (
-                          <p className="text-sm text-gray-600 mb-3">{menu.description}</p>
-                        )}
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                          {menu.actions.map(action => (
-                            <div
-                              key={action.id}
-                              className="px-3 py-2 bg-gray-50 rounded-lg border border-gray-200"
-                            >
-                              <div className="font-medium text-sm text-gray-900">{action.name}</div>
-                              <div className="text-xs text-gray-500">{action.slug}</div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  renderMenuItem(menu)
                 ))}
               </div>
             )}
@@ -357,6 +448,8 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
           </div>
         </div>
       </div>
+        );
+      })()}
 
       {/* Delete Confirmation Modal */}
       {deleteModal.show && (

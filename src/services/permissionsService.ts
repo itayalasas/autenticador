@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 export interface ApplicationMenu {
   id: string;
   application_id: string;
+  parent_menu_id?: string | null;
   name: string;
   slug: string;
   description?: string;
@@ -34,6 +35,7 @@ export interface RolePermission {
 
 export interface MenuWithActions extends ApplicationMenu {
   actions: MenuAction[];
+  submenus: MenuWithActions[];
 }
 
 export interface RolePermissionDetail extends RolePermission {
@@ -55,27 +57,59 @@ class PermissionsService {
     if (menusError) throw menusError;
     if (!menus) return [];
 
-    // Get actions for each menu
-    const menusWithActions = await Promise.all(
-      menus.map(async (menu) => {
-        const { data: actions } = await supabase
-          .from('menu_actions')
-          .select('*')
-          .eq('menu_id', menu.id)
-          .order('slug', { ascending: true });
+    const menuIds = menus.map(menu => menu.id);
+    const { data: allActions, error: actionsError } = await supabase
+      .from('menu_actions')
+      .select('*')
+      .in('menu_id', menuIds)
+      .order('slug', { ascending: true });
 
-        return {
-          ...menu,
-          actions: actions || []
-        };
-      })
-    );
+    if (actionsError) throw actionsError;
 
-    return menusWithActions;
+    const actionsByMenuId = new Map<string, MenuAction[]>();
+    (allActions || []).forEach((action) => {
+      const existing = actionsByMenuId.get(action.menu_id) || [];
+      existing.push(action);
+      actionsByMenuId.set(action.menu_id, existing);
+    });
+
+    const menusMap = new Map<string, MenuWithActions>();
+    menus.forEach((menu) => {
+      menusMap.set(menu.id, {
+        ...menu,
+        actions: actionsByMenuId.get(menu.id) || [],
+        submenus: []
+      });
+    });
+
+    const topLevelMenus: MenuWithActions[] = [];
+
+    menusMap.forEach((menu) => {
+      if (menu.parent_menu_id && menusMap.has(menu.parent_menu_id)) {
+        menusMap.get(menu.parent_menu_id)!.submenus.push(menu);
+      } else {
+        topLevelMenus.push(menu);
+      }
+    });
+
+    const sortMenuTree = (items: MenuWithActions[]) => {
+      items.sort((a, b) => {
+        if (a.order_index === b.order_index) {
+          return a.name.localeCompare(b.name);
+        }
+        return a.order_index - b.order_index;
+      });
+      items.forEach(item => sortMenuTree(item.submenus));
+    };
+
+    sortMenuTree(topLevelMenus);
+
+    return topLevelMenus;
   }
 
   async createMenu(menuData: {
     application_id: string;
+    parent_menu_id?: string | null;
     name: string;
     slug: string;
     description?: string;

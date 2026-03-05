@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, EyeOff, Mail, Lock, User, ArrowRight, CheckCircle, AlertCircle, Shield } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, User, ArrowRight, CheckCircle, AlertCircle, Shield, X } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { rolesService } from '../../services/rolesService';
 import { applicationService } from '../../services/applicationService';
@@ -75,11 +75,16 @@ function PublicAuthForms({
   const [mfaSetupStep, setMfaSetupStep] = useState<1 | 2 | 3>(1);
   const [mfaChallengeId, setMfaChallengeId] = useState<string | null>(null);
   const [mfaChallengeCode, setMfaChallengeCode] = useState<string>('');
+  const [mfaVerificationNumber, setMfaVerificationNumber] = useState<string>('');
+  const [mfaCodeExpiresIn, setMfaCodeExpiresIn] = useState<number>(0);
+  const [showMfaManualEntry, setShowMfaManualEntry] = useState(false);
   const [mfaManualCode, setMfaManualCode] = useState('');
   const [mfaPolling, setMfaPolling] = useState(false);
   const [mfaSetupPolling, setMfaSetupPolling] = useState(false);
   const [mfaSetupLinked, setMfaSetupLinked] = useState(false);
+  const [mfaAutoStartingSession, setMfaAutoStartingSession] = useState(false);
   const [mfaVerifyingCode, setMfaVerifyingCode] = useState(false);
+  const [mfaCompletingLogin, setMfaCompletingLogin] = useState(false);
   const [availableRoles, setAvailableRoles] = useState<any[]>([]);
   const [selectedRole, setSelectedRole] = useState('');
   const [customTexts, setCustomTexts] = useState<any>({});
@@ -296,6 +301,11 @@ function PublicAuthForms({
 
         if (pairingStatus === 'linked') {
           setMfaSetupLinked(true);
+          setMfaAutoStartingSession(true);
+          window.setTimeout(async () => {
+            if (activeSetupPollRunRef.current !== runId) return;
+            await handleSubmit({ preventDefault: () => {} } as React.FormEvent);
+          }, 900);
           return;
         }
 
@@ -325,10 +335,15 @@ function PublicAuthForms({
     setMfaSetupData(null);
     setMfaSetupStep(1);
     setMfaSetupLinked(false);
+    setMfaAutoStartingSession(false);
     setMfaSetupPolling(false);
     setMfaChallengeId(null);
     setMfaChallengeCode('');
+    setMfaVerificationNumber('');
+    setMfaCodeExpiresIn(0);
+    setShowMfaManualEntry(false);
     setMfaManualCode('');
+    setMfaCompletingLogin(false);
     activePollRunRef.current += 1;
     activeSetupPollRunRef.current += 1;
 
@@ -466,6 +481,7 @@ function PublicAuthForms({
         if (formType === 'login' && result.error?.code === 'MFA_REQUIRED') {
           const challengeId = result.data?.challenge_id;
           const challengeCode = result.data?.challenge_code;
+          const verificationNumber = String(result.data?.verification_number || '').padStart(2, '0');
 
           if (!challengeId) {
             throw new Error('Desafío MFA inválido: falta challenge_id');
@@ -473,11 +489,16 @@ function PublicAuthForms({
 
           setMessage({
             type: 'success',
-            text: `Doble factor requerido. Abre tu app Authenticator y aprueba el acceso. Código: ${challengeCode || 'N/A'}`
+            text: verificationNumber
+              ? `Doble factor requerido. En tu móvil valida el número ${verificationNumber} y aprueba el acceso.`
+              : `Doble factor requerido. Abre tu app Authenticator y aprueba el acceso.`
           });
 
           setMfaChallengeId(challengeId);
           setMfaChallengeCode(challengeCode || '');
+          setMfaVerificationNumber(verificationNumber || '');
+          setMfaCodeExpiresIn(Number(result.data?.challenge_code_expires_in_seconds || 60));
+          setShowMfaManualEntry(false);
 
           const runId = ++activePollRunRef.current;
           setMfaPolling(true);
@@ -507,11 +528,29 @@ function PublicAuthForms({
               const checkResult = await checkResponse.json();
               const challengeStatus = checkResult?.data?.status;
 
-              if (!checkResult?.success || challengeStatus === 'pending') {
+              if (!checkResult?.success) {
+                continue;
+              }
+
+              if (challengeStatus === 'pending') {
+                if (checkResult?.data?.challenge_code) {
+                  setMfaChallengeCode(checkResult.data.challenge_code);
+                }
+
+                if (typeof checkResult?.data?.verification_number === 'string') {
+                  setMfaVerificationNumber(String(checkResult.data.verification_number).padStart(2, '0'));
+                }
+
+                if (typeof checkResult?.data?.challenge_code_expires_in_seconds === 'number') {
+                  setMfaCodeExpiresIn(Math.max(0, checkResult.data.challenge_code_expires_in_seconds));
+                }
+
                 continue;
               }
 
               if (challengeStatus === 'approved') {
+                setMfaCompletingLogin(true);
+                setMessage({ type: 'success', text: 'Aprobación recibida. Iniciando sesión...' });
                 await completeSuccessfulLogin(checkResult.data);
                 if (onSuccess) {
                   onSuccess(checkResult.data);
@@ -700,6 +739,9 @@ function PublicAuthForms({
         throw new Error('No se pudo completar el login con código MFA.');
       }
 
+      setMfaCompletingLogin(true);
+      setMessage({ type: 'success', text: 'Aprobación recibida. Iniciando sesión...' });
+
       if (checkResult.data?.callback_url) {
         setTimeout(() => {
           window.location.href = checkResult.data.callback_url;
@@ -713,11 +755,42 @@ function PublicAuthForms({
         onSuccess(checkResult.data);
       }
     } catch (error: any) {
+      setMfaCompletingLogin(false);
       setMessage({ type: 'error', text: error.message || 'No se pudo verificar el código MFA' });
     } finally {
       setMfaVerifyingCode(false);
     }
   };
+
+  const handleRequestAnotherMfaCode = async () => {
+    await handleSubmit({ preventDefault: () => {} } as React.FormEvent);
+  };
+
+  const handleCloseMfaChallengeModal = () => {
+    activePollRunRef.current += 1;
+    setMfaPolling(false);
+    setMfaVerifyingCode(false);
+    setMfaCompletingLogin(false);
+    setShowMfaManualEntry(false);
+    setMfaManualCode('');
+    setMfaChallengeId(null);
+    setMfaChallengeCode('');
+    setMfaVerificationNumber('');
+    setMfaCodeExpiresIn(0);
+    setMessage(null);
+  };
+
+  useEffect(() => {
+    if (!mfaChallengeId || mfaCodeExpiresIn <= 0) return;
+
+    const timer = window.setInterval(() => {
+      setMfaCodeExpiresIn((current) => Math.max(0, current - 1));
+    }, 1000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [mfaChallengeId, mfaCodeExpiresIn]);
 
   useEffect(() => {
     return () => {
@@ -767,6 +840,7 @@ function PublicAuthForms({
   };
 
   const isMfaSetupFlow = formType === 'login' && !!mfaSetupData;
+  const isMfaChallengeFlow = formType === 'login' && !!mfaChallengeId;
 
   // Generate dynamic styles based on extended branding
   const getBackgroundStyle = (): React.CSSProperties => {
@@ -1023,7 +1097,7 @@ function PublicAuthForms({
           )}
 
           {/* Form - Hide if reset-password was successful */}
-          {!(formType === 'reset-password' && message?.type === 'success') && (
+          {!(formType === 'reset-password' && message?.type === 'success') && !isMfaChallengeFlow && (
           <form onSubmit={handleSubmit} className={getSpacingClass()}>
             {formType === 'login' && mfaSetupData && (
               <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-3">
@@ -1125,6 +1199,9 @@ function PublicAuthForms({
                 {mfaSetupLinked && (
                   <div className="rounded-lg border border-green-200 bg-green-50 p-3 space-y-2">
                     <p className="text-sm text-green-800">✅ Dispositivo vinculado correctamente.</p>
+                    <p className="text-xs text-green-700">
+                      {mfaAutoStartingSession ? 'Iniciando sesión automáticamente...' : 'Si no avanza, presiona OK para continuar.'}
+                    </p>
                     <button
                       type="button"
                       onClick={async () => {
@@ -1136,37 +1213,6 @@ function PublicAuthForms({
                     </button>
                   </div>
                 )}
-              </div>
-            )}
-
-            {formType === 'login' && mfaChallengeId && (
-              <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4 space-y-3">
-                <h3 className="text-sm font-semibold text-indigo-900">Método alternativo: ingresar código</h3>
-                <p className="text-xs text-indigo-800">
-                  También puedes escribir el código que aparece en tu app Authenticator para completar el login.
-                </p>
-                {mfaChallengeCode && (
-                  <p className="text-xs text-indigo-700">Código de desafío: {mfaChallengeCode}</p>
-                )}
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={mfaManualCode}
-                    onChange={(e) => setMfaManualCode(e.target.value)}
-                    placeholder="Código MFA"
-                    className="flex-1 px-3 py-2 border border-indigo-200 rounded-lg text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleManualMfaCodeVerification}
-                    disabled={mfaVerifyingCode}
-                    className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-60"
-                  >
-                    {mfaVerifyingCode ? 'Verificando...' : 'Validar'}
-                  </button>
-                </div>
-                <p className="text-xs text-indigo-700">{mfaPolling ? 'Seguimos esperando aprobación push en paralelo.' : 'Polling de aprobación detenido.'}</p>
               </div>
             )}
 
@@ -1349,7 +1395,7 @@ function PublicAuthForms({
           )}
 
           {/* Footer Links - Hide if reset-password was successful */}
-          {!(formType === 'reset-password' && message?.type === 'success') && !isMfaSetupFlow && (
+          {!(formType === 'reset-password' && message?.type === 'success') && !isMfaSetupFlow && !isMfaChallengeFlow && (
           <div className="mt-6 text-center space-y-2">
             {formType === 'login' && (
               <>
@@ -1408,6 +1454,100 @@ function PublicAuthForms({
           </div>
         </div>
       </div>
+
+      {formType === 'login' && mfaChallengeId && (
+        <div className="fixed inset-0 z-50 bg-black/55 backdrop-blur-[1px] flex items-center justify-center px-4">
+          <div className="w-full max-w-[700px] overflow-hidden rounded-[22px] bg-white shadow-2xl border border-indigo-100">
+            <div className="p-6 md:p-7 space-y-5">
+              <div className="flex items-start justify-between gap-6">
+                <div className="space-y-2">
+                  <p className="text-[13px] font-semibold uppercase tracking-wide text-indigo-500">Verificación MFA</p>
+                  <h3 className="text-[38px] font-semibold text-indigo-950 leading-[1.08]">Aprobación en curso</h3>
+                  <p className="text-base text-indigo-800 leading-[1.35]">
+                    Revisa tu app Authenticator y aprueba el acceso para continuar.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleCloseMfaChallengeModal}
+                  disabled={mfaCompletingLogin}
+                  className="text-indigo-400 hover:text-indigo-600 disabled:opacity-40"
+                  aria-label="Cerrar verificación MFA"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="rounded-[16px] border border-indigo-200 bg-indigo-50 px-5 py-4">
+                <p className="text-base font-medium text-indigo-800">Número de verificación</p>
+                <p className="text-[48px] font-bold tracking-[0.12em] text-indigo-900 mt-1">{mfaVerificationNumber || '--'}</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowMfaManualEntry((current) => !current)}
+                  className="px-4 py-2.5 rounded-xl border border-indigo-200 bg-white text-indigo-700 text-[15px] font-medium hover:bg-indigo-50 disabled:opacity-60"
+                  disabled={mfaCompletingLogin}
+                >
+                  Entrar código manual
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRequestAnotherMfaCode}
+                  className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-[15px] font-medium hover:bg-indigo-700 disabled:opacity-60"
+                  disabled={loading || mfaCompletingLogin}
+                >
+                  Solicitar otro código
+                </button>
+              </div>
+
+              {showMfaManualEntry && (
+                <div className="rounded-xl border border-indigo-100 bg-white p-4 space-y-3">
+                  <p className="text-xs text-indigo-700">
+                    Código de 6 dígitos (se regenera cada 60 segundos).
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={mfaManualCode}
+                      onChange={(e) => setMfaManualCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                      placeholder="Código MFA"
+                      className="flex-1 px-3 py-2 border border-indigo-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleManualMfaCodeVerification}
+                      disabled={mfaVerifyingCode || mfaCompletingLogin}
+                      className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-60"
+                    >
+                      {mfaVerifyingCode ? 'Verificando...' : 'Validar'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <p className="text-sm text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-[14px] px-4 py-3.5 flex items-center gap-3">
+                <span className="w-5 h-5 rounded-full border-2 border-indigo-400 border-dashed animate-spin shrink-0" />
+                <span>
+                  {mfaCompletingLogin
+                    ? 'Conectando y autenticando sesión...'
+                    : mfaPolling
+                    ? 'Esperando aprobación desde la app móvil.'
+                    : 'Espera de aprobación detenida.'}
+                </span>
+              </p>
+            </div>
+
+            <div className="border-t border-slate-100 bg-slate-50 px-6 py-4 flex items-center justify-center gap-2 text-slate-600">
+              <Shield className="w-5 h-5 text-indigo-500" />
+              <p className="text-[1.05rem]">Protected by <span className="font-semibold text-slate-800">AuthSystem</span></p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

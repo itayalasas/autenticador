@@ -40,7 +40,7 @@ export default function ApiDocumentation() {
       id: 'auth-login',
       title: 'Login de Usuario',
       method: 'POST',
-      path: '/api/auth/login',
+      path: '/functions/v1/auth-login',
       description: `Autentica un usuario y retorna tokens de acceso junto con permisos granulares a nivel de menú.
 
 ## Sistema de Permisos
@@ -50,6 +50,11 @@ La respuesta incluye un objeto \`permissions\` que mapea cada menú de la aplica
 - **Estructura**: \`{ "menu_slug": ["action1", "action2", ...] }\`
 - **Acciones posibles**: read, create, update, delete
 - **Uso**: Controla qué puede ver y hacer el usuario en cada sección
+
+Además, cuando hay submenús, también retorna \`permissions_hierarchy\`:
+
+- **Estructura**: \`{ "menu_slug": { actions: [...], submenus: { "submenu_slug": [...] } } }\`
+- **Uso**: Permite evaluar permisos por menú padre y por submenú en forma jerárquica.
 
 ### Ejemplo de uso:
 \`\`\`javascript
@@ -64,18 +69,19 @@ if (user.permissions.reports) {
 }
 \`\`\``,
       params: [
-        { name: 'api_key', type: 'string', required: true, location: 'URL', description: 'API Key en la URL (ej: ?api_key=ak_production_xxx)' },
+        { name: 'api_key', type: 'string', required: true, location: 'Body', description: 'API Key de la aplicación (ej: ak_production_xxx)' },
         { name: 'email', type: 'string', required: true, location: 'Body', description: 'Email del usuario' },
         { name: 'password', type: 'string', required: true, location: 'Body', description: 'Contraseña del usuario' },
         { name: 'application_id', type: 'string', required: true, location: 'Body', description: 'ID único de la aplicación' }
       ],
       requestExample: (baseUrl: string, apiKey: string) => ({
-        url: `${baseUrl}/api/auth/login?api_key=${apiKey}`,
+        url: `${baseUrl}/functions/v1/auth-login`,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: {
+          api_key: apiKey,
           email: 'usuario@ejemplo.com',
           password: 'micontraseña123',
           application_id: 'app_mk2k3j4h5k6l'
@@ -98,6 +104,15 @@ if (user.permissions.reports) {
         "dashboard": ["read", "create", "update", "delete"],
         "users": ["read", "create", "update"],
         "reports": ["read"]
+      },
+      "permissions_hierarchy": {
+        "dashboard": {
+          "actions": ["read"],
+          "submenus": {
+            "users": ["read", "create", "update"],
+            "reports": ["read"]
+          }
+        }
       },
       "metadata": {},
       "created_at": "2024-02-20T10:30:00Z"
@@ -136,12 +151,13 @@ if (user.permissions.reports) {
       },
       examples: {
         javascript: (baseUrl: string, apiKey: string) => `// JavaScript/Fetch
-const response = await fetch('${baseUrl}/api/auth/login?api_key=${apiKey}', {
+const response = await fetch('${baseUrl}/functions/v1/auth-login', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
+    api_key: '${apiKey}',
     email: 'usuario@ejemplo.com',
     password: 'micontraseña123',
     application_id: 'app_mk2k3j4h5k6l'
@@ -172,9 +188,10 @@ if (data.success) {
         python: (baseUrl: string, apiKey: string) => `# Python/Requests
 import requests
 
-url = '${baseUrl}/api/auth/login?api_key=${apiKey}'
+url = '${baseUrl}/functions/v1/auth-login'
 headers = {'Content-Type': 'application/json'}
 data = {
+    'api_key': '${apiKey}',
     'email': 'usuario@ejemplo.com',
     'password': 'micontraseña123',
     'application_id': 'app_mk2k3j4h5k6l'
@@ -199,8 +216,9 @@ else:
     print(f"Error: {result['error']['message']}")`,
         php: (baseUrl: string, apiKey: string) => `<?php
 // PHP/cURL
-$url = '${baseUrl}/api/auth/login?api_key=${apiKey}';
+$url = '${baseUrl}/functions/v1/auth-login';
 $data = array(
+  'api_key' => '${apiKey}',
     'email' => 'usuario@ejemplo.com',
     'password' => 'micontraseña123',
     'application_id' => 'app_mk2k3j4h5k6l'
@@ -241,10 +259,10 @@ import java.net.http.HttpResponse;
 import java.net.URI;
 
 HttpClient client = HttpClient.newHttpClient();
-String json = "{\\"email\\":\\"usuario@ejemplo.com\\",\\"password\\":\\"micontraseña123\\",\\"application_id\\":\\"app_mk2k3j4h5k6l\\"}";
+String json = "{\\"api_key\\":\\"${apiKey}\\",\\"email\\":\\"usuario@ejemplo.com\\",\\"password\\":\\"micontraseña123\\",\\"application_id\\":\\"app_mk2k3j4h5k6l\\"}";
 
 HttpRequest request = HttpRequest.newBuilder()
-    .uri(URI.create("${baseUrl}/api/auth/login?api_key=${apiKey}"))
+    .uri(URI.create("${baseUrl}/functions/v1/auth-login"))
     .header("Content-Type", "application/json")
     .POST(HttpRequest.BodyPublishers.ofString(json))
     .build();
@@ -254,13 +272,329 @@ System.out.println(response.body());`
       }
     },
     {
+      id: 'auth-exchange-code',
+      title: 'Intercambio de Código de Acceso',
+      method: 'POST',
+      path: '/functions/v1/auth-exchange-code',
+      description: 'Intercambia el código temporal devuelto por el login con callback por tokens de acceso y datos del usuario.',
+      params: [
+        { name: 'code', type: 'string', required: true, location: 'Body', description: 'Código temporal recibido en el callback (query param code)' },
+        { name: 'application_id', type: 'string', required: true, location: 'Body', description: 'ID público de la aplicación (application_id)' }
+      ],
+      requestExample: (baseUrl: string) => ({
+        url: `${baseUrl}/functions/v1/auth-exchange-code`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: {
+          code: 'e83e749d-2376-43c3-b6ff-f65448515f47',
+          application_id: 'app_51ecb9e2-6b3'
+        }
+      }),
+      response: {
+        success: `{
+  "success": true,
+  "data": {
+    "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+    "refresh_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+    "token_type": "Bearer",
+    "expires_in": 86400,
+    "user": {
+      "id": "60187dc2-a013-40fa-9a00-68701cc92018",
+      "email": "usuario@ejemplo.com",
+      "name": "Usuario Ejemplo",
+      "role": "administrador",
+      "permissions": {
+        "dashboard": ["read", "create"]
+      }
+    },
+    "application": {
+      "id": "app_51ecb9e2-6b3"
+    }
+  }
+}`,
+        error: `{
+  "success": false,
+  "error": {
+    "code": "INVALID_CODE",
+    "message": "Invalid or expired authorization code"
+  }
+}
+
+// Otros errores posibles:
+{
+  "success": false,
+  "error": {
+    "code": "CODE_ALREADY_USED",
+    "message": "Authorization code has already been used"
+  }
+}
+
+{
+  "success": false,
+  "error": {
+    "code": "APPLICATION_MISMATCH",
+    "message": "Application ID does not match"
+  }
+}`
+      },
+      examples: {
+        javascript: (baseUrl: string) => `// JavaScript/Fetch
+const response = await fetch('${baseUrl}/functions/v1/auth-exchange-code', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    code: 'e83e749d-2376-43c3-b6ff-f65448515f47',
+    application_id: 'app_51ecb9e2-6b3'
+  })
+});
+
+const data = await response.json();
+
+if (data.success) {
+  localStorage.setItem('access_token', data.data.access_token);
+  localStorage.setItem('refresh_token', data.data.refresh_token);
+} else {
+  console.error('Error:', data.error.message);
+}`,
+        python: (baseUrl: string) => `# Python/Requests
+import requests
+
+url = '${baseUrl}/functions/v1/auth-exchange-code'
+payload = {
+    'code': 'e83e749d-2376-43c3-b6ff-f65448515f47',
+    'application_id': 'app_51ecb9e2-6b3'
+}
+
+response = requests.post(url, json=payload)
+result = response.json()
+
+if result['success']:
+    print('Code exchanged successfully')
+else:
+    print(f"Error: {result['error']['message']}")`,
+        php: (baseUrl: string) => `<?php
+$url = '${baseUrl}/functions/v1/auth-exchange-code';
+$data = array(
+    'code' => 'e83e749d-2376-43c3-b6ff-f65448515f47',
+    'application_id' => 'app_51ecb9e2-6b3'
+);
+
+$ch = curl_init($url);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_POST, true);
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
+
+$response = curl_exec($ch);
+curl_close($ch);
+
+$result = json_decode($response, true);
+print_r($result);
+?>`,
+        java: (baseUrl: string) => `// Java/HttpClient
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.URI;
+
+HttpClient client = HttpClient.newHttpClient();
+String json = "{\\"code\\":\\"e83e749d-2376-43c3-b6ff-f65448515f47\\",\\"application_id\\":\\"app_51ecb9e2-6b3\\"}";
+
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create("${baseUrl}/functions/v1/auth-exchange-code"))
+    .header("Content-Type", "application/json")
+    .POST(HttpRequest.BodyPublishers.ofString(json))
+    .build();
+
+HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+System.out.println(response.body());`
+      }
+    },
+    {
+      id: 'auth-generate-test-code',
+      title: 'Generar Código de Prueba',
+      method: 'POST',
+      path: '/functions/v1/auth-generate-test-code',
+      description: 'Endpoint de testing para generar un code temporal compatible con auth-exchange-code. Solo funciona si ALLOW_TEST_AUTH_CODE_API=true en la función.',
+      params: [
+        { name: 'application_id', type: 'string', required: true, location: 'Body', description: 'ID público de la aplicación (application_id)' },
+        { name: 'api_key', type: 'string', required: true, location: 'Body', description: 'API Key activa de la aplicación' },
+        { name: 'email', type: 'string', required: true, location: 'Body', description: 'Email de un usuario activo de la aplicación' },
+        { name: 'callback_url', type: 'string', required: false, location: 'Body', description: 'Si se envía, retorna callback_url con code+state' },
+        { name: 'ttl_seconds', type: 'number', required: false, location: 'Body', description: 'TTL del code en segundos (60-900, default 300)' },
+        { name: 'x-test-secret', type: 'string', required: false, location: 'Header', description: 'Requerido si TEST_AUTH_CODE_SECRET está configurado' }
+      ],
+      requestExample: (baseUrl: string, apiKey: string) => ({
+        url: `${baseUrl}/functions/v1/auth-generate-test-code`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-test-secret': 'opcional-si-configurado'
+        },
+        body: {
+          application_id: 'app_51ecb9e2-6b3',
+          api_key: apiKey,
+          email: 'usuario@ejemplo.com',
+          callback_url: 'https://test.clavecrm.com/callback',
+          ttl_seconds: 300
+        }
+      }),
+      response: {
+        success: `{
+  "success": true,
+  "data": {
+    "code": "44059454-9b4b-45f8-85f6-3a6b9ef5e128",
+    "state": "authenticated",
+    "expires_at": "2026-03-02T18:00:00.000Z",
+    "callback_url": "https://test.clavecrm.com/callback?code=44059454-9b4b-45f8-85f6-3a6b9ef5e128&state=authenticated",
+    "exchange_endpoint": "/functions/v1/auth-exchange-code",
+    "exchange_payload": {
+      "code": "44059454-9b4b-45f8-85f6-3a6b9ef5e128",
+      "application_id": "app_51ecb9e2-6b3"
+    }
+  }
+}`,
+        error: `{
+  "success": false,
+  "error": {
+    "code": "FEATURE_DISABLED",
+    "message": "Test code API is disabled. Set ALLOW_TEST_AUTH_CODE_API=true to enable it."
+  }
+}
+
+// Otros errores posibles:
+{
+  "success": false,
+  "error": {
+    "code": "INVALID_API_KEY",
+    "message": "API Key inválida o inactiva"
+  }
+}`
+      },
+      examples: {
+        javascript: (baseUrl: string, apiKey: string) => `// JavaScript/Fetch
+const createCodeResponse = await fetch('${baseUrl}/functions/v1/auth-generate-test-code', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'x-test-secret': 'opcional-si-configurado'
+  },
+  body: JSON.stringify({
+    application_id: 'app_51ecb9e2-6b3',
+    api_key: '${apiKey}',
+    email: 'usuario@ejemplo.com',
+    callback_url: 'https://test.clavecrm.com/callback'
+  })
+});
+
+const createCodeResult = await createCodeResponse.json();
+console.log('Code generado:', createCodeResult.data?.code);
+
+// Intercambiar code por tokens
+const exchangeResponse = await fetch('${baseUrl}/functions/v1/auth-exchange-code', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    code: createCodeResult.data.code,
+    application_id: 'app_51ecb9e2-6b3'
+  })
+});
+
+console.log(await exchangeResponse.json());`,
+        python: (baseUrl: string, apiKey: string) => `# Python/Requests
+import requests
+
+generate_url = '${baseUrl}/functions/v1/auth-generate-test-code'
+exchange_url = '${baseUrl}/functions/v1/auth-exchange-code'
+
+generate_payload = {
+    'application_id': 'app_51ecb9e2-6b3',
+    'api_key': '${apiKey}',
+    'email': 'usuario@ejemplo.com',
+    'callback_url': 'https://test.clavecrm.com/callback'
+}
+
+generate_result = requests.post(generate_url, json=generate_payload).json()
+code = generate_result['data']['code']
+
+exchange_result = requests.post(exchange_url, json={
+    'code': code,
+    'application_id': 'app_51ecb9e2-6b3'
+}).json()
+
+print(exchange_result)`,
+        php: (baseUrl: string, apiKey: string) => `<?php
+$generateUrl = '${baseUrl}/functions/v1/auth-generate-test-code';
+$exchangeUrl = '${baseUrl}/functions/v1/auth-exchange-code';
+
+$generatePayload = array(
+    'application_id' => 'app_51ecb9e2-6b3',
+    'api_key' => '${apiKey}',
+    'email' => 'usuario@ejemplo.com',
+    'callback_url' => 'https://test.clavecrm.com/callback'
+);
+
+$ch = curl_init($generateUrl);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_POST, true);
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($generatePayload));
+curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
+$generateResponse = curl_exec($ch);
+curl_close($ch);
+
+$generateResult = json_decode($generateResponse, true);
+$code = $generateResult['data']['code'];
+
+$exchangePayload = array(
+    'code' => $code,
+    'application_id' => 'app_51ecb9e2-6b3'
+);
+
+$ch2 = curl_init($exchangeUrl);
+curl_setopt($ch2, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch2, CURLOPT_POST, true);
+curl_setopt($ch2, CURLOPT_POSTFIELDS, json_encode($exchangePayload));
+curl_setopt($ch2, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
+$exchangeResponse = curl_exec($ch2);
+curl_close($ch2);
+
+echo $exchangeResponse;
+?>`,
+        java: (baseUrl: string, apiKey: string) => `// Java/HttpClient
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.URI;
+
+HttpClient client = HttpClient.newHttpClient();
+
+String generateJson = "{\\"application_id\\":\\"app_51ecb9e2-6b3\\",\\"api_key\\":\\"${apiKey}\\",\\"email\\":\\"usuario@ejemplo.com\\",\\"callback_url\\":\\"https://test.clavecrm.com/callback\\"}";
+
+HttpRequest generateRequest = HttpRequest.newBuilder()
+    .uri(URI.create("${baseUrl}/functions/v1/auth-generate-test-code"))
+    .header("Content-Type", "application/json")
+    .POST(HttpRequest.BodyPublishers.ofString(generateJson))
+    .build();
+
+HttpResponse<String> generateResponse = client.send(generateRequest, HttpResponse.BodyHandlers.ofString());
+System.out.println(generateResponse.body());
+
+// Luego toma el code del response y llama auth-exchange-code
+`
+      }
+    },
+    {
       id: 'auth-register',
       title: 'Registro de Usuario',
       method: 'POST',
-      path: '/api/auth/register',
-      description: 'Registra un nuevo usuario en la aplicación. El API key debe incluirse en la URL como parámetro.',
+      path: '/functions/v1/auth-register',
+      description: 'Registra un nuevo usuario en la aplicación usando la Edge Function. El api_key se envía en el body.',
       params: [
-        { name: 'api_key', type: 'string', required: true, location: 'URL', description: 'API Key en la URL (ej: ?api_key=ak_production_xxx)' },
+        { name: 'api_key', type: 'string', required: true, location: 'Body', description: 'API Key de la aplicación (ej: ak_production_xxx)' },
         { name: 'email', type: 'string', required: true, location: 'Body', description: 'Email del usuario' },
         { name: 'password', type: 'string', required: true, location: 'Body', description: 'Contraseña del usuario' },
         { name: 'name', type: 'string', required: true, location: 'Body', description: 'Nombre completo del usuario' },
@@ -268,12 +602,13 @@ System.out.println(response.body());`
         { name: 'metadata', type: 'object', required: false, location: 'Body', description: 'Datos adicionales del usuario (opcional)' }
       ],
       requestExample: (baseUrl: string, apiKey: string) => ({
-        url: `${baseUrl}/api/auth/register?api_key=${apiKey}`,
+        url: `${baseUrl}/functions/v1/auth-register`,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: {
+          api_key: apiKey,
           email: 'nuevo@ejemplo.com',
           password: 'contraseña123',
           name: 'Nuevo Usuario',
@@ -327,12 +662,13 @@ System.out.println(response.body());`
       },
       examples: {
         javascript: (baseUrl: string, apiKey: string) => `// JavaScript/Fetch
-const response = await fetch('${baseUrl}/api/auth/register?api_key=${apiKey}', {
+const response = await fetch('${baseUrl}/functions/v1/auth-register', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
+    api_key: '${apiKey}',
     email: 'nuevo@ejemplo.com',
     password: 'contraseña123',
     name: 'Nuevo Usuario',
@@ -355,8 +691,9 @@ if (data.success) {
         python: (baseUrl: string, apiKey: string) => `# Python/Requests
 import requests
 
-url = '${baseUrl}/api/auth/register?api_key=${apiKey}'
+url = '${baseUrl}/functions/v1/auth-register'
 data = {
+    'api_key': '${apiKey}',
     'email': 'nuevo@ejemplo.com',
     'password': 'contraseña123',
     'name': 'Nuevo Usuario',
@@ -375,8 +712,9 @@ if result['success']:
 else:
     print(f"Error: {result['error']['message']}")`,
         php: (baseUrl: string, apiKey: string) => `<?php
-$url = '${baseUrl}/api/auth/register?api_key=${apiKey}';
+$url = '${baseUrl}/functions/v1/auth-register';
 $data = array(
+  'api_key' => '${apiKey}',
     'email' => 'nuevo@ejemplo.com',
     'password' => 'contraseña123',
     'name' => 'Nuevo Usuario',
@@ -403,10 +741,10 @@ if ($result['success']) {
 }
 ?>`,
         java: (baseUrl: string, apiKey: string) => `// Java/HttpClient
-String json = "{\\"email\\":\\"nuevo@ejemplo.com\\",\\"password\\":\\"contraseña123\\",\\"name\\":\\"Nuevo Usuario\\",\\"application_id\\":\\"app_mk2k3j4h5k6l\\"}";
+String json = "{\\"api_key\\":\\"${apiKey}\\",\\"email\\":\\"nuevo@ejemplo.com\\",\\"password\\":\\"contraseña123\\",\\"name\\":\\"Nuevo Usuario\\",\\"application_id\\":\\"app_mk2k3j4h5k6l\\"}";
 
 HttpRequest request = HttpRequest.newBuilder()
-    .uri(URI.create("${baseUrl}/api/auth/register?api_key=${apiKey}"))
+  .uri(URI.create("${baseUrl}/functions/v1/auth-register"))
     .header("Content-Type", "application/json")
     .POST(HttpRequest.BodyPublishers.ofString(json))
     .build();
@@ -419,20 +757,21 @@ System.out.println(response.body());`
       id: 'auth-reset-password',
       title: 'Recuperar Contraseña',
       method: 'POST',
-      path: '/api/auth/reset-password',
+      path: '/functions/v1/auth-reset-password',
       description: 'Solicita un restablecimiento de contraseña. Se enviará un email al usuario con instrucciones.',
       params: [
-        { name: 'api_key', type: 'string', required: true, location: 'URL', description: 'API Key en la URL (ej: ?api_key=ak_production_xxx)' },
+        { name: 'api_key', type: 'string', required: true, location: 'Body', description: 'API Key de la aplicación (ej: ak_production_xxx)' },
         { name: 'email', type: 'string', required: true, location: 'Body', description: 'Email del usuario' },
         { name: 'application_id', type: 'string', required: true, location: 'Body', description: 'ID único de la aplicación' }
       ],
       requestExample: (baseUrl: string, apiKey: string) => ({
-        url: `${baseUrl}/api/auth/reset-password?api_key=${apiKey}`,
+        url: `${baseUrl}/functions/v1/auth-reset-password`,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: {
+          api_key: apiKey,
           email: 'usuario@ejemplo.com',
           application_id: 'app_mk2k3j4h5k6l'
         }
@@ -464,12 +803,13 @@ System.out.println(response.body());`
       },
       examples: {
         javascript: (baseUrl: string, apiKey: string) => `// JavaScript/Fetch
-const response = await fetch('${baseUrl}/api/auth/reset-password?api_key=${apiKey}', {
+const response = await fetch('${baseUrl}/functions/v1/auth-reset-password', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
+    api_key: '${apiKey}',
     email: 'usuario@ejemplo.com',
     application_id: 'app_mk2k3j4h5k6l'
   })
@@ -483,8 +823,9 @@ if (data.success) {
   console.error('Error:', data.error.message);
 }`,
         python: (baseUrl: string, apiKey: string) => `# Python/Requests
-url = '${baseUrl}/api/auth/reset-password?api_key=${apiKey}'
+url = '${baseUrl}/functions/v1/auth-reset-password'
 data = {
+    'api_key': '${apiKey}',
     'email': 'usuario@ejemplo.com',
     'application_id': 'app_mk2k3j4h5k6l'
 }
@@ -497,8 +838,9 @@ if result['success']:
 else:
     print(f"Error: {result['error']['message']}")`,
         php: (baseUrl: string, apiKey: string) => `<?php
-$url = '${baseUrl}/api/auth/reset-password?api_key=${apiKey}';
+$url = '${baseUrl}/functions/v1/auth-reset-password';
 $data = array(
+  'api_key' => '${apiKey}',
     'email' => 'usuario@ejemplo.com',
     'application_id' => 'app_mk2k3j4h5k6l'
 );
@@ -517,11 +859,256 @@ if ($result['success']) {
 }
 ?>`,
         java: (baseUrl: string, apiKey: string) => `// Java/HttpClient
-String json = "{\\"email\\":\\"usuario@ejemplo.com\\",\\"application_id\\":\\"app_mk2k3j4h5k6l\\"}";
+String json = "{\\"api_key\\":\\"${apiKey}\\",\\"email\\":\\"usuario@ejemplo.com\\",\\"application_id\\":\\"app_mk2k3j4h5k6l\\"}";
 
 HttpRequest request = HttpRequest.newBuilder()
-    .uri(URI.create("${baseUrl}/api/auth/reset-password?api_key=${apiKey}"))
+  .uri(URI.create("${baseUrl}/functions/v1/auth-reset-password"))
     .header("Content-Type", "application/json")
+    .POST(HttpRequest.BodyPublishers.ofString(json))
+    .build();
+
+HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+System.out.println(response.body());`
+      }
+    },
+    {
+      id: 'auth-reset-password-confirm',
+      title: 'Confirmar Nueva Contraseña',
+      method: 'POST',
+      path: '/functions/v1/auth-reset-password-confirm',
+      description: 'Confirma el cambio de contraseña con token de recuperación y genera tokens de sesión automáticos cuando aplica.',
+      params: [
+        { name: 'api_key', type: 'string', required: true, location: 'Body', description: 'API Key de la aplicación' },
+        { name: 'token', type: 'string', required: true, location: 'Body', description: 'Token de recuperación enviado por email' },
+        { name: 'email', type: 'string', required: true, location: 'Body', description: 'Email del usuario' },
+        { name: 'new_password', type: 'string', required: true, location: 'Body', description: 'Nueva contraseña' }
+      ],
+      requestExample: (baseUrl: string, apiKey: string) => ({
+        url: `${baseUrl}/functions/v1/auth-reset-password-confirm`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: {
+          api_key: apiKey,
+          token: 'reset_token_abc123',
+          email: 'usuario@ejemplo.com',
+          new_password: 'MiNuevaPass123!'
+        }
+      }),
+      response: {
+        success: `{
+  "success": true,
+  "message": "Contraseña actualizada exitosamente",
+  "data": {
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "user": {
+      "id": "60187dc2-a013-40fa-9a00-68701cc92018",
+      "email": "usuario@ejemplo.com"
+    }
+  }
+}`,
+        error: `{
+  "success": false,
+  "error": {
+    "code": "INVALID_TOKEN",
+    "message": "Token inválido o expirado"
+  }
+}
+
+// Otros errores posibles:
+{
+  "success": false,
+  "error": {
+    "code": "TOKEN_EXPIRED",
+    "message": "El token ha expirado. Por favor solicita uno nuevo."
+  }
+}
+
+{
+  "success": false,
+  "error": {
+    "code": "PASSWORD_POLICY_VIOLATION",
+    "message": "La contraseña debe cumplir con la política configurada"
+  }
+}`
+      },
+      examples: {
+        javascript: (baseUrl: string, apiKey: string) => `// JavaScript/Fetch
+const response = await fetch('${baseUrl}/functions/v1/auth-reset-password-confirm', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    api_key: '${apiKey}',
+    token: 'reset_token_abc123',
+    email: 'usuario@ejemplo.com',
+    new_password: 'MiNuevaPass123!'
+  })
+});
+
+const data = await response.json();
+console.log(data);`,
+        python: (baseUrl: string, apiKey: string) => `# Python/Requests
+import requests
+
+url = '${baseUrl}/functions/v1/auth-reset-password-confirm'
+payload = {
+    'api_key': '${apiKey}',
+    'token': 'reset_token_abc123',
+    'email': 'usuario@ejemplo.com',
+    'new_password': 'MiNuevaPass123!'
+}
+
+response = requests.post(url, json=payload)
+print(response.json())`,
+        php: (baseUrl: string, apiKey: string) => `<?php
+$url = '${baseUrl}/functions/v1/auth-reset-password-confirm';
+$data = array(
+    'api_key' => '${apiKey}',
+    'token' => 'reset_token_abc123',
+    'email' => 'usuario@ejemplo.com',
+    'new_password' => 'MiNuevaPass123!'
+);
+
+$ch = curl_init($url);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_POST, true);
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
+
+$response = curl_exec($ch);
+curl_close($ch);
+
+echo $response;
+?>`,
+        java: (baseUrl: string, apiKey: string) => `// Java/HttpClient
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.URI;
+
+HttpClient client = HttpClient.newHttpClient();
+String json = "{\\"api_key\\":\\"${apiKey}\\",\\"token\\":\\"reset_token_abc123\\",\\"email\\":\\"usuario@ejemplo.com\\",\\"new_password\\":\\"MiNuevaPass123!\\"}";
+
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create("${baseUrl}/functions/v1/auth-reset-password-confirm"))
+    .header("Content-Type", "application/json")
+    .POST(HttpRequest.BodyPublishers.ofString(json))
+    .build();
+
+HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+System.out.println(response.body());`
+      }
+    },
+    {
+      id: 'auth-verify',
+      title: 'Verificar Token (Legacy API)',
+      method: 'POST',
+      path: '/api/auth/verify',
+      description: 'Endpoint legacy del servidor Node para validar token JWT de sesión. Requiere X-API-Key en header.',
+      params: [
+        { name: 'X-API-Key', type: 'string', required: true, location: 'Header', description: 'API Key asociada a la aplicación' },
+        { name: 'token', type: 'string', required: true, location: 'Body', description: 'JWT access token a validar' },
+        { name: 'application_id', type: 'string', required: true, location: 'Body', description: 'application_id de la aplicación' }
+      ],
+      requestExample: (baseUrl: string, apiKey: string) => ({
+        url: `${baseUrl}/api/auth/verify`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKey
+        },
+        body: {
+          token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+          application_id: 'app_mk2k3j4h5k6l'
+        }
+      }),
+      response: {
+        success: `{
+  "success": true,
+  "data": {
+    "valid": true,
+    "user": {
+      "id": "60187dc2-a013-40fa-9a00-68701cc92018",
+      "email": "usuario@ejemplo.com"
+    }
+  }
+}`,
+        error: `{
+  "success": false,
+  "error": {
+    "code": "INVALID_TOKEN",
+    "message": "Token inválido o expirado"
+  }
+}`
+      },
+      examples: {
+        javascript: (baseUrl: string, apiKey: string) => `// JavaScript/Fetch
+const response = await fetch('${baseUrl}/api/auth/verify', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-API-Key': '${apiKey}'
+  },
+  body: JSON.stringify({
+    token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+    application_id: 'app_mk2k3j4h5k6l'
+  })
+});
+
+console.log(await response.json());`,
+        python: (baseUrl: string, apiKey: string) => `# Python/Requests
+import requests
+
+url = '${baseUrl}/api/auth/verify'
+headers = {
+    'Content-Type': 'application/json',
+    'X-API-Key': '${apiKey}'
+}
+payload = {
+    'token': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+    'application_id': 'app_mk2k3j4h5k6l'
+}
+
+response = requests.post(url, json=payload, headers=headers)
+print(response.json())`,
+        php: (baseUrl: string, apiKey: string) => `<?php
+$url = '${baseUrl}/api/auth/verify';
+$data = array(
+    'token' => 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+    'application_id' => 'app_mk2k3j4h5k6l'
+);
+
+$ch = curl_init($url);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_POST, true);
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+  'Content-Type: application/json',
+  'X-API-Key: ${apiKey}'
+));
+
+$response = curl_exec($ch);
+curl_close($ch);
+
+echo $response;
+?>`,
+        java: (baseUrl: string, apiKey: string) => `// Java/HttpClient
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.URI;
+
+HttpClient client = HttpClient.newHttpClient();
+String json = "{\\"token\\":\\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\\",\\"application_id\\":\\"app_mk2k3j4h5k6l\\"}";
+
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create("${baseUrl}/api/auth/verify"))
+    .header("Content-Type", "application/json")
+    .header("X-API-Key", "${apiKey}")
     .POST(HttpRequest.BodyPublishers.ofString(json))
     .build();
 
@@ -532,20 +1119,17 @@ System.out.println(response.body());`
     {
       id: 'application-info',
       title: 'Lista de Aplicaciones',
-      method: 'POST',
-      path: '/api/application/info',
-      description: 'Obtiene la lista completa de todas las aplicaciones asociadas al usuario propietario de la API Key. Retorna información detallada incluyendo ID, nombre, application_id, estado y URLs por ambiente.',
+      method: 'GET',
+      path: '/functions/v1/application-info',
+      description: 'Obtiene la lista completa de aplicaciones activas asociadas al API Key externo. Requiere enviar el API key por header X-API-Key.',
       params: [
-        { name: 'api_key', type: 'string', required: true, location: 'Body', description: 'Tu API Key de producción' }
+        { name: 'X-API-Key', type: 'string', required: true, location: 'Header', description: 'API Key externa con permiso para application-info' }
       ],
       requestExample: (baseUrl: string, apiKey: string) => ({
-        url: `${baseUrl}/api/application/info`,
-        method: 'POST',
+        url: `${baseUrl}/functions/v1/application-info`,
+        method: 'GET',
         headers: {
-          'Content-Type': 'application/json'
-        },
-        body: {
-          api_key: apiKey
+          'X-API-Key': apiKey
         }
       }),
       response: {
@@ -603,14 +1187,11 @@ System.out.println(response.body());`
       },
       examples: {
         javascript: (baseUrl: string, apiKey: string) => `// JavaScript/Fetch - Listar todas las aplicaciones
-const response = await fetch('${baseUrl}/api/application/info', {
-  method: 'POST',
+const response = await fetch('${baseUrl}/functions/v1/application-info', {
+  method: 'GET',
   headers: {
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({
-    api_key: '${apiKey}'
-  })
+    'X-API-Key': '${apiKey}'
+  }
 });
 
 const data = await response.json();
@@ -632,13 +1213,10 @@ if (data.success) {
         python: (baseUrl: string, apiKey: string) => `# Python/Requests - Listar todas las aplicaciones
 import requests
 
-url = '${baseUrl}/api/application/info'
-headers = {'Content-Type': 'application/json'}
-data = {
-    'api_key': '${apiKey}'
-}
+url = '${baseUrl}/functions/v1/application-info'
+headers = {'X-API-Key': '${apiKey}'}
 
-response = requests.post(url, json=data, headers=headers)
+response = requests.get(url, headers=headers)
 result = response.json()
 
 if result['success']:
@@ -659,16 +1237,11 @@ else:
     print(f"Error: {result['error']}")`,
         php: (baseUrl: string, apiKey: string) => `<?php
 // PHP/cURL - Listar todas las aplicaciones
-$url = '${baseUrl}/api/application/info';
-$data = array(
-    'api_key' => '${apiKey}'
-);
+$url = '${baseUrl}/functions/v1/application-info';
 
 $ch = curl_init($url);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-curl_setopt($ch, CURLOPT_POST, true);
-curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
-curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
+curl_setopt($ch, CURLOPT_HTTPHEADER, array('X-API-Key: ${apiKey}'));
 
 $response = curl_exec($ch);
 curl_close($ch);
@@ -711,9 +1284,9 @@ public class ApplicationsList {
         String json = gson.toJson(data);
 
         HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create("${baseUrl}/api/application/info"))
-            .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(json))
+          .uri(URI.create("${baseUrl}/functions/v1/application-info"))
+          .header("X-API-Key", "${apiKey}")
+          .GET()
             .build();
 
         HttpResponse<String> response = client.send(request,
@@ -728,18 +1301,17 @@ public class ApplicationsList {
       id: 'user-search',
       title: 'Búsqueda de Usuarios',
       method: 'POST',
-      path: '/api/user/search',
-      description: 'Busca usuarios por nombre o email en tiempo real. Ideal para implementar autocomplete. Soporta paginación y filtros por rol.',
+      path: '/functions/v1/user-search',
+      description: 'Busca usuarios por nombre o email en tiempo real. Ideal para implementar autocomplete. Soporta paginación.',
       params: [
         { name: 'api_key', type: 'string', required: true, location: 'Body', description: 'Tu API Key de producción' },
         { name: 'application_id', type: 'string', required: true, location: 'Body', description: 'ID único de la aplicación' },
         { name: 'query', type: 'string', required: false, location: 'Body', description: 'Término de búsqueda (nombre o email)' },
-        { name: 'role_id', type: 'string', required: false, location: 'Body', description: 'Filtrar por rol específico (opcional)' },
         { name: 'limit', type: 'number', required: false, location: 'Body', description: 'Número de resultados (default: 20, max: 100)' },
         { name: 'offset', type: 'number', required: false, location: 'Body', description: 'Offset para paginación (default: 0)' }
       ],
       requestExample: (baseUrl: string, apiKey: string) => ({
-        url: `${baseUrl}/api/user/search`,
+        url: `${baseUrl}/functions/v1/user-search`,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -759,28 +1331,18 @@ public class ApplicationsList {
     "users": [
       {
         "id": "user_789",
-        "user_id": "uuid-user-789",
         "email": "juan.perez@ejemplo.com",
-        "full_name": "Juan Pérez",
-        "role": {
-          "id": "role_123",
-          "name": "editor",
-          "display_name": "Editor"
-        },
-        "is_active": true,
+        "name": "Juan Pérez",
+        "status": "active",
+        "role": null,
         "created_at": "2024-02-15T10:30:00Z"
       },
       {
         "id": "user_790",
-        "user_id": "uuid-user-790",
         "email": "juana.garcia@ejemplo.com",
-        "full_name": "Juana García",
-        "role": {
-          "id": "role_124",
-          "name": "viewer",
-          "display_name": "Visor"
-        },
-        "is_active": true,
+        "name": "Juana García",
+        "status": "active",
+        "role": null,
         "created_at": "2024-02-16T14:20:00Z"
       }
     ],
@@ -821,7 +1383,7 @@ searchInput.addEventListener('input', (e) => {
 
   // Debounce: esperar 300ms después de que el usuario deje de escribir
   searchTimeout = setTimeout(async () => {
-    const response = await fetch('${baseUrl}/api/user/search', {
+    const response = await fetch('${baseUrl}/functions/v1/user-search', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -849,22 +1411,21 @@ function displayResults(users) {
   const resultsDiv = document.getElementById('results');
   resultsDiv.innerHTML = users.map(user => \`
     <div class="user-item">
-      <strong>\${user.full_name}</strong>
+      <strong>${user.name}</strong>
       <span>\${user.email}</span>
-      <span class="role">\${user.role.display_name}</span>
+      <span class="role">${user.status}</span>
     </div>
   \`).join('');
 }`,
-        python: (baseUrl: string, apiKey: string) => `# Python/Requests - Búsqueda con filtro de rol
+        python: (baseUrl: string, apiKey: string) => `# Python/Requests - Búsqueda paginada
 import requests
 
-url = '${baseUrl}/api/user/search'
+url = '${baseUrl}/functions/v1/user-search'
 headers = {'Content-Type': 'application/json'}
 data = {
     'api_key': '${apiKey}',
     'application_id': 'app_mk2k3j4h5k6l',
     'query': 'juan',
-    'role_id': 'role_editor_123',  # Opcional: filtrar por rol
     'limit': 20,
     'offset': 0
 }
@@ -877,7 +1438,7 @@ if result['success']:
     pagination = result['data']['pagination']
 
     for user in users:
-        print(f"{user['full_name']} ({user['email']}) - {user['role']['display_name']}")
+      print(f"{user['name']} ({user['email']}) - {user['status']}")
 
     print(f"\\nMostrando {len(users)} de {pagination['total']} usuarios")
     print(f"¿Hay más?: {pagination['has_more']}")
@@ -886,7 +1447,7 @@ else:
         php: (baseUrl: string, apiKey: string) => `<?php
 // PHP/cURL - Búsqueda con paginación
 function searchUsers($query, $offset = 0, $limit = 20) {
-    $url = '${baseUrl}/api/user/search';
+  $url = '${baseUrl}/functions/v1/user-search';
     $data = array(
         'api_key' => '${apiKey}',
         'application_id' => 'app_mk2k3j4h5k6l',
@@ -915,7 +1476,7 @@ if ($result['success']) {
     $pagination = $result['data']['pagination'];
 
     foreach ($users as $user) {
-        echo $user['full_name'] . ' (' . $user['email'] . ')' . PHP_EOL;
+    echo $user['name'] . ' (' . $user['email'] . ')' . PHP_EOL;
     }
 
     echo "Total: " . $pagination['total'] . " usuarios" . PHP_EOL;
@@ -950,7 +1511,7 @@ public class UserSearch {
         String json = gson.toJson(data);
 
         HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create("${baseUrl}/api/user/search"))
+          .uri(URI.create("${baseUrl}/functions/v1/user-search"))
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(json))
             .build();
@@ -1044,30 +1605,55 @@ window.location.href = '${currentEnv.baseUrl}/register' +
             <div className="bg-white rounded-lg p-4 border border-gray-200">
               <p className="text-sm text-gray-600 mb-2">Después de un login exitoso, AuthSystem redirige a:</p>
               <pre className="bg-gray-900 text-gray-100 p-3 rounded text-sm overflow-x-auto mb-3">
-{`https://tuapp.com/callback?token=ACCESS_TOKEN&refresh_token=REFRESH_TOKEN&user_id=USER_ID&state=authenticated`}
+{`https://tuapp.com/callback?code=AUTH_CODE_UUID&state=authenticated`}
               </pre>
               <p className="text-sm text-gray-600">Tu aplicación procesa el callback:</p>
               <pre className="bg-gray-900 text-gray-100 p-3 rounded text-sm overflow-x-auto">
 {`// En tu página /callback
 const params = new URLSearchParams(window.location.search);
-const accessToken = params.get('token');
-const refreshToken = params.get('refresh_token');
-const userId = params.get('user_id');
+const code = params.get('code');
+const state = params.get('state');
 
-if (accessToken) {
-  // Guardar tokens
-  localStorage.setItem('access_token', accessToken);
-  localStorage.setItem('refresh_token', refreshToken);
+if (code && state === 'authenticated') {
+  // Intercambiar code por tokens
+  const response = await fetch('${currentEnv.baseUrl}/functions/v1/auth-exchange-code', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      code,
+      application_id: 'app_mk2k3j4h5k6l'
+    })
+  });
 
-  // Decodificar token para obtener datos del usuario
-  const payload = JSON.parse(atob(accessToken.split('.')[1]));
-  console.log('Usuario:', payload);
+  const data = await response.json();
 
-  // Redirigir al dashboard
-  window.location.href = '/dashboard';
+  if (data.success) {
+    localStorage.setItem('access_token', data.data.access_token);
+    localStorage.setItem('refresh_token', data.data.refresh_token);
+    window.location.href = '/dashboard';
+  } else {
+    window.location.href = '/login';
+  }
 } else {
-  // Error en autenticación
+  // Callback inválido
   window.location.href = '/login';
+}`}
+              </pre>
+            </div>
+          </div>
+
+          <div>
+            <h4 className="font-semibold text-gray-900 mb-3 flex items-center space-x-2">
+              <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">4</span>
+              <span>Intercambiar código por tokens</span>
+            </h4>
+            <div className="bg-white rounded-lg p-4 border border-gray-200">
+              <p className="text-sm text-gray-600 mb-2">El código es de un solo uso y expira rápido. El parámetro <strong>state</strong> actualmente es fijo con valor <code>authenticated</code>. Debe validarse con:</p>
+              <pre className="bg-gray-900 text-gray-100 p-3 rounded text-sm overflow-x-auto">
+{`POST ${currentEnv.baseUrl}/functions/v1/auth-exchange-code
+{
+  "code": "AUTH_CODE_UUID",
+  "application_id": "app_mk2k3j4h5k6l"
 }`}
               </pre>
             </div>
@@ -1079,7 +1665,7 @@ if (accessToken) {
               <span>Datos en el Token JWT</span>
             </h4>
             <div className="bg-white rounded-lg p-4 border border-gray-200">
-              <p className="text-sm text-gray-600 mb-2">El access token contiene toda la información del usuario:</p>
+              <p className="text-sm text-gray-600 mb-2">Una vez intercambiado el code, el access token contiene la información del usuario:</p>
               <pre className="bg-gray-900 text-gray-100 p-3 rounded text-sm overflow-x-auto">
 {`{
   "sub": "user_123",              // ID del usuario
@@ -1089,7 +1675,7 @@ if (accessToken) {
   "roles": ["user", "admin"],
   "permissions": ["read", "write"],
   "iat": 1234567890,              // Fecha de emisión
-  "exp": 1234654290,              // Expiración (24h)
+  "exp": 1234654290,              // Expiración
   "iss": "AuthSystem",
   "aud": "tuapp.com"
 }`}
@@ -1167,7 +1753,7 @@ if (accessToken) {
         <div className="space-y-2 text-blue-800">
           <p>• <strong>Base URL:</strong> <code className="bg-blue-100 px-2 py-1 rounded">{currentEnv.baseUrl}</code></p>
           <p>• <strong>API Key:</strong> <code className="bg-blue-100 px-2 py-1 rounded">{currentEnv.apiKey}</code></p>
-          <p>• <strong>Importante:</strong> El API Key debe enviarse como parámetro en la URL: <code className="bg-blue-100 px-2 py-1 rounded">?api_key=YOUR_API_KEY</code></p>
+          <p>• <strong>Importante:</strong> En Edge Functions, el API Key se envía en el <code className="bg-blue-100 px-2 py-1 rounded">body.api_key</code> o en <code className="bg-blue-100 px-2 py-1 rounded">header X-API-Key</code> (según endpoint)</p>
           <p>• Formato de respuesta: JSON</p>
           <p>• Rate limiting: 10 requests por 15 minutos por IP</p>
         </div>
