@@ -48,8 +48,12 @@ export default function CreateApplicationWizard({
     { id: 4, title: 'Autenticación', description: 'Modo de autenticación', icon: Users }
   ];
 
+  const wasOpenRef = React.useRef(false);
+
   React.useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !wasOpenRef.current) {
+      // Only reset when modal transitions from closed → open
+      wasOpenRef.current = true;
       loadSubscriptionLimits();
       setCurrentStep(1);
       setFormData({
@@ -68,6 +72,8 @@ export default function CreateApplicationWizard({
         allow_public_registration: true,
         auth_mode: 'classic'
       });
+    } else if (!isOpen) {
+      wasOpenRef.current = false;
     }
   }, [isOpen]);
 
@@ -506,7 +512,7 @@ export default function CreateApplicationWizard({
         </div>
 
         {/* Content */}
-        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+        <form onSubmit={handleSubmit} noValidate className="flex flex-col flex-1 min-h-0">
           <div className="flex-1 p-6 overflow-y-auto min-h-0">
             {renderStepContent()}
           </div>
