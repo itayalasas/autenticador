@@ -23,6 +23,7 @@ export const applicationService = {
     description: string;
     domain: string;
     environment: 'development' | 'testing' | 'production';
+    auth_mode?: 'classic' | 'tenant';
   }) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
@@ -34,7 +35,8 @@ export const applicationService = {
         name: appData.name,
         description: appData.description,
         domain: appData.domain,
-        owner_id: user.id
+        owner_id: user.id,
+        auth_mode: appData.auth_mode || 'classic'
       })
       .select()
       .single();

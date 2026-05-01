@@ -743,6 +743,35 @@ Deno.serve(async (req) => {
     const requireEmailVerification = emailConfig.require_email_verification || false;
     const userStatus = requireEmailVerification ? 'pending' : 'active';
      
+    // If application is in tenant mode, resolve tenant_id automatically
+    let tenantId: string | null = null;
+    if (application.auth_mode === 'tenant') {
+      const { data: activeTenant } = await supabase
+        .from('tenants')
+        .select('id, name')
+        .eq('application_id', application.id)
+        .eq('status', 'active')
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (!activeTenant) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: {
+              code: 'NO_TENANT_FOUND',
+              message: 'Esta aplicación requiere un tenant activo. Por favor registre una empresa antes de registrar usuarios.'
+            }
+          }),
+          { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      tenantId = activeTenant.id;
+      console.log('✅ Tenant resolved for registration:', activeTenant.name, tenantId);
+    }
+
     const { data: newUser, error: createError } = await supabase
       .from('app_users')
       .insert({
@@ -751,7 +780,8 @@ Deno.serve(async (req) => {
         name,
         password_hash: passwordHash,
         status: userStatus,
-        metadata: metadata || {}
+        metadata: metadata || {},
+        ...(tenantId ? { tenant_id: tenantId } : {})
       })
       .select()
       .single();
@@ -981,7 +1011,7 @@ Deno.serve(async (req) => {
     }
 
     const now = Math.floor(Date.now() / 1000);
-    const accessTokenPayload = {
+    const accessTokenPayload: Record<string, any> = {
       sub: newUser.id,
       email: newUser.email,
       name: newUser.name,
@@ -993,6 +1023,10 @@ Deno.serve(async (req) => {
       iss: 'AuthSystem',
       aud: application.domain
     };
+
+    if (tenantId) {
+      accessTokenPayload.tenant_id = tenantId;
+    }
 
     const accessToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify(accessTokenPayload))}.signature`;
     const refreshToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify({...accessTokenPayload, type: 'refresh', exp: now + (30 * 24 * 60 * 60)}))}.signature`;
@@ -1011,7 +1045,8 @@ Deno.serve(async (req) => {
           roles: roles,
           permissions: permissions,
           metadata: newUser.metadata || {},
-          created_at: newUser.created_at
+          created_at: newUser.created_at,
+          ...(tenantId ? { tenant_id: tenantId } : {})
         },
         application: {
           id: application_id,

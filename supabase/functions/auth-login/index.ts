@@ -677,8 +677,23 @@ Deno.serve(async (req) => {
       console.error('❌ Error validating license:', validationError);
     }
 
+    // Resolve tenant_id if application is in tenant mode
+    let tenantId: string | null = null;
+    let tenantName: string | null = null;
+    if (application.auth_mode === 'tenant' && user.tenant_id) {
+      tenantId = user.tenant_id;
+      const { data: tenantData } = await supabase
+        .from('tenants')
+        .select('name, slug, domain')
+        .eq('id', user.tenant_id)
+        .maybeSingle();
+      if (tenantData) {
+        tenantName = tenantData.name;
+      }
+    }
+
     const now = Math.floor(Date.now() / 1000)
-    const accessTokenPayload = {
+    const accessTokenPayload: Record<string, any> = {
       sub: user.id,
       email: user.email,
       name: user.name,
@@ -690,6 +705,11 @@ Deno.serve(async (req) => {
       exp: now + (24 * 60 * 60),
       iss: 'AuthSystem',
       aud: application.domain
+    }
+
+    if (tenantId) {
+      accessTokenPayload.tenant_id = tenantId;
+      accessTokenPayload.tenant_name = tenantName;
     }
 
     if (validationData && validationData.success) {
@@ -909,7 +929,8 @@ Deno.serve(async (req) => {
           permissions: rolePermissions,
           permissions_hierarchy: rolePermissionsHierarchy,
           metadata: user.metadata || {},
-          created_at: user.created_at
+          created_at: user.created_at,
+          ...(tenantId ? { tenant_id: tenantId, tenant_name: tenantName } : {})
         },
         application: {
           id: application_id,

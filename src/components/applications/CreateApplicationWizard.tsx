@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, ArrowRight, ArrowLeft, Check, Globe, Settings, Palette } from 'lucide-react';
+import { Plus, ArrowRight, ArrowLeft, Check, Globe, Settings, Palette, Users } from 'lucide-react';
 import { subscriptionService } from '../../services/subscriptionService';
 
 interface CreateApplicationWizardProps {
@@ -9,11 +9,11 @@ interface CreateApplicationWizardProps {
   loading: boolean;
 }
 
-export default function CreateApplicationWizard({ 
-  isOpen, 
-  onClose, 
-  onSubmit, 
-  loading 
+export default function CreateApplicationWizard({
+  isOpen,
+  onClose,
+  onSubmit,
+  loading
 }: CreateApplicationWizardProps) {
   const [currentStep, setCurrentStep] = useState(1);
   const [subscriptionLimits, setSubscriptionLimits] = useState<any>(null);
@@ -23,55 +23,51 @@ export default function CreateApplicationWizard({
     description: '',
     domain: '',
     environment: 'development' as 'development' | 'testing' | 'production',
-    
+
     // Paso 2: URLs por ambiente
     environment_urls: {
-      development: {
-        base_url: '',
-        callback_url: ''
-      },
-      testing: {
-        base_url: '',
-        callback_url: ''
-      },
-      production: {
-        base_url: '',
-        callback_url: ''
-      }
+      development: { base_url: '', callback_url: '' },
+      testing: { base_url: '', callback_url: '' },
+      production: { base_url: '', callback_url: '' }
     },
-    
+
     // Paso 3: Configuración adicional
     cors_origins: '',
     webhook_url: '',
     enable_email_verification: true,
-    allow_public_registration: true
+    allow_public_registration: true,
+
+    // Paso 4: Tipo de autenticación
+    auth_mode: 'classic' as 'classic' | 'tenant'
   });
 
   const steps = [
-    {
-      id: 1,
-      title: 'Información Básica',
-      description: 'Datos principales de la aplicación',
-      icon: Globe
-    },
-    {
-      id: 2,
-      title: 'URLs por Ambiente',
-      description: 'Configuración de endpoints',
-      icon: Settings
-    },
-    {
-      id: 3,
-      title: 'Configuración Avanzada',
-      description: 'Opciones adicionales',
-      icon: Palette
-    }
+    { id: 1, title: 'Información Básica', description: 'Datos principales', icon: Globe },
+    { id: 2, title: 'URLs por Ambiente', description: 'Configuración de endpoints', icon: Settings },
+    { id: 3, title: 'Config. Avanzada', description: 'Opciones adicionales', icon: Palette },
+    { id: 4, title: 'Autenticación', description: 'Modo de autenticación', icon: Users }
   ];
 
-  // Load subscription limits when modal opens
   React.useEffect(() => {
     if (isOpen) {
       loadSubscriptionLimits();
+      setCurrentStep(1);
+      setFormData({
+        name: '',
+        description: '',
+        domain: '',
+        environment: 'development',
+        environment_urls: {
+          development: { base_url: '', callback_url: '' },
+          testing: { base_url: '', callback_url: '' },
+          production: { base_url: '', callback_url: '' }
+        },
+        cors_origins: '',
+        webhook_url: '',
+        enable_email_verification: true,
+        allow_public_registration: true,
+        auth_mode: 'classic'
+      });
     }
   }, [isOpen]);
 
@@ -95,10 +91,7 @@ export default function CreateApplicationWizard({
       ...prev,
       environment_urls: {
         ...prev.environment_urls,
-        [env]: {
-          ...prev.environment_urls[env],
-          [field]: value
-        }
+        [env]: { ...prev.environment_urls[env], [field]: value }
       }
     }));
   };
@@ -122,15 +115,11 @@ export default function CreateApplicationWizard({
   };
 
   const handleNext = () => {
-    if (currentStep < 3) {
-      setCurrentStep(currentStep + 1);
-    }
+    if (currentStep < steps.length) setCurrentStep(currentStep + 1);
   };
 
   const handlePrevious = () => {
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
-    }
+    if (currentStep > 1) setCurrentStep(currentStep - 1);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -140,14 +129,8 @@ export default function CreateApplicationWizard({
 
   const isStepValid = (step: number) => {
     switch (step) {
-      case 1:
-        return formData.name && formData.domain;
-      case 2:
-        return true; // Make step 2 optional for now
-      case 3:
-        return true; // Paso opcional
-      default:
-        return false;
+      case 1: return !!(formData.name && formData.domain);
+      default: return true;
     }
   };
 
@@ -192,11 +175,11 @@ export default function CreateApplicationWizard({
                 value={formData.domain}
                 onChange={(e) => {
                   handleInputChange('domain', e.target.value);
-                  // Auto-generar URLs cuando se ingresa el dominio
                   if (e.target.value) {
                     const placeholders = generatePlaceholderUrls(e.target.value);
                     setFormData(prev => ({
                       ...prev,
+                      domain: e.target.value,
                       environment_urls: {
                         development: {
                           base_url: prev.environment_urls.development.base_url || placeholders.development.base_url,
@@ -227,20 +210,20 @@ export default function CreateApplicationWizard({
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Ambiente Inicial
               </label>
-              <select 
+              <select
                 value={formData.environment}
                 onChange={(e) => handleInputChange('environment', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
-                <option value="development">⚡ Desarrollo</option>
-                <option value="testing">🧪 Testing</option>
-                <option value="production">🚀 Producción</option>
+                <option value="development">Desarrollo</option>
+                <option value="testing">Testing</option>
+                <option value="production">Producción</option>
               </select>
             </div>
           </div>
         );
 
-      case 2:
+      case 2: {
         const placeholders = generatePlaceholderUrls(formData.domain);
         return (
           <div className="space-y-6">
@@ -254,7 +237,7 @@ export default function CreateApplicationWizard({
             {(['development', 'testing', 'production'] as const).map((env) => (
               <div key={env} className="bg-gray-50 rounded-lg p-4">
                 <h5 className="text-sm font-medium text-gray-800 mb-3 capitalize flex items-center space-x-2">
-                  <span>{env === 'development' ? '⚡' : env === 'testing' ? '🧪' : '🚀'}</span>
+                  <span className={`w-2 h-2 rounded-full ${env === 'development' ? 'bg-blue-500' : env === 'testing' ? 'bg-yellow-500' : 'bg-green-500'}`} />
                   <span>{env === 'development' ? 'Desarrollo' : env === 'testing' ? 'Testing' : 'Producción'}</span>
                   {env === 'development' && <span className="text-red-500">*</span>}
                 </h5>
@@ -293,6 +276,7 @@ export default function CreateApplicationWizard({
             ))}
           </div>
         );
+      }
 
       case 3:
         return (
@@ -346,7 +330,7 @@ export default function CreateApplicationWizard({
                 />
                 <span className="ml-2 text-sm text-gray-700">Habilitar verificación de email</span>
               </label>
-              
+
               <label className="flex items-center">
                 <input
                   type="checkbox"
@@ -360,6 +344,107 @@ export default function CreateApplicationWizard({
           </div>
         );
 
+      case 4:
+        return (
+          <div className="space-y-6">
+            <div className="text-center mb-2">
+              <h4 className="text-lg font-medium text-gray-900 mb-2">Modo de Autenticación</h4>
+              <p className="text-sm text-gray-600">
+                Elige cómo se registrarán e identificarán los usuarios en esta aplicación
+              </p>
+            </div>
+
+            {/* Opción Clásica */}
+            <button
+              type="button"
+              onClick={() => handleInputChange('auth_mode', 'classic')}
+              className={`w-full text-left rounded-xl border-2 p-5 transition-all ${
+                formData.auth_mode === 'classic'
+                  ? 'border-blue-500 bg-blue-50'
+                  : 'border-gray-200 bg-white hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-start space-x-4">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                  formData.auth_mode === 'classic' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-500'
+                }`}>
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <p className={`text-sm font-semibold ${formData.auth_mode === 'classic' ? 'text-blue-700' : 'text-gray-800'}`}>
+                      Autenticación Clásica
+                    </p>
+                    {formData.auth_mode === 'classic' && (
+                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Seleccionado</span>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Cada usuario se registra de forma individual con su email y contraseña. Comportamiento estándar sin agrupación por empresa.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-md">POST /auth/register</span>
+                    <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-md">POST /auth/login</span>
+                  </div>
+                </div>
+              </div>
+            </button>
+
+            {/* Opción Tenant */}
+            <button
+              type="button"
+              onClick={() => handleInputChange('auth_mode', 'tenant')}
+              className={`w-full text-left rounded-xl border-2 p-5 transition-all ${
+                formData.auth_mode === 'tenant'
+                  ? 'border-emerald-500 bg-emerald-50'
+                  : 'border-gray-200 bg-white hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-start space-x-4">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                  formData.auth_mode === 'tenant' ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-500'
+                }`}>
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <p className={`text-sm font-semibold ${formData.auth_mode === 'tenant' ? 'text-emerald-700' : 'text-gray-800'}`}>
+                      Autenticación por Tenant (Empresa)
+                    </p>
+                    {formData.auth_mode === 'tenant' && (
+                      <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">Seleccionado</span>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Los usuarios se agrupan bajo una empresa/organización (tenant). Primero se crea la empresa y luego sus usuarios quedan asociados automáticamente.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded-md font-medium">POST /register-tenant</span>
+                    <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-md">POST /auth/register</span>
+                    <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-md">POST /auth/login</span>
+                  </div>
+                </div>
+              </div>
+            </button>
+
+            {/* Info adicional si selecciona tenant */}
+            {formData.auth_mode === 'tenant' && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                <p className="text-sm font-medium text-amber-800 mb-2">Flujo de integración con tenants:</p>
+                <ol className="text-sm text-amber-700 space-y-1.5 list-decimal list-inside">
+                  <li>Tu cliente llama <code className="bg-amber-100 px-1 rounded text-xs">POST /register-tenant</code> con el nombre y datos de su empresa → recibe un <strong>tenant_id</strong></li>
+                  <li>Los usuarios de esa empresa se registran con <code className="bg-amber-100 px-1 rounded text-xs">POST /auth/register</code> usando el mismo <strong>application_id</strong> — el sistema los asigna automáticamente al tenant activo</li>
+                  <li>Al hacer login, la respuesta incluye el <strong>tenant_id</strong> en el token y en el payload del usuario</li>
+                </ol>
+              </div>
+            )}
+          </div>
+        );
+
       default:
         return null;
     }
@@ -369,7 +454,7 @@ export default function CreateApplicationWizard({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-500 to-purple-600 text-white p-6">
+        <div className="bg-gradient-to-r from-blue-500 to-blue-700 text-white p-6 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-xl font-bold">Nueva Aplicación</h3>
@@ -377,9 +462,9 @@ export default function CreateApplicationWizard({
             </div>
             <button
               onClick={onClose}
-              className="text-white hover:text-gray-200 text-2xl"
+              className="text-white hover:text-gray-200 text-2xl leading-none"
             >
-              ✕
+              &times;
             </button>
           </div>
         </div>
@@ -391,33 +476,28 @@ export default function CreateApplicationWizard({
               const Icon = step.icon;
               const isActive = currentStep === step.id;
               const isCompleted = currentStep > step.id;
-              
+
               return (
                 <React.Fragment key={step.id}>
-                  <div className="flex flex-col items-center">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-colors ${
-                      isCompleted 
-                        ? 'bg-green-500 border-green-500 text-white' 
-                        : isActive 
-                          ? 'bg-blue-500 border-blue-500 text-white' 
+                  <div className="flex flex-col items-center min-w-0">
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center border-2 transition-colors flex-shrink-0 ${
+                      isCompleted
+                        ? 'bg-green-500 border-green-500 text-white'
+                        : isActive
+                          ? 'bg-blue-500 border-blue-500 text-white'
                           : 'border-gray-300 text-gray-400'
                     }`}>
-                      {isCompleted ? <Check className="w-5 h-5" /> : <Icon className="w-5 h-5" />}
+                      {isCompleted ? <Check className="w-4 h-4" /> : <Icon className="w-4 h-4" />}
                     </div>
-                    <div className="mt-2 text-center">
-                      <p className={`text-sm font-medium ${isActive ? 'text-blue-600' : 'text-gray-500'}`}>
+                    <div className="mt-1.5 text-center hidden sm:block">
+                      <p className={`text-xs font-medium ${isActive ? 'text-blue-600' : 'text-gray-500'}`}>
                         {step.title}
-                      </p>
-                      <p className="text-xs text-gray-400 mt-1">
-                        {step.description}
                       </p>
                     </div>
                   </div>
-                  
+
                   {index < steps.length - 1 && (
-                    <div className={`flex-1 h-0.5 mx-4 ${
-                      currentStep > step.id ? 'bg-green-500' : 'bg-gray-200'
-                    }`} />
+                    <div className={`flex-1 h-0.5 mx-2 ${currentStep > step.id ? 'bg-green-500' : 'bg-gray-200'}`} />
                   )}
                 </React.Fragment>
               );
@@ -452,12 +532,13 @@ export default function CreateApplicationWizard({
                 >
                   Cancelar
                 </button>
-                
-                {currentStep < 3 ? (
+
+                {currentStep < steps.length ? (
                   <button
                     type="button"
                     onClick={handleNext}
-                    className="flex items-center space-x-2 px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                    disabled={!isStepValid(currentStep)}
+                    className="flex items-center space-x-2 px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <span>Siguiente</span>
                     <ArrowRight className="w-4 h-4" />
