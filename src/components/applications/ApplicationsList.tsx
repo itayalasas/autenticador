@@ -187,6 +187,7 @@ export default function ApplicationsList() {
         name: appData.name,
         description: appData.description,
         domain: appData.domain,
+        auth_mode: appData.auth_mode || 'classic',
         metadata: {
           ...editingApplication.metadata,
           environment_urls: appData.environment_urls,

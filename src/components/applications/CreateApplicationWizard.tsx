@@ -9,6 +9,8 @@ interface CreateApplicationWizardProps {
   loading: boolean;
 }
 
+const TOTAL_STEPS = 4;
+
 export default function CreateApplicationWizard({
   isOpen,
   onClose,
@@ -18,41 +20,33 @@ export default function CreateApplicationWizard({
   const [currentStep, setCurrentStep] = useState(1);
   const [subscriptionLimits, setSubscriptionLimits] = useState<any>(null);
   const [formData, setFormData] = useState({
-    // Paso 1: Información básica
     name: '',
     description: '',
     domain: '',
     environment: 'development' as 'development' | 'testing' | 'production',
-
-    // Paso 2: URLs por ambiente
     environment_urls: {
       development: { base_url: '', callback_url: '' },
       testing: { base_url: '', callback_url: '' },
       production: { base_url: '', callback_url: '' }
     },
-
-    // Paso 3: Configuración adicional
     cors_origins: '',
     webhook_url: '',
     enable_email_verification: true,
     allow_public_registration: true,
-
-    // Paso 4: Tipo de autenticación
     auth_mode: 'classic' as 'classic' | 'tenant'
   });
 
   const steps = [
-    { id: 1, title: 'Información Básica', description: 'Datos principales', icon: Globe },
-    { id: 2, title: 'URLs por Ambiente', description: 'Configuración de endpoints', icon: Settings },
-    { id: 3, title: 'Config. Avanzada', description: 'Opciones adicionales', icon: Palette },
-    { id: 4, title: 'Autenticación', description: 'Modo de autenticación', icon: Users }
+    { id: 1, title: 'Información Básica', icon: Globe },
+    { id: 2, title: 'URLs por Ambiente', icon: Settings },
+    { id: 3, title: 'Config. Avanzada', icon: Palette },
+    { id: 4, title: 'Autenticación', icon: Users }
   ];
 
   const wasOpenRef = React.useRef(false);
 
   React.useEffect(() => {
     if (isOpen && !wasOpenRef.current) {
-      // Only reset when modal transitions from closed → open
       wasOpenRef.current = true;
       loadSubscriptionLimits();
       setCurrentStep(1);
@@ -103,7 +97,7 @@ export default function CreateApplicationWizard({
   };
 
   const generatePlaceholderUrls = (domain: string) => {
-    if (!domain) return {};
+    if (!domain) return {} as any;
     return {
       development: {
         base_url: `https://auth-dev.${domain}`,
@@ -120,24 +114,25 @@ export default function CreateApplicationWizard({
     };
   };
 
+  const isStepValid = (step: number) => {
+    if (step === 1) return !!(formData.name && formData.domain);
+    return true;
+  };
+
   const handleNext = () => {
-    if (currentStep < steps.length) setCurrentStep(currentStep + 1);
+    if (currentStep < TOTAL_STEPS && isStepValid(currentStep)) {
+      setCurrentStep(s => s + 1);
+    }
   };
 
   const handlePrevious = () => {
-    if (currentStep > 1) setCurrentStep(currentStep - 1);
+    if (currentStep > 1) setCurrentStep(s => s - 1);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCreate = () => {
+    if (loading) return;
+    if (subscriptionLimits && !subscriptionLimits.allowed) return;
     onSubmit(formData);
-  };
-
-  const isStepValid = (step: number) => {
-    switch (step) {
-      case 1: return !!(formData.name && formData.domain);
-      default: return true;
-    }
   };
 
   const renderStepContent = () => {
@@ -153,7 +148,6 @@ export default function CreateApplicationWizard({
                 type="text"
                 value={formData.name}
                 onChange={(e) => handleInputChange('name', e.target.value)}
-                required
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="Mi Aplicación Web"
               />
@@ -180,30 +174,31 @@ export default function CreateApplicationWizard({
                 type="text"
                 value={formData.domain}
                 onChange={(e) => {
-                  handleInputChange('domain', e.target.value);
-                  if (e.target.value) {
-                    const placeholders = generatePlaceholderUrls(e.target.value);
+                  const val = e.target.value;
+                  if (val) {
+                    const ph = generatePlaceholderUrls(val);
                     setFormData(prev => ({
                       ...prev,
-                      domain: e.target.value,
+                      domain: val,
                       environment_urls: {
                         development: {
-                          base_url: prev.environment_urls.development.base_url || placeholders.development.base_url,
-                          callback_url: prev.environment_urls.development.callback_url || placeholders.development.callback_url
+                          base_url: prev.environment_urls.development.base_url || ph.development.base_url,
+                          callback_url: prev.environment_urls.development.callback_url || ph.development.callback_url
                         },
                         testing: {
-                          base_url: prev.environment_urls.testing.base_url || placeholders.testing.base_url,
-                          callback_url: prev.environment_urls.testing.callback_url || placeholders.testing.callback_url
+                          base_url: prev.environment_urls.testing.base_url || ph.testing.base_url,
+                          callback_url: prev.environment_urls.testing.callback_url || ph.testing.callback_url
                         },
                         production: {
-                          base_url: prev.environment_urls.production.base_url || placeholders.production.base_url,
-                          callback_url: prev.environment_urls.production.callback_url || placeholders.production.callback_url
+                          base_url: prev.environment_urls.production.base_url || ph.production.base_url,
+                          callback_url: prev.environment_urls.production.callback_url || ph.production.callback_url
                         }
                       }
                     }));
+                  } else {
+                    handleInputChange('domain', val);
                   }
                 }}
-                required
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="miapp.com"
               />
@@ -230,7 +225,7 @@ export default function CreateApplicationWizard({
         );
 
       case 2: {
-        const placeholders = generatePlaceholderUrls(formData.domain);
+        const ph = generatePlaceholderUrls(formData.domain);
         return (
           <div className="space-y-6">
             <div className="text-center mb-4">
@@ -242,39 +237,30 @@ export default function CreateApplicationWizard({
 
             {(['development', 'testing', 'production'] as const).map((env) => (
               <div key={env} className="bg-gray-50 rounded-lg p-4">
-                <h5 className="text-sm font-medium text-gray-800 mb-3 capitalize flex items-center space-x-2">
+                <h5 className="text-sm font-medium text-gray-800 mb-3 flex items-center space-x-2">
                   <span className={`w-2 h-2 rounded-full ${env === 'development' ? 'bg-blue-500' : env === 'testing' ? 'bg-yellow-500' : 'bg-green-500'}`} />
                   <span>{env === 'development' ? 'Desarrollo' : env === 'testing' ? 'Testing' : 'Producción'}</span>
-                  {env === 'development' && <span className="text-red-500">*</span>}
                 </h5>
                 <div className="grid grid-cols-1 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                      URL Base {env === 'development' && '*'}
-                    </label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">URL Base</label>
                     <input
-                      type="url"
+                      type="text"
                       value={formData.environment_urls[env].base_url}
                       onChange={(e) => handleEnvironmentUrlChange(env, 'base_url', e.target.value)}
-                      required={env === 'development'}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                      placeholder={placeholders[env]?.base_url || `https://auth-${env}.${formData.domain || 'midominio.com'}`}
+                      placeholder={ph[env]?.base_url || `https://auth-${env}.${formData.domain || 'midominio.com'}`}
                     />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Se generarán: /login, /register, /reset-password
-                    </p>
+                    <p className="text-xs text-gray-500 mt-1">Se generarán: /login, /register, /reset-password</p>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                      Callback URL {env === 'development' && '*'}
-                    </label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Callback URL</label>
                     <input
-                      type="url"
+                      type="text"
                       value={formData.environment_urls[env].callback_url}
                       onChange={(e) => handleEnvironmentUrlChange(env, 'callback_url', e.target.value)}
-                      required={env === 'development'}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                      placeholder={placeholders[env]?.callback_url || `https://${formData.domain || 'midominio.com'}/auth/callback`}
+                      placeholder={ph[env]?.callback_url || `https://${formData.domain || 'midominio.com'}/auth/callback`}
                     />
                   </div>
                 </div>
@@ -289,9 +275,7 @@ export default function CreateApplicationWizard({
           <div className="space-y-4">
             <div className="text-center mb-4">
               <h4 className="text-lg font-medium text-gray-900 mb-2">Configuración Avanzada</h4>
-              <p className="text-sm text-gray-600">
-                Opciones adicionales para personalizar el comportamiento
-              </p>
+              <p className="text-sm text-gray-600">Opciones adicionales para personalizar el comportamiento</p>
             </div>
 
             <div>
@@ -305,25 +289,19 @@ export default function CreateApplicationWizard({
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder={`https://${formData.domain || 'midominio.com'}\nhttps://www.${formData.domain || 'midominio.com'}`}
               />
-              <p className="text-xs text-gray-500 mt-1">
-                Una URL por línea. Se configurará automáticamente si se deja vacío.
-              </p>
+              <p className="text-xs text-gray-500 mt-1">Una URL por línea.</p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Webhook URL
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Webhook URL</label>
               <input
-                type="url"
+                type="text"
                 value={formData.webhook_url}
                 onChange={(e) => handleInputChange('webhook_url', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder={`https://${formData.domain || 'midominio.com'}/webhooks/auth`}
               />
-              <p className="text-xs text-gray-500 mt-1">
-                URL para recibir notificaciones de eventos de autenticación
-              </p>
+              <p className="text-xs text-gray-500 mt-1">URL para recibir notificaciones de eventos de autenticación</p>
             </div>
 
             <div className="space-y-3">
@@ -336,7 +314,6 @@ export default function CreateApplicationWizard({
                 />
                 <span className="ml-2 text-sm text-gray-700">Habilitar verificación de email</span>
               </label>
-
               <label className="flex items-center">
                 <input
                   type="checkbox"
@@ -361,10 +338,9 @@ export default function CreateApplicationWizard({
             </div>
 
             {/* Opción Clásica */}
-            <button
-              type="button"
+            <div
               onClick={() => handleInputChange('auth_mode', 'classic')}
-              className={`w-full text-left rounded-xl border-2 p-5 transition-all ${
+              className={`w-full text-left rounded-xl border-2 p-5 cursor-pointer transition-all ${
                 formData.auth_mode === 'classic'
                   ? 'border-blue-500 bg-blue-50'
                   : 'border-gray-200 bg-white hover:border-gray-300'
@@ -388,7 +364,7 @@ export default function CreateApplicationWizard({
                     )}
                   </div>
                   <p className="text-sm text-gray-500 mt-1">
-                    Cada usuario se registra de forma individual con su email y contraseña. Comportamiento estándar sin agrupación por empresa.
+                    Cada usuario se registra de forma individual. Comportamiento estándar sin agrupación por empresa.
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-md">POST /auth/register</span>
@@ -396,13 +372,12 @@ export default function CreateApplicationWizard({
                   </div>
                 </div>
               </div>
-            </button>
+            </div>
 
             {/* Opción Tenant */}
-            <button
-              type="button"
+            <div
               onClick={() => handleInputChange('auth_mode', 'tenant')}
-              className={`w-full text-left rounded-xl border-2 p-5 transition-all ${
+              className={`w-full text-left rounded-xl border-2 p-5 cursor-pointer transition-all ${
                 formData.auth_mode === 'tenant'
                   ? 'border-emerald-500 bg-emerald-50'
                   : 'border-gray-200 bg-white hover:border-gray-300'
@@ -426,7 +401,7 @@ export default function CreateApplicationWizard({
                     )}
                   </div>
                   <p className="text-sm text-gray-500 mt-1">
-                    Los usuarios se agrupan bajo una empresa/organización (tenant). Primero se crea la empresa y luego sus usuarios quedan asociados automáticamente.
+                    Los usuarios se agrupan bajo una empresa/organización. Primero se registra la empresa y sus usuarios quedan asociados automáticamente.
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded-md font-medium">POST /register-tenant</span>
@@ -435,16 +410,15 @@ export default function CreateApplicationWizard({
                   </div>
                 </div>
               </div>
-            </button>
+            </div>
 
-            {/* Info adicional si selecciona tenant */}
             {formData.auth_mode === 'tenant' && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
                 <p className="text-sm font-medium text-amber-800 mb-2">Flujo de integración con tenants:</p>
                 <ol className="text-sm text-amber-700 space-y-1.5 list-decimal list-inside">
-                  <li>Tu cliente llama <code className="bg-amber-100 px-1 rounded text-xs">POST /register-tenant</code> con el nombre y datos de su empresa → recibe un <strong>tenant_id</strong></li>
-                  <li>Los usuarios de esa empresa se registran con <code className="bg-amber-100 px-1 rounded text-xs">POST /auth/register</code> usando el mismo <strong>application_id</strong> — el sistema los asigna automáticamente al tenant activo</li>
-                  <li>Al hacer login, la respuesta incluye el <strong>tenant_id</strong> en el token y en el payload del usuario</li>
+                  <li>Tu cliente llama <code className="bg-amber-100 px-1 rounded text-xs">POST /register-tenant</code> → recibe un <strong>tenant_id</strong></li>
+                  <li>Los usuarios se registran con <code className="bg-amber-100 px-1 rounded text-xs">POST /auth/register</code> — se asignan automáticamente al tenant</li>
+                  <li>Al hacer login, la respuesta incluye el <strong>tenant_id</strong> en el token</li>
                 </ol>
               </div>
             )}
@@ -464,9 +438,10 @@ export default function CreateApplicationWizard({
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-xl font-bold">Nueva Aplicación</h3>
-              <p className="text-blue-100 mt-1">Paso {currentStep} de {steps.length}</p>
+              <p className="text-blue-100 mt-1">Paso {currentStep} de {TOTAL_STEPS}</p>
             </div>
             <button
+              type="button"
               onClick={onClose}
               className="text-white hover:text-gray-200 text-2xl leading-none"
             >
@@ -511,8 +486,8 @@ export default function CreateApplicationWizard({
           </div>
         </div>
 
-        {/* Content */}
-        <form onSubmit={handleSubmit} noValidate className="flex flex-col flex-1 min-h-0">
+        {/* Content — sin form tag, sin riesgo de submit involuntario */}
+        <div className="flex flex-col flex-1 min-h-0">
           <div className="flex-1 p-6 overflow-y-auto min-h-0">
             {renderStepContent()}
           </div>
@@ -539,7 +514,7 @@ export default function CreateApplicationWizard({
                   Cancelar
                 </button>
 
-                {currentStep < steps.length ? (
+                {currentStep < TOTAL_STEPS ? (
                   <button
                     type="button"
                     onClick={handleNext}
@@ -551,7 +526,8 @@ export default function CreateApplicationWizard({
                   </button>
                 ) : (
                   <button
-                    type="submit"
+                    type="button"
+                    onClick={handleCreate}
                     disabled={loading || (subscriptionLimits && !subscriptionLimits.allowed)}
                     className="flex items-center space-x-2 px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
@@ -566,7 +542,7 @@ export default function CreateApplicationWizard({
               </div>
             </div>
           </div>
-        </form>
+        </div>
       </div>
     </div>
   );
