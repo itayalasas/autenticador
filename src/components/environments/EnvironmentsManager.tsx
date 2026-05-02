@@ -1531,18 +1531,22 @@ export default function EnvironmentsManager() {
         }
 
         // Preparar las URLs de autenticación
+        const callbackUrl = environment.callback_url || `${baseUrl}/auth/callback`;
+        const redirectUri = encodeURIComponent(callbackUrl);
+        const urlParams = `?app_id=${app.application_id}&redirect_uri=${redirectUri}&api_key=${apiKey}`;
+
         const authUrls: Record<string, any> = {
           base_url: baseUrl,
-          login_url: `${baseUrl}/login`,
-          register_url: `${baseUrl}/register`,
-          reset_password_url: `${baseUrl}/reset-password`,
+          login_url: `${baseUrl}/login${urlParams}`,
+          register_url: `${baseUrl}/register${urlParams}`,
+          reset_password_url: `${baseUrl}/reset-password${urlParams}`,
           deployed_at: new Date().toISOString(),
           netlify_deploy_id: finalDeploy.id,
           netlify_site_id: siteId
         };
 
         if (app.auth_mode === 'tenant') {
-          authUrls.register_tenant_url = `${baseUrl}/register-tenant`;
+          authUrls.register_tenant_url = `${baseUrl}/register-tenant${urlParams}`;
         }
 
         // Merge con metadata existente
