@@ -1531,7 +1531,7 @@ export default function EnvironmentsManager() {
         }
 
         // Preparar las URLs de autenticación
-        const authUrls = {
+        const authUrls: Record<string, any> = {
           base_url: baseUrl,
           login_url: `${baseUrl}/login`,
           register_url: `${baseUrl}/register`,
@@ -1540,6 +1540,10 @@ export default function EnvironmentsManager() {
           netlify_deploy_id: finalDeploy.id,
           netlify_site_id: siteId
         };
+
+        if (app.auth_mode === 'tenant') {
+          authUrls.register_tenant_url = `${baseUrl}/register-tenant`;
+        }
 
         // Merge con metadata existente
         const updatedMetadata = {
@@ -1568,6 +1572,9 @@ export default function EnvironmentsManager() {
         addLog(`   Login: ${authUrls.login_url}`, 'info');
         addLog(`   Register: ${authUrls.register_url}`, 'info');
         addLog(`   Reset Password: ${authUrls.reset_password_url}`, 'info');
+        if (authUrls.register_tenant_url) {
+          addLog(`   Register Tenant: ${authUrls.register_tenant_url}`, 'info');
+        }
         addLog('', 'info');
 
         // Recargar aplicaciones para mostrar las URLs actualizadas
@@ -1909,10 +1916,17 @@ export default function EnvironmentsManager() {
           const loginUrl = `${siteUrl}/login?app_id=${pendingDeployData.applicationId}&redirect_uri=${redirectUri}&api_key=${pendingDeployData.apiKey}`;
           const registerUrl = `${siteUrl}/register?app_id=${pendingDeployData.applicationId}&redirect_uri=${redirectUri}&api_key=${pendingDeployData.apiKey}`;
           const resetUrl = `${siteUrl}/reset-password?app_id=${pendingDeployData.applicationId}&redirect_uri=${redirectUri}&api_key=${pendingDeployData.apiKey}`;
+          const currentAppForDeploy = applications.find(a => a.id === selectedApp);
+          const registerTenantUrl = currentAppForDeploy?.auth_mode === 'tenant'
+            ? `${siteUrl}/register-tenant?app_id=${pendingDeployData.applicationId}&redirect_uri=${redirectUri}&api_key=${pendingDeployData.apiKey}`
+            : null;
 
           addLog(`   Login: ${loginUrl}`, 'info');
           addLog(`   Register: ${registerUrl}`, 'info');
           addLog(`   Reset: ${resetUrl}`, 'info');
+          if (registerTenantUrl) {
+            addLog(`   Register Tenant: ${registerTenantUrl}`, 'info');
+          }
           addLog('', 'info');
           addLog('✨ Características incluidas:', 'info');
           addLog('   ✓ Formularios React completos con validaciones', 'info');
@@ -1945,7 +1959,8 @@ export default function EnvironmentsManager() {
                   deployed_urls: {
                     login_url: loginUrl,
                     register_url: registerUrl,
-                    reset_password_url: resetUrl
+                    reset_password_url: resetUrl,
+                    ...(registerTenantUrl ? { register_tenant_url: registerTenantUrl } : {})
                   }
                 }
               })
@@ -1966,7 +1981,7 @@ export default function EnvironmentsManager() {
 
             if (fetchError) throw fetchError;
 
-            const authUrls = {
+            const authUrls: Record<string, any> = {
               base_url: siteUrl,
               login_url: loginUrl,
               register_url: registerUrl,
@@ -1975,6 +1990,9 @@ export default function EnvironmentsManager() {
               netlify_site_id: siteId,
               netlify_site_name: siteName
             };
+            if (registerTenantUrl) {
+              authUrls.register_tenant_url = registerTenantUrl;
+            }
 
             const updatedMetadata = {
               ...(currentApp?.metadata || {}),
@@ -2531,6 +2549,7 @@ export default function EnvironmentsManager() {
                               login_url: lastLog.metadata.deployed_urls.login_url,
                               register_url: lastLog.metadata.deployed_urls.register_url,
                               reset_password_url: lastLog.metadata.deployed_urls.reset_password_url,
+                              register_tenant_url: lastLog.metadata.deployed_urls.register_tenant_url,
                               deployed_at: lastLog.completed_at || lastLog.created_at
                             };
                           }
@@ -2621,6 +2640,33 @@ export default function EnvironmentsManager() {
                                     </svg>
                                   </button>
                                 </div>
+
+                                {envUrls.register_tenant_url && (
+                                  <div className="flex items-center space-x-2">
+                                    <span className="text-xs text-gray-600 min-w-[60px]">Tenant:</span>
+                                    <a
+                                      href={envUrls.register_tenant_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-xs text-blue-600 hover:text-blue-800 flex-1 hover:underline block overflow-hidden whitespace-nowrap text-ellipsis"
+                                      title={envUrls.register_tenant_url}
+                                    >
+                                      {envUrls.register_tenant_url}
+                                    </a>
+                                    <button
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(envUrls.register_tenant_url);
+                                        showNotification('success', 'Copiado', 'URL copiada al portapapeles');
+                                      }}
+                                      className="p-1 hover:bg-green-100 rounded flex-shrink-0"
+                                      title="Copiar URL"
+                                    >
+                                      <svg className="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           );

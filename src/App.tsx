@@ -22,6 +22,7 @@ import ConnectorsPage from './components/connectors/ConnectorsPage';
 import GitHubCallback from './components/github/GitHubCallback';
 import DeploymentManager from './components/deployments/DeploymentManager';
 import FormStylesPrototype from './components/auth/FormStylesPrototype';
+import RegisterTenantForm from './components/auth/RegisterTenantForm';
 
 // Component for handling public auth routes
 function PublicAuthRoute() {
@@ -222,6 +223,7 @@ function App() {
       <Routes>
         <Route path="/prototype" element={<FormStylesPrototype />} />
         <Route path="/reset-password" element={<ResetPasswordForm />} />
+        <Route path="/register-tenant" element={<RegisterTenantForm />} />
         <Route path="/github/callback" element={<GitHubCallback />} />
         <Route path="/:action" element={<PublicAuthRoute />} />
         <Route path="/*" element={<MainApp />} />
