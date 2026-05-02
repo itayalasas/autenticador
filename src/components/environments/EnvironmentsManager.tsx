@@ -2559,6 +2559,15 @@ export default function EnvironmentsManager() {
                           }
                         }
 
+                        // Derivar register_tenant_url si la app es modo tenant y aún no está guardada
+                        if (envUrls && !envUrls.register_tenant_url && app?.auth_mode === 'tenant' && envUrls.base_url) {
+                          const baseUrl = envUrls.base_url;
+                          // Extraer query params de login_url para reutilizarlos
+                          const loginUrlObj = envUrls.login_url ? envUrls.login_url.split('?') : [];
+                          const queryParams = loginUrlObj.length > 1 ? `?${loginUrlObj[1]}` : '';
+                          envUrls = { ...envUrls, register_tenant_url: `${baseUrl}/register-tenant${queryParams}` };
+                        }
+
                         if (envUrls) {
                           return (
                             <div className="bg-green-50 border border-green-200 rounded-lg p-3 space-y-2">
