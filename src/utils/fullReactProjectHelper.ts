@@ -196,6 +196,7 @@ VITE_DEFAULT_API_KEY=${apiKey}
       "src/components/auth/PublicAuthForms.tsx",
       "src/components/auth/BrandedPublicAuth.tsx",
       "src/components/auth/PublicAuthRouter.tsx",
+      "src/components/auth/RegisterTenantForm.tsx",
       "src/components/ui/BrandedComponents.tsx",
       "src/services/rolesService.ts",
       "src/services/applicationService.ts",

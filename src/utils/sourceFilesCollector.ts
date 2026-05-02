@@ -33,6 +33,7 @@ const SOURCE_FILES_TO_DEPLOY = [
   'src/components/auth/PublicAuthForms.tsx',
   'src/components/auth/BrandedPublicAuth.tsx',
   'src/components/auth/PublicAuthRouter.tsx',
+  'src/components/auth/RegisterTenantForm.tsx',
 
   // UI Components
   'src/components/ui/BrandedComponents.tsx',

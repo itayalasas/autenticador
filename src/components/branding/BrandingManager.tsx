@@ -1377,6 +1377,18 @@ export default function BrandingManager() {
                   >
                     Nueva Contraseña
                   </button>
+                  {applications.find(a => a.id === selectedApp)?.auth_mode === 'tenant' && (
+                    <button
+                      onClick={() => setPreviewMode('register-tenant')}
+                      className={`px-3 py-1.5 rounded text-sm ${
+                        previewMode === 'register-tenant'
+                          ? 'bg-blue-100 text-blue-700'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      Tenant
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1687,6 +1699,83 @@ export default function BrandingManager() {
                   </div>
                 </div>
               )}
+
+              {previewMode === 'register-tenant' && (
+                <div className="space-y-4">
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+                    Formulario de registro de empresa (Tenant). Este formulario aparece solo cuando la aplicación usa autenticación por Tenant.
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Título Paso 1</label>
+                      <input
+                        type="text"
+                        value={texts.register_tenant_step1_title || 'Datos de la Empresa'}
+                        onChange={(e) => handleTextChange('register_tenant_step1_title', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Subtítulo Paso 1</label>
+                      <input
+                        type="text"
+                        value={texts.register_tenant_step1_subtitle || 'Información de tu organización'}
+                        onChange={(e) => handleTextChange('register_tenant_step1_subtitle', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Título Paso 2</label>
+                      <input
+                        type="text"
+                        value={texts.register_tenant_step2_title || 'Cuenta de Administrador'}
+                        onChange={(e) => handleTextChange('register_tenant_step2_title', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Subtítulo Paso 2</label>
+                      <input
+                        type="text"
+                        value={texts.register_tenant_step2_subtitle || 'Crea el usuario administrador'}
+                        onChange={(e) => handleTextChange('register_tenant_step2_subtitle', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Botón Continuar</label>
+                      <input
+                        type="text"
+                        value={texts.register_tenant_continue_button || 'Continuar'}
+                        onChange={(e) => handleTextChange('register_tenant_continue_button', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Botón Registrar</label>
+                      <input
+                        type="text"
+                        value={texts.register_tenant_submit_button || 'Registrar Empresa'}
+                        onChange={(e) => handleTextChange('register_tenant_submit_button', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Enlace a Login</label>
+                    <input
+                      type="text"
+                      value={texts.register_tenant_login_link || '¿Ya tienes cuenta? Inicia sesión'}
+                      onChange={(e) => handleTextChange('register_tenant_login_link', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           )}
@@ -1771,31 +1860,129 @@ export default function BrandingManager() {
                 >
                   Recuperar
                 </button>
+                {applications.find(a => a.id === selectedApp)?.auth_mode === 'tenant' && (
+                  <button
+                    onClick={() => setPreviewMode('register-tenant')}
+                    className={`px-3 py-1.5 rounded text-sm ${
+                      previewMode === 'register-tenant'
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    Tenant
+                  </button>
+                )}
               </div>
             </div>
 
             {/* Preview Window */}
             <div className="preview-scroll border-2 border-gray-200 rounded-lg overflow-y-auto overflow-x-hidden max-h-[70vh] lg:max-h-[calc(100vh-13rem)]">
-              <BrandedPublicAuth
-                applicationId={selectedApp || 'preview'}
-                formType={previewMode === 'confirm-reset' ? 'reset-password-confirm' : previewMode as 'login' | 'register' | 'reset-password' | 'reset-password-confirm'}
-                branding={{
-                  ...branding,
-                  ...extendedBranding,
-                  border_radius: parseInt(branding.border_radius),
-                  custom_texts: texts
-                }}
-                onSubmit={async (data) => {
-                  console.log('Preview submit:', data);
-                  return { success: true };
-                }}
-                onSuccess={() => {
-                  console.log('Preview success');
-                }}
-                onError={(error) => {
-                  console.log('Preview error:', error);
-                }}
-              />
+              {previewMode === 'register-tenant' ? (
+                <div
+                  className="min-h-full flex items-center justify-center p-6"
+                  style={{ backgroundColor: branding.background_color || '#F9FAFB', fontFamily: branding.font_family || 'Inter' }}
+                >
+                  <div className="w-full max-w-md">
+                    {/* Header */}
+                    <div className="text-center mb-6">
+                      {branding.logo_url ? (
+                        <img src={branding.logo_url} alt="Logo" className="h-10 mx-auto mb-3 object-contain" />
+                      ) : (
+                        <div
+                          className="w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-3 text-white font-bold text-lg"
+                          style={{ backgroundColor: branding.primary_color }}
+                        >
+                          E
+                        </div>
+                      )}
+                      <h1 className="text-xl font-bold" style={{ color: branding.text_color }}>
+                        {applications.find(a => a.id === selectedApp)?.name || 'Mi Aplicación'}
+                      </h1>
+                      <p className="text-sm text-gray-500">Registrar nueva empresa</p>
+                    </div>
+
+                    {/* Step indicator */}
+                    <div className="flex items-center mb-5">
+                      <div className="flex items-center">
+                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold text-white" style={{ backgroundColor: branding.primary_color }}>1</div>
+                        <span className="ml-2 text-xs font-medium hidden sm:block" style={{ color: branding.text_color }}>Datos de la Empresa</span>
+                      </div>
+                      <div className="flex-1 h-0.5 mx-3" style={{ backgroundColor: '#E5E7EB' }} />
+                      <div className="flex items-center">
+                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold" style={{ backgroundColor: '#E5E7EB', color: '#6B7280' }}>2</div>
+                        <span className="ml-2 text-xs font-medium hidden sm:block text-gray-400">Cuenta Admin</span>
+                      </div>
+                    </div>
+
+                    {/* Card - Paso 1 */}
+                    <div className="bg-white rounded-2xl shadow-lg p-6" style={{ borderRadius: `${branding.border_radius}px` }}>
+                      <h2 className="text-base font-semibold mb-4" style={{ color: branding.text_color }}>Datos de la Empresa</h2>
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-xs font-medium mb-1" style={{ color: branding.text_color }}>Nombre de la empresa *</label>
+                          <input
+                            readOnly
+                            placeholder="Acme Corp"
+                            className="w-full px-3 py-2 border text-sm border-gray-300"
+                            style={{ borderRadius: `${branding.border_radius}px` }}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium mb-1" style={{ color: branding.text_color }}>Identificador (slug) *</label>
+                          <input
+                            readOnly
+                            placeholder="acme-corp"
+                            className="w-full px-3 py-2 border text-sm border-gray-300 font-mono"
+                            style={{ borderRadius: `${branding.border_radius}px` }}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium mb-1" style={{ color: branding.text_color }}>Dominio <span className="text-gray-400 font-normal">(opcional)</span></label>
+                          <input
+                            readOnly
+                            placeholder="empresa.com"
+                            className="w-full px-3 py-2 border text-sm border-gray-300"
+                            style={{ borderRadius: `${branding.border_radius}px` }}
+                          />
+                        </div>
+                        <button
+                          className="w-full py-2.5 text-sm font-semibold text-white flex items-center justify-center space-x-2"
+                          style={{ backgroundColor: branding.primary_color, borderRadius: `${branding.border_radius}px` }}
+                        >
+                          <span>Continuar</span>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                        </button>
+                      </div>
+                    </div>
+
+                    <p className="text-center text-xs text-gray-500 mt-4">
+                      ¿Ya tienes cuenta?{' '}
+                      <span className="font-medium" style={{ color: branding.primary_color }}>Inicia sesión</span>
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <BrandedPublicAuth
+                  applicationId={selectedApp || 'preview'}
+                  formType={previewMode === 'confirm-reset' ? 'reset-password-confirm' : previewMode as 'login' | 'register' | 'reset-password' | 'reset-password-confirm'}
+                  branding={{
+                    ...branding,
+                    ...extendedBranding,
+                    border_radius: parseInt(branding.border_radius),
+                    custom_texts: texts
+                  }}
+                  onSubmit={async (data) => {
+                    console.log('Preview submit:', data);
+                    return { success: true };
+                  }}
+                  onSuccess={() => {
+                    console.log('Preview success');
+                  }}
+                  onError={(error) => {
+                    console.log('Preview error:', error);
+                  }}
+                />
+              )}
             </div>
           </div>
 
