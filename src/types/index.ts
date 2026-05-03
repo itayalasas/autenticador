@@ -63,6 +63,7 @@ export interface Environment {
       login: string;
       register: string;
       reset_password: string;
+      reset_password_confirm?: string;
       callback: string;
     };
     [key: string]: any;

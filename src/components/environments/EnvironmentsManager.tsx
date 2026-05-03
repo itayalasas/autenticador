@@ -30,6 +30,7 @@ interface Environment {
       login: string;
       register: string;
       reset_password: string;
+      reset_password_confirm?: string;
       callback: string;
       api_base: string;
     };
@@ -1540,6 +1541,7 @@ export default function EnvironmentsManager() {
           login_url: `${baseUrl}/login${urlParams}`,
           register_url: `${baseUrl}/register${urlParams}`,
           reset_password_url: `${baseUrl}/reset-password${urlParams}`,
+          reset_password_confirm_url: `${baseUrl}/reset-password-confirm${urlParams}`,
           deployed_at: new Date().toISOString(),
           netlify_deploy_id: finalDeploy.id,
           netlify_site_id: siteId

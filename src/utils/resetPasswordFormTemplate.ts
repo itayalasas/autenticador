@@ -92,10 +92,17 @@ export default function ResetPasswordForm() {
     setError('');
     setSubmitting(true);
     try {
+      if (!appId) throw new Error('Falta parámetro app_id en la URL');
+      if (!apiKey) throw new Error('Falta parámetro api_key en la URL');
       const res = await fetch(\`\${API_BASE}/auth-reset-password\`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`, 'apikey': SUPABASE_ANON_KEY },
-        body: JSON.stringify({ application_id: appId, email, callback_url: callbackUrl || window.location.origin }),
+        body: JSON.stringify({
+          application_id: appId,
+          api_key: apiKey,
+          email,
+          callback_url: callbackUrl || window.location.origin
+        }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error?.message || 'Error al solicitar recuperación');
@@ -126,7 +133,7 @@ export default function ResetPasswordForm() {
       const res = await fetch(\`\${API_BASE}/auth-reset-password-confirm\`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`, 'apikey': SUPABASE_ANON_KEY },
-        body: JSON.stringify({ token, email: emailFromUrl, new_password: password }),
+        body: JSON.stringify({ token, email: emailFromUrl, new_password: password, api_key: apiKey || '' }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error?.message || 'Error al restablecer la contraseña');

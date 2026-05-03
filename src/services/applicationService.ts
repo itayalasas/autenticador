@@ -185,6 +185,7 @@ export const applicationService = {
             login: `${baseUrl}/login`,
             register: `${baseUrl}/register`,
             reset_password: `${baseUrl}/reset-password`,
+            reset_password_confirm: `${baseUrl}/reset-password-confirm`,
             callback: callbackUrl
           }
         }
@@ -201,8 +202,9 @@ export const applicationService = {
       callback_url: callbackUrl,
       generated_urls: {
         login: `${baseUrl}/login`,
-        register: `${baseUrl}/register`, 
+        register: `${baseUrl}/register`,
         reset_password: `${baseUrl}/reset-password`,
+        reset_password_confirm: `${baseUrl}/reset-password-confirm`,
         callback: callbackUrl
       }
     });
