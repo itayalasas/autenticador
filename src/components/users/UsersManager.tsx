@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Plus, Search, Shield, Filter, CreditCard as Edit, Trash2, UserCheck, UserX, X } from 'lucide-react';
+import { Users, Plus, Search, Shield, Filter, CreditCard as Edit, Trash2, UserCheck, UserX, X, Building2 } from 'lucide-react';
 import { AppUser, ApplicationRole, MfaManagedDevice } from '../../types';
 import { userService } from '../../services/userService';
 import { applicationService } from '../../services/applicationService';
 import { subscriptionService } from '../../services/subscriptionService';
+import { tenantService, Tenant } from '../../services/tenantService';
 import { supabase } from '../../lib/supabase';
 import { useNotification } from '../../hooks/useNotification';
 import ConfirmationModal from '../ui/ConfirmationModal';
@@ -14,6 +15,7 @@ type UserCreateForm = {
   name: string;
   password: string;
   roles: string[];
+  tenant_id: string;
   metadata: Record<string, any>;
 };
 
@@ -22,6 +24,7 @@ type UserEditForm = {
   email: string;
   status: 'active' | 'inactive' | 'pending';
   roles: string[];
+  tenant_id: string;
   metadata: Record<string, any>;
 };
 
@@ -31,9 +34,11 @@ export default function UsersManager() {
   const [selectedApp, setSelectedApp] = useState('');
   const [users, setUsers] = useState<AppUser[]>([]);
   const [applicationRoles, setApplicationRoles] = useState<ApplicationRole[]>([]);
+  const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [tenantFilter, setTenantFilter] = useState('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingUser, setEditingUser] = useState<AppUser | null>(null);
@@ -52,6 +57,7 @@ export default function UsersManager() {
     name: '',
     password: '',
     roles: [],
+    tenant_id: '',
     metadata: {}
   });
 
@@ -60,8 +66,12 @@ export default function UsersManager() {
     email: '',
     status: 'active' as 'active' | 'inactive' | 'pending',
     roles: [],
+    tenant_id: '',
     metadata: {}
   });
+
+  const selectedApplication = applications.find(a => a.id === selectedApp);
+  const isTenantMode = selectedApplication?.auth_mode === 'tenant';
 
   useEffect(() => {
     loadApplications();
@@ -71,8 +81,23 @@ export default function UsersManager() {
     if (selectedApp) {
       loadUsers();
       loadApplicationRoles();
+      loadTenants();
     }
   }, [selectedApp]);
+
+  const loadTenants = async () => {
+    try {
+      if (!isTenantMode) {
+        setTenants([]);
+        return;
+      }
+      const list = await tenantService.getTenantsByApplication(selectedApp);
+      setTenants(list);
+    } catch (error) {
+      console.error('Error loading tenants:', error);
+      setTenants([]);
+    }
+  };
 
   const loadApplications = async () => {
     try {
@@ -170,13 +195,20 @@ export default function UsersManager() {
         }
       }
       
+      if (isTenantMode && !newUser.tenant_id) {
+        showError('Tenant requerido', 'Selecciona una empresa (tenant) para asignar al usuario.');
+        setCreateLoading(false);
+        return;
+      }
+
       await userService.createAppUser({
         ...newUser,
         roles: rolesToAssign,
+        tenant_id: newUser.tenant_id || null,
         application_id: selectedApp
       });
       setShowCreateModal(false);
-      setNewUser({ email: '', name: '', password: '', roles: [], metadata: {} });
+      setNewUser({ email: '', name: '', password: '', roles: [], tenant_id: '', metadata: {} });
       await loadUsers();
       showSuccess('Usuario creado', 'El usuario ha sido creado exitosamente.');
     } catch (error) {
@@ -193,10 +225,14 @@ export default function UsersManager() {
       setEditLoading(true);
       
       // Create user data without roles (roles are handled separately)
-      const { roles, ...userDataWithoutRoles } = editUser;
-      
+      const { roles, tenant_id, ...rest } = editUser;
+      const userDataWithoutRoles = {
+        ...rest,
+        tenant_id: tenant_id || null,
+      };
+
       // Update user basic info
-      await userService.updateAppUser(editingUser!.id, userDataWithoutRoles);
+      await userService.updateAppUser(editingUser!.id, userDataWithoutRoles as any);
       
       // Update user roles separately
       await userService.updateUserRoles(editingUser!.id, roles);
@@ -302,7 +338,8 @@ export default function UsersManager() {
     const matchesSearch = user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          user.email.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || user.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesTenant = tenantFilter === 'all' || (user as any).tenant_id === tenantFilter;
+    return matchesSearch && matchesStatus && matchesTenant;
   });
 
   const getStatusColor = (status: string) => {
@@ -376,7 +413,7 @@ export default function UsersManager() {
               
               <div className="flex items-center space-x-2">
                 <Filter className="w-5 h-5 text-gray-400" />
-                <select 
+                <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
                   className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -387,6 +424,22 @@ export default function UsersManager() {
                   <option value="pending">Pendientes</option>
                 </select>
               </div>
+
+              {isTenantMode && tenants.length > 0 && (
+                <div className="flex items-center space-x-2">
+                  <Building2 className="w-5 h-5 text-gray-400" />
+                  <select
+                    value={tenantFilter}
+                    onChange={(e) => setTenantFilter(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="all">Todas las empresas</option>
+                    {tenants.map(t => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           </div>
 
@@ -420,6 +473,11 @@ export default function UsersManager() {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Roles
                       </th>
+                      {isTenantMode && (
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Empresa
+                        </th>
+                      )}
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Estado
                       </th>
@@ -468,6 +526,18 @@ export default function UsersManager() {
                             ) : null}
                           </div>
                         </td>
+                        {isTenantMode && (
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            {(user as any).tenant_name ? (
+                              <span className="inline-flex items-center space-x-1 px-2 py-1 bg-emerald-50 text-emerald-700 text-xs font-medium rounded-full border border-emerald-200">
+                                <Building2 className="w-3 h-3" />
+                                <span>{(user as any).tenant_name}</span>
+                              </span>
+                            ) : (
+                              <span className="text-xs text-gray-400">Sin empresa</span>
+                            )}
+                          </td>
+                        )}
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(user.status)}`}>
                             {user.status === 'active' ? 'Activo' : user.status === 'inactive' ? 'Inactivo' : 'Pendiente'}
@@ -497,6 +567,7 @@ export default function UsersManager() {
                                   email: user.email,
                                   status: user.status,
                                  roles: userRoleNames,
+                                  tenant_id: (user as any).tenant_id || '',
                                   metadata: user.metadata || {}
                                 });
                                 setShowEditModal(true);
@@ -665,6 +736,30 @@ export default function UsersManager() {
                 </p>
               </div>
 
+              {isTenantMode && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Empresa (Tenant) *
+                  </label>
+                  <select
+                    required
+                    value={newUser.tenant_id}
+                    onChange={(e) => setNewUser(prev => ({ ...prev, tenant_id: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">Selecciona una empresa</option>
+                    {tenants.map(t => (
+                      <option key={t.id} value={t.id}>{t.name} ({t.slug})</option>
+                    ))}
+                  </select>
+                  {tenants.length === 0 && (
+                    <p className="text-xs text-amber-600 mt-1">
+                      No hay empresas registradas. Los usuarios se registran primero creando una empresa via /register-tenant.
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Roles
@@ -674,12 +769,12 @@ export default function UsersManager() {
                     <div className="text-sm text-gray-500 p-2 bg-gray-50 rounded">
                       No hay roles configurados para esta aplicación.
                       <br />
-                      <a 
-                        href="#" 
+                      <a
+                        href="#"
                         onClick={(e) => {
                           e.preventDefault();
-                          const event = new CustomEvent('changeSectionWithApp', { 
-                            detail: { section: 'roles', appId: selectedApp } 
+                          const event = new CustomEvent('changeSectionWithApp', {
+                            detail: { section: 'roles', appId: selectedApp }
                           });
                           window.dispatchEvent(event);
                         }}
@@ -830,6 +925,24 @@ export default function UsersManager() {
                 </select>
               </div>
 
+              {isTenantMode && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Empresa (Tenant)
+                  </label>
+                  <select
+                    value={editUser.tenant_id}
+                    onChange={(e) => setEditUser(prev => ({ ...prev, tenant_id: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">Sin empresa</option>
+                    {tenants.map(t => (
+                      <option key={t.id} value={t.id}>{t.name} ({t.slug})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Roles
@@ -839,12 +952,12 @@ export default function UsersManager() {
                     <div className="text-sm text-gray-500 p-2 bg-gray-50 rounded">
                       No hay roles configurados para esta aplicación.
                       <br />
-                      <a 
-                        href="#" 
+                      <a
+                        href="#"
                         onClick={(e) => {
                           e.preventDefault();
-                          const event = new CustomEvent('changeSectionWithApp', { 
-                            detail: { section: 'roles', appId: selectedApp } 
+                          const event = new CustomEvent('changeSectionWithApp', {
+                            detail: { section: 'roles', appId: selectedApp }
                           });
                           window.dispatchEvent(event);
                         }}

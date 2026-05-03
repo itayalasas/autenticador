@@ -171,11 +171,14 @@ export interface AppUser {
   email: string;
   name: string;
   application_id: string;
+  tenant_id?: string | null;
   role_id?: string | null;
   user_roles: UserRole[];
   roles?: string[];
   role_display_name?: string | null;
   role_permissions?: string[];
+  tenant_name?: string | null;
+  tenant_slug?: string | null;
   status: 'active' | 'inactive' | 'pending';
   created_at: string;
   last_login?: string;

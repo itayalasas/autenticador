@@ -338,6 +338,19 @@ export default function ApplicationsList() {
                     <div>
                       <h3 className="font-semibold text-gray-900">{app.name}</h3>
                       <p className="text-sm text-gray-600">{app.domain}</p>
+                      <div className="mt-1.5">
+                        {(app as any).auth_mode === 'tenant' ? (
+                          <span className="inline-flex items-center space-x-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[11px] font-medium rounded-full border border-emerald-200">
+                            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
+                            <span>Modo Tenant</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center space-x-1 px-2 py-0.5 bg-blue-50 text-blue-700 text-[11px] font-medium rounded-full border border-blue-200">
+                            <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
+                            <span>Autenticación Clásica</span>
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="relative">

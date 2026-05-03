@@ -28,7 +28,7 @@ const NAMED_COLORS: NamedColor[] = [
   { names: ['red', 'rojo', 'roja', 'crimson'], hex: '#F87171', token: 'Crimson' },
   { names: ['blue', 'azul', 'navy'], hex: '#3B82F6', token: 'Blue' },
   { names: ['green', 'verde', 'emerald'], hex: '#10B981', token: 'Green' },
-  { names: ['purple', 'morado', 'violet', 'violeta'], hex: '#8B5CF6', token: 'Purple' },
+  { names: ['teal', 'turquesa', 'cyan'], hex: '#0D9488', token: 'Teal' },
   { names: ['orange', 'naranja', 'amber'], hex: '#F59E0B', token: 'Amber' },
   { names: ['pink', 'rosa'], hex: '#EC4899', token: 'Rose' },
   { names: ['gray', 'grey', 'gris', 'slate'], hex: '#94A3B8', token: 'Slate' },
@@ -111,7 +111,7 @@ export function generateThemeFromPrompt(prompt: string, base: Partial<BrandingCo
 
   const palettes = [
     { primary: '#2563EB', secondary: '#1E40AF', accent: '#3B82F6', background: '#F1F5F9', text: '#1E293B' },
-    { primary: '#7C3AED', secondary: '#6D28D9', accent: '#8B5CF6', background: '#FAF5FF', text: '#4C1D95' },
+    { primary: '#334155', secondary: '#1E293B', accent: '#0EA5E9', background: '#F8FAFC', text: '#0F172A' },
     { primary: '#059669', secondary: '#047857', accent: '#10B981', background: '#ECFDF5', text: '#064E3B' },
     { primary: '#F97316', secondary: '#EA580C', accent: '#FB923C', background: '#FFF7ED', text: '#7C2D12' },
     { primary: '#0EA5E9', secondary: '#0284C7', accent: '#06B6D4', background: '#F0F9FF', text: '#0C4A6E' }

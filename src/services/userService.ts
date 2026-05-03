@@ -65,6 +65,11 @@ export const userService = {
           name,
           display_name,
           permissions
+        ),
+        tenants (
+          id,
+          name,
+          slug
         )
       `)
       .eq('application_id', applicationId)
@@ -81,7 +86,9 @@ export const userService = {
         ...user,
         roles: role ? [role.name] : [],
         role_display_name: role?.display_name || null,
-        role_permissions: role?.permissions || []
+        role_permissions: role?.permissions || [],
+        tenant_name: user.tenants?.name || null,
+        tenant_slug: user.tenants?.slug || null,
       };
     });
 
@@ -95,6 +102,7 @@ export const userService = {
     name: string;
     password: string;
     roles?: string[];
+    tenant_id?: string | null;
     metadata?: Record<string, any>;
   }) {
     console.log('Creating user with data:', {
@@ -151,6 +159,7 @@ export const userService = {
         name: userData.name,
         password_hash: passwordHash,
         role_id: primaryRoleId,
+        tenant_id: userData.tenant_id || null,
         metadata: userData.metadata || {}
       })
       .select()
