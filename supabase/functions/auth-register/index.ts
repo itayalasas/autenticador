@@ -20,6 +20,7 @@ interface RegisterRequest {
   callback_url?: string
   client_ip?: string
   metadata?: Record<string, any>
+  tenant_id?: string
 }
 
 function generateVerificationToken(): string {
@@ -460,7 +461,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { email, password, name, application_id, api_key, role, callback_url, client_ip, metadata }: RegisterRequest = requestBody;
+    const { email, password, name, application_id, api_key, role, callback_url, client_ip, metadata, tenant_id: requestedTenantId }: RegisterRequest = requestBody;
 
     if (!email || !password || !name || !application_id || !api_key) {
       const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0';
@@ -792,33 +793,70 @@ Deno.serve(async (req) => {
       emailConfig.require_email_verification === true;
     const userStatus = requireEmailVerification ? 'pending' : 'active';
      
-    // If application is in tenant mode, resolve tenant_id automatically
+    // If application is in tenant mode, resolve tenant_id (prefer the one provided in the request)
     let tenantId: string | null = null;
     if (application.auth_mode === 'tenant') {
-      const { data: activeTenant } = await supabase
-        .from('tenants')
-        .select('id, name')
-        .eq('application_id', application.id)
-        .eq('status', 'active')
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .maybeSingle();
+      if (requestedTenantId) {
+        const { data: requestedTenant } = await supabase
+          .from('tenants')
+          .select('id, name, status, application_id')
+          .eq('id', requestedTenantId)
+          .maybeSingle();
 
-      if (!activeTenant) {
-        return new Response(
-          JSON.stringify({
-            success: false,
-            error: {
-              code: 'NO_TENANT_FOUND',
-              message: 'Esta aplicación requiere un tenant activo. Por favor registre una empresa antes de registrar usuarios.'
-            }
-          }),
-          { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        if (!requestedTenant || requestedTenant.application_id !== application.id) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: {
+                code: 'INVALID_TENANT',
+                message: 'El tenant indicado no pertenece a esta aplicación'
+              }
+            }),
+            { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        if (requestedTenant.status !== 'active') {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: {
+                code: 'TENANT_NOT_ACTIVE',
+                message: 'El tenant indicado no está activo'
+              }
+            }),
+            { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        tenantId = requestedTenant.id;
+        console.log('✅ Using tenant_id provided in request:', requestedTenant.name, tenantId);
+      } else {
+        const { data: activeTenant } = await supabase
+          .from('tenants')
+          .select('id, name')
+          .eq('application_id', application.id)
+          .eq('status', 'active')
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+
+        if (!activeTenant) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: {
+                code: 'NO_TENANT_FOUND',
+                message: 'Esta aplicación requiere un tenant activo. Por favor registre una empresa antes de registrar usuarios.'
+              }
+            }),
+            { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        tenantId = activeTenant.id;
+        console.log('⚠️ No tenant_id in request, defaulted to oldest active tenant:', activeTenant.name, tenantId);
       }
-
-      tenantId = activeTenant.id;
-      console.log('✅ Tenant resolved for registration:', activeTenant.name, tenantId);
     }
 
     const { data: newUser, error: createError } = await supabase
