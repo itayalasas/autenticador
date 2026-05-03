@@ -79,10 +79,16 @@ Deno.serve(async (req: Request) => {
       .eq("email", invitation.email)
       .maybeSingle();
 
-    if (existingUser && existingUser.tenant_id === invitation.tenant_id) {
+    if (existingUser) {
+      const sameTenant = existingUser.tenant_id === invitation.tenant_id;
       return jsonResponse({
         success: false,
-        error: { code: "USER_ALREADY_EXISTS", message: "El usuario ya pertenece a este tenant" },
+        error: {
+          code: "USER_ALREADY_EXISTS",
+          message: sameTenant
+            ? "Este correo ya tiene una cuenta en esta organización. Inicia sesión en lugar de aceptar la invitación."
+            : "Este correo ya está registrado en la aplicación. Inicia sesión con tu cuenta existente.",
+        },
       }, 409);
     }
 
@@ -104,10 +110,16 @@ Deno.serve(async (req: Request) => {
       .single();
 
     if (insErr) {
+      const isDuplicate = insErr.code === "23505" || /duplicate key|unique constraint/i.test(insErr.message ?? "");
       return jsonResponse({
         success: false,
-        error: { code: "USER_CREATE_ERROR", message: insErr.message },
-      }, 500);
+        error: {
+          code: isDuplicate ? "USER_ALREADY_EXISTS" : "USER_CREATE_ERROR",
+          message: isDuplicate
+            ? "Este correo ya está registrado en la aplicación. Inicia sesión con tu cuenta existente."
+            : "No pudimos crear tu cuenta. Intenta nuevamente en unos minutos.",
+        },
+      }, isDuplicate ? 409 : 500);
     }
 
     await supabase
