@@ -22,15 +22,23 @@ function getClientIp(req: Request): string {
 }
 
 Deno.serve(async (req: Request) => {
+  const rid = crypto.randomUUID();
+  console.log(`[verify-email][${rid}] incoming`, req.method, req.url);
+
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
 
   try {
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    );
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    console.log(`[verify-email][${rid}] env check`, {
+      has_url: !!supabaseUrl,
+      has_service_key: !!serviceKey,
+      url_prefix: supabaseUrl.slice(0, 40)
+    });
+
+    const supabase = createClient(supabaseUrl, serviceKey);
 
     let token: string | null = null;
     let email: string | null = null;
@@ -40,7 +48,12 @@ Deno.serve(async (req: Request) => {
       token = url.searchParams.get('token');
       email = url.searchParams.get('email');
     } else if (req.method === 'POST') {
-      const body = (await req.json().catch(() => ({}))) as VerifyRequest;
+      const raw = await req.text();
+      console.log(`[verify-email][${rid}] raw body`, raw);
+      let body: VerifyRequest = {} as any;
+      try { body = raw ? JSON.parse(raw) : {}; } catch (e) {
+        console.error(`[verify-email][${rid}] JSON parse error`, e);
+      }
       token = body.token || null;
       email = body.email || null;
     } else {
@@ -50,7 +63,14 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    console.log(`[verify-email][${rid}] parsed`, {
+      token_length: token?.length ?? 0,
+      token_preview: token ? `${token.slice(0, 8)}...${token.slice(-6)}` : null,
+      email
+    });
+
     if (!token) {
+      console.warn(`[verify-email][${rid}] MISSING_TOKEN`);
       return new Response(
         JSON.stringify({ success: false, error: { code: 'MISSING_TOKEN', message: 'Token is required' } }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -59,11 +79,27 @@ Deno.serve(async (req: Request) => {
 
     const { data: tokenRow, error: tokenErr } = await supabase
       .from('email_verification_tokens')
-      .select('id, app_user_id, expires_at, used_at')
+      .select('id, app_user_id, expires_at, used_at, created_at')
       .eq('token', token)
       .maybeSingle();
 
-    if (tokenErr || !tokenRow) {
+    console.log(`[verify-email][${rid}] token lookup`, {
+      found: !!tokenRow,
+      error: tokenErr?.message,
+      error_code: (tokenErr as any)?.code,
+      error_details: (tokenErr as any)?.details,
+      row: tokenRow
+    });
+
+    if (tokenErr) {
+      return new Response(
+        JSON.stringify({ success: false, error: { code: 'DB_ERROR', message: 'Error buscando el token', details: tokenErr.message } }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (!tokenRow) {
+      console.warn(`[verify-email][${rid}] TOKEN NOT FOUND`);
       return new Response(
         JSON.stringify({ success: false, error: { code: 'INVALID_TOKEN', message: 'Token inválido' } }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -71,13 +107,22 @@ Deno.serve(async (req: Request) => {
     }
 
     if (tokenRow.used_at) {
+      console.warn(`[verify-email][${rid}] TOKEN_USED`, tokenRow.used_at);
       return new Response(
         JSON.stringify({ success: false, error: { code: 'TOKEN_USED', message: 'Este token ya fue utilizado' } }),
         { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    if (new Date(tokenRow.expires_at).getTime() < Date.now()) {
+    const expiresAtMs = new Date(tokenRow.expires_at).getTime();
+    const nowMs = Date.now();
+    console.log(`[verify-email][${rid}] expiry check`, {
+      expires_at: tokenRow.expires_at,
+      now: new Date(nowMs).toISOString(),
+      expired: expiresAtMs < nowMs
+    });
+
+    if (expiresAtMs < nowMs) {
       return new Response(
         JSON.stringify({ success: false, error: { code: 'TOKEN_EXPIRED', message: 'El token de verificación ha expirado' } }),
         { status: 410, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -90,7 +135,22 @@ Deno.serve(async (req: Request) => {
       .eq('id', tokenRow.app_user_id)
       .maybeSingle();
 
-    if (userErr || !user) {
+    console.log(`[verify-email][${rid}] user lookup`, {
+      found: !!user,
+      error: userErr?.message,
+      user_id: user?.id,
+      user_email: user?.email,
+      user_status: user?.status
+    });
+
+    if (userErr) {
+      return new Response(
+        JSON.stringify({ success: false, error: { code: 'DB_ERROR', message: 'Error buscando el usuario', details: userErr.message } }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (!user) {
       return new Response(
         JSON.stringify({ success: false, error: { code: 'USER_NOT_FOUND', message: 'Usuario no encontrado' } }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -98,6 +158,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (email && user.email.toLowerCase() !== email.toLowerCase()) {
+      console.warn(`[verify-email][${rid}] EMAIL_MISMATCH`, { provided: email, actual: user.email });
       return new Response(
         JSON.stringify({ success: false, error: { code: 'EMAIL_MISMATCH', message: 'El email no coincide con el token' } }),
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -124,19 +185,23 @@ Deno.serve(async (req: Request) => {
       .eq('id', user.id);
 
     if (updateErr) {
-      console.error('Error activating user:', updateErr);
+      console.error(`[verify-email][${rid}] user update error`, updateErr);
       return new Response(
         JSON.stringify({ success: false, error: { code: 'DATABASE_ERROR', message: 'No se pudo activar la cuenta', details: updateErr.message } }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    await supabase
+    const { error: tokenUpdateErr } = await supabase
       .from('email_verification_tokens')
       .update({ used_at: verifiedAt })
       .eq('id', tokenRow.id);
 
-    await supabase.from('auth_logs').insert({
+    if (tokenUpdateErr) {
+      console.error(`[verify-email][${rid}] token update error`, tokenUpdateErr);
+    }
+
+    const { error: logErr } = await supabase.from('auth_logs').insert({
       application_id: user.application_id,
       app_user_id: user.id,
       event_type: 'email_verified',
@@ -149,6 +214,12 @@ Deno.serve(async (req: Request) => {
         token_id: tokenRow.id
       }
     });
+
+    if (logErr) {
+      console.error(`[verify-email][${rid}] auth_log insert error`, logErr);
+    }
+
+    console.log(`[verify-email][${rid}] SUCCESS`, { user_id: user.id });
 
     return new Response(
       JSON.stringify({
@@ -165,9 +236,9 @@ Deno.serve(async (req: Request) => {
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error: any) {
-    console.error('verify-email error:', error);
+    console.error(`[verify-email][${rid}] UNCAUGHT`, error, error?.stack);
     return new Response(
-      JSON.stringify({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Error interno del servidor' } }),
+      JSON.stringify({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Error interno del servidor', details: error?.message } }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
