@@ -32,8 +32,6 @@ export default function AcceptInvitationForm() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [formError, setFormError] = useState('');
 
-  const [successAppId, setSuccessAppId] = useState<string | null>(null);
-  const [successApiKey, setSuccessApiKey] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(4);
 
   const expiresLabel = useMemo(() => {
@@ -73,10 +71,7 @@ export default function AcceptInvitationForm() {
           return;
         }
 
-        const data = json.data as InvitationInfo;
-        setInfo(data);
-        if (data?.application?.id) setSuccessAppId(data.application.id);
-        if (data?.application?.api_key) setSuccessApiKey(data.application.api_key);
+        setInfo(json.data as InvitationInfo);
         setStatus('ready');
       } catch (err: any) {
         setStatus('error');
@@ -123,8 +118,6 @@ export default function AcceptInvitationForm() {
         return;
       }
 
-      setSuccessAppId(json.data?.application_id || null);
-      setSuccessApiKey(json.data?.api_key || null);
       setStatus('success');
     } catch (err: any) {
       setStatus('ready');
@@ -135,23 +128,15 @@ export default function AcceptInvitationForm() {
   useEffect(() => {
     if (status !== 'success') return;
     if (countdown <= 0) {
-      const params = new URLSearchParams();
-      if (successAppId) params.set('app_id', successAppId);
-      if (successApiKey) params.set('api_key', successApiKey);
-      const qs = params.toString();
-      navigate(qs ? \`/login?\${qs}\` : '/login', { replace: true });
+      navigate('/', { replace: true });
       return;
     }
     const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
     return () => clearTimeout(timer);
-  }, [status, countdown, successAppId, successApiKey, navigate]);
+  }, [status, countdown, navigate]);
 
   const goLoginNow = () => {
-    const params = new URLSearchParams();
-    if (successAppId) params.set('app_id', successAppId);
-    if (successApiKey) params.set('api_key', successApiKey);
-    const qs = params.toString();
-    navigate(qs ? \`/login?\${qs}\` : '/login', { replace: true });
+    navigate('/', { replace: true });
   };
 
   return (
