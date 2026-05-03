@@ -16,6 +16,16 @@ export default function VerifyEmailForm() {
   const [status, setStatus] = useState<'verifying' | 'success' | 'error'>('verifying');
   const [message, setMessage] = useState('Verificando tu cuenta...');
   const [userName, setUserName] = useState('');
+  const [loginUrl, setLoginUrl] = useState('/');
+  const [countdown, setCountdown] = useState(4);
+
+  const buildLoginUrl = (appId: string | null, apiKey: string | null) => {
+    const params = new URLSearchParams();
+    if (appId) params.set('app_id', appId);
+    if (apiKey) params.set('api_key', apiKey);
+    const qs = params.toString();
+    return qs ? \`/?\${qs}\` : '/';
+  };
 
   useEffect(() => {
     const verify = async () => {
@@ -39,6 +49,11 @@ export default function VerifyEmailForm() {
           return;
         }
 
+        const appId = json.data?.application_id || null;
+        const apiKey = json.data?.api_key || null;
+        const target = buildLoginUrl(appId, apiKey);
+
+        setLoginUrl(target);
         setStatus('success');
         setUserName(json.data?.name || '');
         setMessage(json.data?.message || 'Cuenta activada correctamente.');
@@ -50,6 +65,16 @@ export default function VerifyEmailForm() {
 
     verify();
   }, [token, email]);
+
+  useEffect(() => {
+    if (status !== 'success') return;
+    if (countdown <= 0) {
+      navigate(loginUrl);
+      return;
+    }
+    const id = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(id);
+  }, [status, countdown, loginUrl, navigate]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-sky-50 px-4 py-10">
@@ -80,12 +105,17 @@ export default function VerifyEmailForm() {
           )}
 
           {status === 'success' && (
-            <button
-              onClick={() => navigate('/')}
-              className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium rounded-lg transition-colors"
-            >
-              Ir al inicio de sesión
-            </button>
+            <div className="w-full space-y-2">
+              <p className="text-xs text-slate-500 mb-2">
+                Redirigiendo al inicio de sesión en {countdown}s...
+              </p>
+              <button
+                onClick={() => navigate(loginUrl)}
+                className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                Ir al inicio de sesión ahora
+              </button>
+            </div>
           )}
 
           {status === 'error' && (

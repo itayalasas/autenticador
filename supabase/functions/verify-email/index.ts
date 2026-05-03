@@ -131,7 +131,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: user, error: userErr } = await supabase
       .from('app_users')
-      .select('id, email, name, status, metadata, application_id')
+      .select('id, email, name, status, metadata, application_id, applications:application_id(application_id)')
       .eq('id', tokenRow.app_user_id)
       .maybeSingle();
 
@@ -219,7 +219,22 @@ Deno.serve(async (req: Request) => {
       console.error(`[verify-email][${rid}] auth_log insert error`, logErr);
     }
 
-    console.log(`[verify-email][${rid}] SUCCESS`, { user_id: user.id });
+    const { data: publicKey } = await supabase
+      .from('api_keys')
+      .select('key')
+      .eq('application_id', user.application_id)
+      .eq('is_public', true)
+      .eq('is_active', true)
+      .limit(1)
+      .maybeSingle();
+
+    const applicationSlug = (user as any)?.applications?.application_id ?? null;
+
+    console.log(`[verify-email][${rid}] SUCCESS`, {
+      user_id: user.id,
+      has_public_key: !!publicKey?.key,
+      application_slug: applicationSlug
+    });
 
     return new Response(
       JSON.stringify({
@@ -230,7 +245,9 @@ Deno.serve(async (req: Request) => {
           email: user.email,
           name: user.name,
           status: 'active',
-          verified_at: verifiedAt
+          verified_at: verifiedAt,
+          application_id: applicationSlug,
+          api_key: publicKey?.key ?? null
         }
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
