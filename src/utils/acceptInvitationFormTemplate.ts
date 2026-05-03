@@ -3,8 +3,6 @@
 export const ACCEPT_INVITATION_FORM_TEMPLATE = `import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { CheckCircle, AlertCircle, Loader2, Mail, Lock, User, Users, Shield } from 'lucide-react';
-import { config } from '../../lib/config';
-
 const SUPABASE_URL = 'https://sfqtmnncgiqkveaoqckt.supabase.co';
 const API_BASE = \`\${SUPABASE_URL}/functions/v1\`;
 
@@ -24,11 +22,6 @@ export default function AcceptInvitationForm() {
 
   const token = searchParams.get('token');
   const emailParam = searchParams.get('email');
-  const urlAppId = searchParams.get('app_id');
-  const urlApiKey = searchParams.get('api_key');
-
-  const applicationId = urlAppId || config.appId || '';
-  const apiKey = urlApiKey || config.apiKey || '';
 
   const [status, setStatus] = useState<'loading' | 'ready' | 'submitting' | 'success' | 'error'>('loading');
   const [errorMessage, setErrorMessage] = useState('');
@@ -60,17 +53,12 @@ export default function AcceptInvitationForm() {
         setErrorMessage('No se proporcionó un token de invitación.');
         return;
       }
-      if (!applicationId || !apiKey) {
-        setStatus('error');
-        setErrorMessage('Faltan parámetros de configuración (app_id / api_key).');
-        return;
-      }
 
       try {
         const res = await fetch(\`\${API_BASE}/invitations-validate\`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ application_id: applicationId, api_key: apiKey, token })
+          body: JSON.stringify({ token })
         });
         const json = await res.json();
 
@@ -94,7 +82,7 @@ export default function AcceptInvitationForm() {
     };
 
     validate();
-  }, [token, applicationId, apiKey]);
+  }, [token]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -119,8 +107,6 @@ export default function AcceptInvitationForm() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          application_id: applicationId,
-          api_key: apiKey,
           token,
           name: name.trim(),
           password
@@ -134,8 +120,8 @@ export default function AcceptInvitationForm() {
         return;
       }
 
-      setSuccessAppId(json.data?.application_id || applicationId);
-      setSuccessApiKey(json.data?.api_key || apiKey);
+      setSuccessAppId(json.data?.application_id || null);
+      setSuccessApiKey(json.data?.api_key || null);
       setStatus('success');
     } catch (err: any) {
       setStatus('ready');

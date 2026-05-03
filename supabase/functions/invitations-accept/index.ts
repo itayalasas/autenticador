@@ -27,12 +27,12 @@ Deno.serve(async (req: Request) => {
     );
 
     const body = await req.json().catch(() => ({}));
-    const { application_id, api_key, token, name, password } = body ?? {};
+    const { token, name, password } = body ?? {};
 
-    if (!application_id || !api_key || !token || !name || !password) {
+    if (!token || !name || !password) {
       return jsonResponse({
         success: false,
-        error: { code: "MISSING_PARAMS", message: "application_id, api_key, token, name y password son requeridos" },
+        error: { code: "MISSING_PARAMS", message: "token, name y password son requeridos" },
       }, 400);
     }
 
@@ -43,32 +43,22 @@ Deno.serve(async (req: Request) => {
       }, 400);
     }
 
-    const { data: app } = await supabase
-      .from("applications")
-      .select("id, application_id, name")
-      .eq("application_id", application_id)
-      .maybeSingle();
-    if (!app) return jsonResponse({ success: false, error: { code: "APPLICATION_NOT_FOUND", message: "Aplicación no encontrada" } }, 404);
-
-    const { data: keyRow } = await supabase
-      .from("api_keys")
-      .select("id")
-      .or(`key.eq.${api_key},key_hash.eq.${api_key}`)
-      .eq("application_id", app.id)
-      .eq("is_active", true)
-      .maybeSingle();
-    if (!keyRow) return jsonResponse({ success: false, error: { code: "INVALID_API_KEY", message: "API Key inválida" } }, 401);
-
     const { data: invitation } = await supabase
       .from("tenant_invitations")
-      .select("id, email, status, expires_at, tenant_id, role_id")
-      .eq("application_id", app.id)
+      .select("id, email, status, expires_at, tenant_id, role_id, application_id")
       .eq("token", token)
       .maybeSingle();
 
     if (!invitation) {
       return jsonResponse({ success: false, error: { code: "INVITATION_NOT_FOUND", message: "Invitación no encontrada" } }, 404);
     }
+
+    const { data: app } = await supabase
+      .from("applications")
+      .select("id, application_id, name")
+      .eq("id", invitation.application_id)
+      .maybeSingle();
+    if (!app) return jsonResponse({ success: false, error: { code: "APPLICATION_NOT_FOUND", message: "Aplicación no encontrada" } }, 404);
 
     if (invitation.status !== "pending") {
       return jsonResponse({

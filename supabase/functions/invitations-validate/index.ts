@@ -25,56 +25,40 @@ Deno.serve(async (req: Request) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    let application_id: string | null = null;
-    let api_key: string | null = null;
     let token: string | null = null;
 
     if (req.method === "GET") {
-      const url = new URL(req.url);
-      application_id = url.searchParams.get("application_id");
-      api_key = url.searchParams.get("api_key");
-      token = url.searchParams.get("token");
+      token = new URL(req.url).searchParams.get("token");
     } else {
       const body = await req.json().catch(() => ({}));
-      application_id = body.application_id ?? null;
-      api_key = body.api_key ?? null;
       token = body.token ?? null;
     }
 
-    if (!application_id || !api_key || !token) {
+    if (!token) {
       return jsonResponse({
         success: false,
-        error: { code: "MISSING_PARAMS", message: "application_id, api_key y token son requeridos" },
+        error: { code: "MISSING_PARAMS", message: "token es requerido" },
       }, 400);
     }
-
-    const { data: app } = await supabase
-      .from("applications")
-      .select("id, application_id, name")
-      .eq("application_id", application_id)
-      .maybeSingle();
-    if (!app) return jsonResponse({ success: false, error: { code: "APPLICATION_NOT_FOUND", message: "Aplicación no encontrada" } }, 404);
-
-    const { data: keyRow } = await supabase
-      .from("api_keys")
-      .select("id")
-      .or(`key.eq.${api_key},key_hash.eq.${api_key}`)
-      .eq("application_id", app.id)
-      .eq("is_active", true)
-      .maybeSingle();
-    if (!keyRow) return jsonResponse({ success: false, error: { code: "INVALID_API_KEY", message: "API Key inválida" } }, 401);
 
     const { data: invitation } = await supabase
       .from("tenant_invitations")
       .select(`
-        id, email, status, expires_at, accepted_at, created_at,
+        id, email, status, expires_at, accepted_at, created_at, application_id,
         tenant:tenant_id(id, name, slug),
         role:role_id(id, name, display_name, description),
         inviter:invited_by_user_id(id, name, email)
       `)
-      .eq("application_id", app.id)
       .eq("token", token)
       .maybeSingle();
+
+    const { data: app } = invitation
+      ? await supabase
+          .from("applications")
+          .select("id, application_id, name")
+          .eq("id", invitation.application_id)
+          .maybeSingle()
+      : { data: null };
 
     if (!invitation) {
       return jsonResponse({ success: false, error: { code: "INVITATION_NOT_FOUND", message: "Invitación no encontrada" } }, 404);
@@ -100,7 +84,7 @@ Deno.serve(async (req: Request) => {
         email: invitation.email,
         status: effectiveStatus,
         expires_at: invitation.expires_at,
-        application: { id: app.application_id, name: app.name },
+        application: app ? { id: app.application_id, name: app.name } : null,
         tenant: invitation.tenant,
         role: invitation.role,
         inviter: invitation.inviter,
