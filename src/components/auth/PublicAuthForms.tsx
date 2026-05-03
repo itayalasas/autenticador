@@ -102,6 +102,12 @@ function PublicAuthForms({
   const activePollRunRef = React.useRef(0);
   const activeSetupPollRunRef = React.useRef(0);
 
+  const isTenantApp = appInfo?.auth_mode === 'tenant';
+  const allowPublicRegistration =
+    !isTenantApp && (appInfo?.metadata?.allow_public_registration ?? true);
+  const showRegisterOnLogin = allowPublicRegistration;
+  const registrationBlocked = formType === 'register' && !allowPublicRegistration;
+
   const SUPABASE_URL = 'https://sfqtmnncgiqkveaoqckt.supabase.co';
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNmcXRtbm5jZ2lxa3ZlYW9xY2t0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4MDEyNDMsImV4cCI6MjA3NTM3NzI0M30.n2yaYrfHDLAFePP1tA3-250P6bgKmf696fYJFHfRZaQ';
   const API_BASE_URL = `${SUPABASE_URL}/functions/v1`;
@@ -1096,8 +1102,29 @@ function PublicAuthForms({
             </div>
           )}
 
+          {registrationBlocked && (
+            <div className="mb-6 p-5 rounded-lg border border-amber-200 bg-amber-50 text-center">
+              <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-3" />
+              <h3 className="text-sm font-semibold text-amber-900 mb-1">
+                {isTenantApp ? 'Registro no disponible' : 'Registro deshabilitado'}
+              </h3>
+              <p className="text-sm text-amber-800">
+                {isTenantApp
+                  ? 'Esta aplicación requiere registrar primero una empresa. Contacta al administrador para obtener acceso.'
+                  : 'El registro público está deshabilitado para esta aplicación. Contacta al administrador.'}
+              </p>
+              <a
+                href={buildNavUrl('/login')}
+                className="inline-block mt-4 text-sm font-medium hover:underline"
+                style={{ color: defaultBranding.accent_color }}
+              >
+                Volver al login
+              </a>
+            </div>
+          )}
+
           {/* Form - Hide if reset-password was successful */}
-          {!(formType === 'reset-password' && message?.type === 'success') && !isMfaChallengeFlow && (
+          {!registrationBlocked && !(formType === 'reset-password' && message?.type === 'success') && !isMfaChallengeFlow && (
           <form onSubmit={handleSubmit} className={getSpacingClass()}>
             {formType === 'login' && mfaSetupData && (
               <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-3">
@@ -1406,16 +1433,18 @@ function PublicAuthForms({
                 >
                   {getText('login_forgot_password_text', '¿Olvidaste tu contraseña?')}
                 </a>
-                <p className="text-sm text-gray-600">
-                  {getText('login_register_link_text', '¿No tienes cuenta? Regístrate aquí').split('Regístrate aquí')[0]}
-                  <a
-                    href={buildNavUrl('/register')}
-                    className="hover:underline"
-                    style={{ color: defaultBranding.accent_color }}
-                  >
-                    {getText('login_register_link_text', '¿No tienes cuenta? Regístrate aquí').split('? ')[1] || 'Regístrate aquí'}
-                  </a>
-                </p>
+                {showRegisterOnLogin && (
+                  <p className="text-sm text-gray-600">
+                    {getText('login_register_link_text', '¿No tienes cuenta? Regístrate aquí').split('Regístrate aquí')[0]}
+                    <a
+                      href={buildNavUrl('/register')}
+                      className="hover:underline"
+                      style={{ color: defaultBranding.accent_color }}
+                    >
+                      {getText('login_register_link_text', '¿No tienes cuenta? Regístrate aquí').split('? ')[1] || 'Regístrate aquí'}
+                    </a>
+                  </p>
+                )}
               </>
             )}
             {formType === 'register' && (
