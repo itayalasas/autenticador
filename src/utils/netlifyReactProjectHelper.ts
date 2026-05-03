@@ -6,6 +6,7 @@ import { BRANDED_PUBLIC_AUTH_TEMPLATE } from './brandedPublicAuthTemplate';
 import { BRANDED_COMPONENTS_TEMPLATE } from './brandedComponentsTemplate';
 import { THEME_PRESETS_TEMPLATE } from './themePresetsTemplate';
 import { REGISTER_TENANT_FORM_TEMPLATE } from './registerTenantFormTemplate';
+import { RESET_PASSWORD_FORM_TEMPLATE } from './resetPasswordFormTemplate';
 
 export async function getReactProjectFiles(
   applicationId: string,
@@ -183,6 +184,7 @@ import { Routes, Route, Navigate, useSearchParams, useLocation } from 'react-rou
 import { config } from './lib/config';
 import PublicAuthRouter from './components/auth/PublicAuthRouter';
 import RegisterTenantForm from './components/auth/RegisterTenantForm';
+import ResetPasswordForm from './components/auth/ResetPasswordForm';
 
 export default function App() {
   const [searchParams] = useSearchParams();
@@ -197,7 +199,7 @@ export default function App() {
     return 'login';
   };
 
-  if (!appId && !location.pathname.includes('register-tenant')) {
+  if (!appId && !location.pathname.includes('register-tenant') && !location.pathname.includes('reset-password')) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="bg-white p-8 rounded-lg shadow-lg max-w-md">
@@ -235,15 +237,7 @@ export default function App() {
           />
         }
       />
-      <Route
-        path="/reset-password"
-        element={
-          <PublicAuthRouter
-            appId={appId}
-            formType="reset-password"
-          />
-        }
-      />
+      <Route path="/reset-password" element={<ResetPasswordForm />} />
       <Route path="/register-tenant" element={<RegisterTenantForm />} />
       <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="*" element={<Navigate to="/login" replace />} />
@@ -520,6 +514,9 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
 
   // src/components/auth/RegisterTenantForm.tsx - Tenant registration form
   files['src/components/auth/RegisterTenantForm.tsx'] = deployTimestamp + REGISTER_TENANT_FORM_TEMPLATE;
+
+  // src/components/auth/ResetPasswordForm.tsx - Password reset form
+  files['src/components/auth/ResetPasswordForm.tsx'] = deployTimestamp + RESET_PASSWORD_FORM_TEMPLATE;
 
   // src/components/ui/BrandedComponents.tsx - UI components with neumorphic/glass effects
   files['src/components/ui/BrandedComponents.tsx'] = deployTimestamp + BRANDED_COMPONENTS_TEMPLATE;
