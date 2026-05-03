@@ -33,9 +33,22 @@ async function sendResetPasswordEmailViaAPI(
 ): Promise<boolean> {
   try {
     const DEFAULT_API_KEY = 'sk_4b762d5e0cbf7382c81daf86487cef7baf6581168b2c224592f9b125679b654e';
-    const EMAIL_API_URL = emailConfig?.external_email_api_url || Deno.env.get('EMAIL_API_URL') || 'https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email';
-    const EMAIL_API_KEY = emailConfig?.external_email_api_key || Deno.env.get('EMAIL_API_KEY') || DEFAULT_API_KEY;
-    const TEMPLATE_NAME = emailConfig?.reset_password_template_name || 'reset-password-authsystem';
+    const DEFAULT_API_URL = 'https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email';
+    const notificationCfg = emailConfig?.notifications?.password_reset || {};
+    const EMAIL_API_URL =
+      notificationCfg.api_url ||
+      emailConfig?.external_email_api_url ||
+      Deno.env.get('EMAIL_API_URL') ||
+      DEFAULT_API_URL;
+    const EMAIL_API_KEY =
+      notificationCfg.api_key ||
+      emailConfig?.external_email_api_key ||
+      Deno.env.get('EMAIL_API_KEY') ||
+      DEFAULT_API_KEY;
+    const TEMPLATE_NAME =
+      notificationCfg.template_name ||
+      emailConfig?.reset_password_template_name ||
+      'reset-password-authsystem';
 
     console.log('📧 Sending reset password email via external API...');
     console.log('📧 API URL:', EMAIL_API_URL);
@@ -356,7 +369,10 @@ Deno.serve(async (req) => {
 
     // Generate reset token
     const resetToken = generateResetToken()
-    const tokenExpirationMinutes = Number(application?.email_config?.reset_token_expiration_minutes) || 60 // default 1 hour
+    const tokenExpirationMinutes =
+      Number(application?.email_config?.notifications?.password_reset?.token_expiration_minutes) ||
+      Number(application?.email_config?.reset_token_expiration_minutes) ||
+      60 // default 1 hour
     const expiresAt = new Date()
     expiresAt.setMinutes(expiresAt.getMinutes() + tokenExpirationMinutes)
 

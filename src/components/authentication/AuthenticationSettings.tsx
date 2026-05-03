@@ -4,6 +4,11 @@ import { applicationService } from '../../services/applicationService';
 import { supabase } from '../../lib/supabase';
 import { useNotification } from '../../hooks/useNotification';
 import NotificationModal from '../ui/NotificationModal';
+import NotificationsConfig, {
+  NotificationsMap,
+  buildDefaultNotifications,
+  mergeWithDefaults,
+} from './NotificationsConfig';
 
 export default function AuthenticationSettings() {
   const [applications, setApplications] = useState<any[]>([]);
@@ -64,8 +69,14 @@ export default function AuthenticationSettings() {
     smtp_password: '',
 
     // API Keys para proveedores externos
-    api_key: ''
+    api_key: '',
+
+    // Global notification provider configuration
+    external_email_api_url: '',
+    external_email_api_key: ''
   });
+
+  const [notifications, setNotifications] = useState<NotificationsMap>(buildDefaultNotifications());
 
   const {
     notification,
@@ -174,8 +185,12 @@ export default function AuthenticationSettings() {
         smtp_user: emailConfig.smtp_user || '',
         smtp_password: emailConfig.smtp_password || '',
         // Load API key
-        api_key: emailConfig.api_key || ''
+        api_key: emailConfig.api_key || '',
+        external_email_api_url: emailConfig.external_email_api_url || '',
+        external_email_api_key: emailConfig.external_email_api_key || ''
       }));
+
+      setNotifications(mergeWithDefaults(emailConfig.notifications));
     } catch (error: any) {
       console.error('Error loading auth settings:', error);
       console.error('Error details:', {
@@ -238,14 +253,19 @@ export default function AuthenticationSettings() {
         ...authMetadata
       };
 
-      // Prepare email configuration
+      // Derived legacy flags from notifications for backwards compatibility
+      const resetCfg = notifications.password_reset;
+      const welcomeCfg = notifications.welcome;
+      const adminCfg = notifications.admin_new_user;
+      const confirmCfg = notifications.email_confirmation;
+
       const emailConfig = {
         email_provider: authSettings.email_provider || 'system',
-        require_email_verification: authSettings.require_email_verification,
-        send_welcome_email: authSettings.send_welcome_email,
-        send_password_reset_email: authSettings.send_password_reset_email,
-        notify_admin_new_user: authSettings.notify_admin_new_user,
-        admin_notification_email: authSettings.admin_notification_email,
+        require_email_verification: confirmCfg.enabled,
+        send_welcome_email: welcomeCfg.enabled,
+        send_password_reset_email: resetCfg.enabled,
+        notify_admin_new_user: adminCfg.enabled,
+        admin_notification_email: adminCfg.admin_email || '',
         from_name: authSettings.from_name || 'AuthSystem',
         from_email: authSettings.from_email || '',
         // SMTP Configuration
@@ -254,8 +274,15 @@ export default function AuthenticationSettings() {
         smtp_secure: authSettings.smtp_secure ?? true,
         smtp_user: authSettings.smtp_user || '',
         smtp_password: authSettings.smtp_password || '',
-        // API Key for external providers
-        api_key: authSettings.api_key || ''
+        api_key: authSettings.api_key || '',
+        // Global external email provider
+        external_email_api_url: authSettings.external_email_api_url || '',
+        external_email_api_key: authSettings.external_email_api_key || '',
+        // Per-notification templates & keys
+        notifications,
+        // Convenience shortcut for reset token expiration (consumed by edge function)
+        reset_token_expiration_minutes: resetCfg.token_expiration_minutes ?? 60,
+        reset_password_template_name: resetCfg.template_name || 'reset-password-authsystem'
       };
 
       console.log('💾 Guardando configuración de email:', {
@@ -334,8 +361,11 @@ export default function AuthenticationSettings() {
       smtp_secure: true,
       smtp_user: '',
       smtp_password: '',
-      api_key: ''
+      api_key: '',
+      external_email_api_url: '',
+      external_email_api_key: ''
     });
+    setNotifications(buildDefaultNotifications());
   };
 
   const handleSettingChange = (key: string, value: any) => {
@@ -440,115 +470,46 @@ export default function AuthenticationSettings() {
             </div>
           </div>
 
-          {/* Email Configuration */}
+          <NotificationsConfig
+            value={notifications}
+            globalApiUrl={authSettings.external_email_api_url}
+            globalApiKey={authSettings.external_email_api_key}
+            onChange={(patch) => {
+              if (patch.value) setNotifications(patch.value);
+              if (patch.globalApiUrl !== undefined)
+                handleSettingChange('external_email_api_url', patch.globalApiUrl);
+              if (patch.globalApiKey !== undefined)
+                handleSettingChange('external_email_api_key', patch.globalApiKey);
+            }}
+            onSave={handleSaveSettings}
+            saving={saveLoading}
+          />
+
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
               <Mail className="w-5 h-5" />
-              <span>Configuración de Correo Electrónico</span>
+              <span>Remitente de Correo</span>
             </h3>
-
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="font-medium text-gray-900">Enviar email de bienvenida</h4>
-                  <p className="text-sm text-gray-600">Envía un email de bienvenida cuando se registre un nuevo usuario</p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={authSettings.send_welcome_email}
-                    onChange={(e) => handleSettingChange('send_welcome_email', e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                </label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Nombre del remitente</label>
+                <input
+                  type="text"
+                  value={authSettings.from_name}
+                  onChange={(e) => handleSettingChange('from_name', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="AuthSystem"
+                />
               </div>
-
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="font-medium text-gray-900">Enviar email de recuperación de contraseña</h4>
-                  <p className="text-sm text-gray-600">Envía un email cuando un usuario solicite recuperar su contraseña</p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={authSettings.send_password_reset_email}
-                    onChange={(e) => handleSettingChange('send_password_reset_email', e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                </label>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="font-medium text-gray-900">Notificar al administrador de nuevos registros</h4>
-                  <p className="text-sm text-gray-600">Envía un email al administrador cuando se registre un nuevo usuario</p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={authSettings.notify_admin_new_user}
-                    onChange={(e) => handleSettingChange('notify_admin_new_user', e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                </label>
-              </div>
-
-              {authSettings.notify_admin_new_user && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <label className="block text-sm font-medium text-blue-900 mb-2">
-                    Email del administrador
-                  </label>
-                  <input
-                    type="email"
-                    value={authSettings.admin_notification_email}
-                    onChange={(e) => handleSettingChange('admin_notification_email', e.target.value)}
-                    className="w-full px-3 py-2 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-                    placeholder="admin@tudominio.com"
-                  />
-                  <p className="text-xs text-blue-700 mt-1">
-                    Los emails de notificación de nuevos registros se enviarán a esta dirección
-                  </p>
-                </div>
-              )}
-
-              <div className="border-t border-gray-200 pt-6">
-                <h4 className="text-sm font-medium text-gray-900 mb-4">Configuración del remitente</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Nombre del remitente
-                    </label>
-                    <input
-                      type="text"
-                      value={authSettings.from_name}
-                      onChange={(e) => handleSettingChange('from_name', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="AuthSystem"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Nombre que aparecerá en los emails enviados
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Email del remitente (opcional)
-                    </label>
-                    <input
-                      type="email"
-                      value={authSettings.from_email}
-                      onChange={(e) => handleSettingChange('from_email', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="noreply@tudominio.com"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Deja vacío para usar el email del sistema
-                    </p>
-                  </div>
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Email del remitente (opcional)</label>
+                <input
+                  type="email"
+                  value={authSettings.from_email}
+                  onChange={(e) => handleSettingChange('from_email', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="noreply@tudominio.com"
+                />
               </div>
             </div>
           </div>
