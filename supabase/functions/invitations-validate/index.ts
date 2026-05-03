@@ -78,13 +78,26 @@ Deno.serve(async (req: Request) => {
       }, 409);
     }
 
+    let publicApiKey: string | null = null;
+    if (app) {
+      const { data: pk } = await supabase
+        .from("api_keys")
+        .select("key, key_hash, environment")
+        .eq("application_id", app.id)
+        .eq("is_active", true)
+        .order("environment", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      publicApiKey = pk?.key ?? pk?.key_hash ?? null;
+    }
+
     return jsonResponse({
       success: true,
       data: {
         email: invitation.email,
         status: effectiveStatus,
         expires_at: invitation.expires_at,
-        application: app ? { id: app.application_id, name: app.name } : null,
+        application: app ? { id: app.application_id, name: app.name, api_key: publicApiKey } : null,
         tenant: invitation.tenant,
         role: invitation.role,
         inviter: invitation.inviter,

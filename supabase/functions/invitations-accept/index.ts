@@ -134,10 +134,10 @@ Deno.serve(async (req: Request) => {
 
     const { data: publicKey } = await supabase
       .from("api_keys")
-      .select("key")
+      .select("key, key_hash")
       .eq("application_id", app.id)
-      .eq("is_public", true)
       .eq("is_active", true)
+      .order("environment", { ascending: false })
       .limit(1)
       .maybeSingle();
 
@@ -148,7 +148,7 @@ Deno.serve(async (req: Request) => {
         email: invitation.email,
         name,
         application_id: app.application_id,
-        api_key: publicKey?.key ?? null,
+        api_key: publicKey?.key ?? publicKey?.key_hash ?? null,
       },
     });
   } catch (err: any) {

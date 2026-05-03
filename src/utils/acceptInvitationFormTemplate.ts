@@ -10,7 +10,7 @@ type InvitationInfo = {
   email: string;
   status: string;
   expires_at: string;
-  application: { id: string; name: string };
+  application: { id: string; name: string; api_key?: string | null };
   tenant: { id: string; name: string; slug?: string } | null;
   role: { id: string; name: string; display_name?: string; description?: string } | null;
   inviter: { id: string; name: string; email: string } | null;
@@ -73,7 +73,10 @@ export default function AcceptInvitationForm() {
           return;
         }
 
-        setInfo(json.data as InvitationInfo);
+        const data = json.data as InvitationInfo;
+        setInfo(data);
+        if (data?.application?.id) setSuccessAppId(data.application.id);
+        if (data?.application?.api_key) setSuccessApiKey(data.application.api_key);
         setStatus('ready');
       } catch (err: any) {
         setStatus('error');
@@ -167,7 +170,7 @@ export default function AcceptInvitationForm() {
             <h1 className="text-xl font-semibold text-slate-900 mb-2">Invitación no válida</h1>
             <p className="text-slate-600 mb-6">{errorMessage}</p>
             <button
-              onClick={() => navigate('/login')}
+              onClick={goLoginNow}
               className="w-full py-3 px-4 bg-slate-900 text-white rounded-lg font-medium hover:bg-slate-800 transition"
             >
               Ir al inicio de sesión
