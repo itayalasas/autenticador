@@ -8,6 +8,7 @@ import { THEME_PRESETS_TEMPLATE } from './themePresetsTemplate';
 import { REGISTER_TENANT_FORM_TEMPLATE } from './registerTenantFormTemplate';
 import { RESET_PASSWORD_FORM_TEMPLATE } from './resetPasswordFormTemplate';
 import { VERIFY_EMAIL_FORM_TEMPLATE } from './verifyEmailFormTemplate';
+import { ACCEPT_INVITATION_FORM_TEMPLATE } from './acceptInvitationFormTemplate';
 
 export async function getReactProjectFiles(
   applicationId: string,
@@ -187,6 +188,7 @@ import PublicAuthRouter from './components/auth/PublicAuthRouter';
 import RegisterTenantForm from './components/auth/RegisterTenantForm';
 import ResetPasswordForm from './components/auth/ResetPasswordForm';
 import VerifyEmailForm from './components/auth/VerifyEmailForm';
+import AcceptInvitationForm from './components/auth/AcceptInvitationForm';
 
 export default function App() {
   const [searchParams] = useSearchParams();
@@ -201,7 +203,7 @@ export default function App() {
     return 'login';
   };
 
-  if (!appId && !location.pathname.includes('register-tenant') && !location.pathname.includes('reset-password') && !location.pathname.includes('reset-password-confirm') && !location.pathname.includes('verify-email')) {
+  if (!appId && !location.pathname.includes('register-tenant') && !location.pathname.includes('reset-password') && !location.pathname.includes('reset-password-confirm') && !location.pathname.includes('verify-email') && !location.pathname.includes('accept-invitation')) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="bg-white p-8 rounded-lg shadow-lg max-w-md">
@@ -243,6 +245,7 @@ export default function App() {
       <Route path="/reset-password-confirm" element={<ResetPasswordForm />} />
       <Route path="/register-tenant" element={<RegisterTenantForm />} />
       <Route path="/verify-email" element={<VerifyEmailForm />} />
+      <Route path="/accept-invitation" element={<AcceptInvitationForm />} />
       <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
@@ -524,6 +527,9 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
 
   // src/components/auth/VerifyEmailForm.tsx - Email verification page
   files['src/components/auth/VerifyEmailForm.tsx'] = deployTimestamp + VERIFY_EMAIL_FORM_TEMPLATE;
+
+  // src/components/auth/AcceptInvitationForm.tsx - Tenant invitation acceptance page
+  files['src/components/auth/AcceptInvitationForm.tsx'] = deployTimestamp + ACCEPT_INVITATION_FORM_TEMPLATE;
 
   // src/components/ui/BrandedComponents.tsx - UI components with neumorphic/glass effects
   files['src/components/ui/BrandedComponents.tsx'] = deployTimestamp + BRANDED_COMPONENTS_TEMPLATE;
