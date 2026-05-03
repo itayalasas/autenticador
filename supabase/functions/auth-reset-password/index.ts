@@ -431,8 +431,18 @@ Deno.serve(async (req) => {
 
     console.log('✅ Reset password successful for user:', appUser.email);
     
-    // Build reset URL - usando /reset-password-confirm para el nuevo formulario
-    const baseUrl = callback_url ? callback_url.split('/callback')[0] : `https://${application.domain}`
+    // Build reset URL - always use the application's auth domain (where the
+    // public reset-password-confirm screen is served), NOT the caller's
+    // callback_url (which points to the client app that initiated the flow).
+    const rawDomain = (application.domain || '').trim()
+    const baseUrl = rawDomain
+      ? (rawDomain.startsWith('http://') || rawDomain.startsWith('https://')
+          ? rawDomain.replace(/\/$/, '')
+          : `https://${rawDomain.replace(/\/$/, '')}`)
+      : ''
+    if (!baseUrl) {
+      console.error('❌ Application has no domain configured, cannot build reset URL')
+    }
     const resetUrl = `${baseUrl}/reset-password-confirm?token=${resetToken}&email=${encodeURIComponent(email)}`
 
     console.log('🔗 Reset URL generated:', resetUrl);
