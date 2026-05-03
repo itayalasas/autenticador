@@ -38,16 +38,26 @@ export default function ResetPasswordForm() {
         if (token && emailFromUrl) {
           setMode('confirm');
           setEmail(emailFromUrl);
-          // Validate token
-          const res = await fetch(\`\${REST_BASE}/email_verification_tokens?token=eq.\${token}&select=*,app_users(id,email,application_id,applications(id,name,application_id,domain,email_config))\`, { headers: REST_HEADERS });
-          const tokens = await res.json();
-          const tokenData = tokens?.[0];
-          if (!tokenData) { setError('Token de recuperación inválido o expirado.'); setLoading(false); return; }
-          if (new Date(tokenData.expires_at) < new Date()) { setError('Este link ha expirado. Solicita uno nuevo.'); setLoading(false); return; }
-          if (tokenData.used_at) { setError('Este link ya ha sido utilizado.'); setLoading(false); return; }
-          const appUser = tokenData.app_users;
-          if (!appUser || appUser.email !== emailFromUrl) { setError('Email no coincide con el token.'); setLoading(false); return; }
-          const app = appUser.applications;
+          // Validate token via public RPC (avoids RLS anon restrictions)
+          const res = await fetch(\`\${REST_BASE}/rpc/validate_reset_password_token\`, {
+            method: 'POST',
+            headers: { ...REST_HEADERS, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ p_token: token, p_email: emailFromUrl })
+          });
+          const result = await res.json();
+          if (!result || !result.valid) {
+            const reasonMap: Record<string, string> = {
+              not_found: 'Token de recuperación inválido.',
+              expired: 'Este link ha expirado. Solicita uno nuevo.',
+              used: 'Este link ya ha sido utilizado.',
+              email_mismatch: 'El email no coincide con el token.',
+              missing_params: 'Parámetros inválidos.'
+            };
+            setError(reasonMap[result?.reason || ''] || 'Token de recuperación inválido o expirado.');
+            setLoading(false);
+            return;
+          }
+          const app = result.application;
           if (app) {
             setApplication(app);
             const bRes = await fetch(\`\${REST_BASE}/branding_configs?application_id=eq.\${app.id}&select=*&limit=1\`, { headers: REST_HEADERS });
