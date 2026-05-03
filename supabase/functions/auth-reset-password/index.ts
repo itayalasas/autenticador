@@ -25,7 +25,10 @@ function generateResetToken(): string {
 async function sendResetPasswordEmailViaAPI(
   email: string,
   name: string,
-  resetUrl: string
+  resetUrl: string,
+  expiresAt: Date,
+  expirationMinutes: number,
+  applicationName: string
 ): Promise<boolean> {
   try {
     const EMAIL_API_URL = Deno.env.get('EMAIL_API_URL') || 'https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email';
@@ -46,7 +49,12 @@ async function sendResetPasswordEmailViaAPI(
         recipient_email: email,
         data: {
           client_name: name,
-          reset_url: resetUrl
+          reset_url: resetUrl,
+          expiration_minutes: expirationMinutes,
+          expiration_hours: Math.round((expirationMinutes / 60) * 10) / 10,
+          expires_at: expiresAt.toISOString(),
+          expires_at_formatted: expiresAt.toLocaleString('es-ES', { dateStyle: 'full', timeStyle: 'short' }),
+          application_name: applicationName
         }
       })
     });
@@ -342,8 +350,9 @@ Deno.serve(async (req) => {
 
     // Generate reset token
     const resetToken = generateResetToken()
+    const tokenExpirationMinutes = Number(application?.email_config?.reset_token_expiration_minutes) || 60 // default 1 hour
     const expiresAt = new Date()
-    expiresAt.setHours(expiresAt.getHours() + 24) // 24 hours
+    expiresAt.setMinutes(expiresAt.getMinutes() + tokenExpirationMinutes)
 
     // Store reset token
     const { error: tokenError } = await supabase
@@ -412,7 +421,10 @@ Deno.serve(async (req) => {
         await sendResetPasswordEmailViaAPI(
           email,
           appUser.name,
-          resetUrl
+          resetUrl,
+          expiresAt,
+          tokenExpirationMinutes,
+          application.name
         );
         console.log('✅ Reset email sent successfully');
       } catch (emailError: any) {
