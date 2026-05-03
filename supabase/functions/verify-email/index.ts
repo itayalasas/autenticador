@@ -59,7 +59,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: tokenRow, error: tokenErr } = await supabase
       .from('email_verification_tokens')
-      .select('id, app_user_id, expires_at, used')
+      .select('id, app_user_id, expires_at, used_at')
       .eq('token', token)
       .maybeSingle();
 
@@ -70,7 +70,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    if (tokenRow.used) {
+    if (tokenRow.used_at) {
       return new Response(
         JSON.stringify({ success: false, error: { code: 'TOKEN_USED', message: 'Este token ya fue utilizado' } }),
         { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -133,7 +133,7 @@ Deno.serve(async (req: Request) => {
 
     await supabase
       .from('email_verification_tokens')
-      .update({ used: true })
+      .update({ used_at: verifiedAt })
       .eq('id', tokenRow.id);
 
     await supabase.from('auth_logs').insert({
