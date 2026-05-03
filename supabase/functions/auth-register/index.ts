@@ -988,7 +988,43 @@ Deno.serve(async (req) => {
         console.error('Error creating verification token:', tokenError);
         // Continue without email verification if token creation fails
       } else {
-      const baseUrl = callback_url ? callback_url.split('/callback')[0] : 'https://yourdomain.com';
+      let baseUrl: string | null = null;
+
+      const apiKeyEnv = (apiKeyData as any).environment as string | undefined;
+      if (apiKeyEnv) {
+        const { data: envRow } = await supabase
+          .from('environments')
+          .select('auth_url')
+          .eq('application_id', application.id)
+          .eq('name', apiKeyEnv)
+          .maybeSingle();
+        if (envRow?.auth_url) {
+          baseUrl = envRow.auth_url.replace(/\/$/, '');
+        }
+      }
+
+      if (!baseUrl) {
+        const { data: envFallback } = await supabase
+          .from('environments')
+          .select('auth_url')
+          .eq('application_id', application.id)
+          .eq('is_active', true)
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        if (envFallback?.auth_url) {
+          baseUrl = envFallback.auth_url.replace(/\/$/, '');
+        }
+      }
+
+      if (!baseUrl && callback_url) {
+        baseUrl = callback_url.split('/callback')[0].replace(/\/$/, '');
+      }
+
+      if (!baseUrl) {
+        baseUrl = 'https://yourdomain.com';
+      }
+
       const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}&email=${encodeURIComponent(email)}`;
 
         try {
