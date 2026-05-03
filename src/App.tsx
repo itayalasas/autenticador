@@ -223,6 +223,7 @@ function App() {
       <Routes>
         <Route path="/prototype" element={<FormStylesPrototype />} />
         <Route path="/reset-password" element={<ResetPasswordForm />} />
+        <Route path="/reset-password-confirm" element={<ResetPasswordForm />} />
         <Route path="/register-tenant" element={<RegisterTenantForm />} />
         <Route path="/github/callback" element={<GitHubCallback />} />
         <Route path="/:action" element={<PublicAuthRoute />} />
