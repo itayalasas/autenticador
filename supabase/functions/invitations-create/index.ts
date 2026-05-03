@@ -8,7 +8,7 @@ const corsHeaders = {
 };
 
 const EXTERNAL_EMAIL_API_URL = "https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email";
-const EXTERNAL_EMAIL_API_KEY = "sk_4b762d5e0cbf7382c81daf86487cef7baf6581168b2c224592f9b125679b654e";
+const EXTERNAL_EMAIL_API_KEY = "sk_05f7d2638a2f33e2b730df9d0fb628d7e9230c7ee31a71df5d4f5cde01305e7f";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -72,22 +72,22 @@ async function resolveAuthBaseUrl(supabase: any, appId: string, override?: strin
 async function sendInvitationEmail(params: {
   recipientEmail: string;
   inviteeName?: string;
-  inviterName: string;
-  applicationName: string;
   roleName: string;
-  acceptUrl: string;
+  tenantId: string;
+  invitationId: string;
+  confirmUrl: string;
   expiresAt: string;
 }) {
   const payload = {
     template_name: "invitacion_usuario",
     recipient_email: params.recipientEmail,
     data: {
+      invitation_id: params.invitationId,
       user_name: params.inviteeName || params.recipientEmail,
-      inviter_name: params.inviterName,
-      aplication_name: params.applicationName,
       role_name: params.roleName,
-      accept_url: params.acceptUrl,
+      tenant_id: params.tenantId,
       expires_at: params.expiresAt,
+      confirm_url: params.confirmUrl,
     },
   };
 
@@ -248,10 +248,10 @@ Deno.serve(async (req: Request) => {
       await sendInvitationEmail({
         recipientEmail: normalizedEmail,
         inviteeName: name,
-        inviterName: inviter.name || inviter.email,
-        applicationName: app.name,
         roleName: role.display_name || role.name,
-        acceptUrl,
+        tenantId: inviter.tenant_id,
+        invitationId,
+        confirmUrl: acceptUrl,
         expiresAt,
       });
 
