@@ -28,15 +28,20 @@ async function sendResetPasswordEmailViaAPI(
   resetUrl: string,
   expiresAt: Date,
   expirationMinutes: number,
-  applicationName: string
+  applicationName: string,
+  emailConfig: Record<string, any> = {}
 ): Promise<boolean> {
   try {
-    const EMAIL_API_URL = Deno.env.get('EMAIL_API_URL') || 'https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email';
-    const EMAIL_API_KEY = Deno.env.get('EMAIL_API_KEY') || 'sk_05f7d2638a2f33e2b730df9d0fb628d7e9230c7ee31a71df5d4f5cde01305e7f';
+    const DEFAULT_API_KEY = 'sk_4b762d5e0cbf7382c81daf86487cef7baf6581168b2c224592f9b125679b654e';
+    const EMAIL_API_URL = emailConfig?.external_email_api_url || Deno.env.get('EMAIL_API_URL') || 'https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email';
+    const EMAIL_API_KEY = emailConfig?.external_email_api_key || Deno.env.get('EMAIL_API_KEY') || DEFAULT_API_KEY;
+    const TEMPLATE_NAME = emailConfig?.reset_password_template_name || 'reset-password-authsystem';
 
     console.log('📧 Sending reset password email via external API...');
     console.log('📧 API URL:', EMAIL_API_URL);
+    console.log('📧 Template:', TEMPLATE_NAME);
     console.log('📧 Recipient:', email);
+    console.log('📧 Using app-specific key:', !!emailConfig?.external_email_api_key);
 
     const response = await fetch(EMAIL_API_URL, {
       method: 'POST',
@@ -45,16 +50,17 @@ async function sendResetPasswordEmailViaAPI(
         'x-api-key': EMAIL_API_KEY
       },
       body: JSON.stringify({
-        template_name: 'reset-password-authsystem',
+        template_name: TEMPLATE_NAME,
         recipient_email: email,
         data: {
           client_name: name,
+          aplication_name: applicationName,
+          application_name: applicationName,
           reset_url: resetUrl,
-          expiration_minutes: expirationMinutes,
-          expiration_hours: Math.round((expirationMinutes / 60) * 10) / 10,
+          expiration_minutes: String(expirationMinutes),
+          expiration_hours: String(Math.round((expirationMinutes / 60) * 10) / 10),
           expires_at: expiresAt.toISOString(),
-          expires_at_formatted: expiresAt.toLocaleString('es-ES', { dateStyle: 'full', timeStyle: 'short' }),
-          application_name: applicationName
+          expires_at_formatted: expiresAt.toLocaleString('es-ES', { dateStyle: 'full', timeStyle: 'short' })
         }
       })
     });
@@ -424,7 +430,8 @@ Deno.serve(async (req) => {
           resetUrl,
           expiresAt,
           tokenExpirationMinutes,
-          application.name
+          application.name,
+          application.email_config || {}
         );
         console.log('✅ Reset email sent successfully');
       } catch (emailError: any) {
