@@ -5,6 +5,7 @@ import { PUBLIC_AUTH_FORMS_TEMPLATE } from './publicAuthFormsTemplate';
 import { BRANDED_PUBLIC_AUTH_TEMPLATE } from './brandedPublicAuthTemplate';
 import { BRANDED_COMPONENTS_TEMPLATE } from './brandedComponentsTemplate';
 import { THEME_PRESETS_TEMPLATE } from './themePresetsTemplate';
+import { REGISTER_TENANT_FORM_TEMPLATE } from './registerTenantFormTemplate';
 
 export async function getReactProjectFiles(
   applicationId: string,
@@ -181,6 +182,7 @@ body {
 import { Routes, Route, Navigate, useSearchParams, useLocation } from 'react-router-dom';
 import { config } from './lib/config';
 import PublicAuthRouter from './components/auth/PublicAuthRouter';
+import RegisterTenantForm from './components/auth/RegisterTenantForm';
 
 export default function App() {
   const [searchParams] = useSearchParams();
@@ -195,7 +197,7 @@ export default function App() {
     return 'login';
   };
 
-  if (!appId) {
+  if (!appId && !location.pathname.includes('register-tenant')) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="bg-white p-8 rounded-lg shadow-lg max-w-md">
@@ -242,6 +244,7 @@ export default function App() {
           />
         }
       />
+      <Route path="/register-tenant" element={<RegisterTenantForm />} />
       <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
@@ -514,6 +517,9 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
 
   // src/components/auth/BrandedPublicAuth.tsx - Main auth component with branding
   files['src/components/auth/BrandedPublicAuth.tsx'] = deployTimestamp + BRANDED_PUBLIC_AUTH_TEMPLATE;
+
+  // src/components/auth/RegisterTenantForm.tsx - Tenant registration form
+  files['src/components/auth/RegisterTenantForm.tsx'] = deployTimestamp + REGISTER_TENANT_FORM_TEMPLATE;
 
   // src/components/ui/BrandedComponents.tsx - UI components with neumorphic/glass effects
   files['src/components/ui/BrandedComponents.tsx'] = deployTimestamp + BRANDED_COMPONENTS_TEMPLATE;
