@@ -89,7 +89,9 @@ export default function AuthenticationSettings() {
       const apps = await applicationService.getApplications();
       setApplications(apps);
       if (apps.length > 0) {
-        setSelectedApp(apps[0].id);
+        const stored = sessionStorage.getItem('selectedAppId');
+        const preferred = stored && apps.some((a: any) => a.id === stored) ? stored : apps[0].id;
+        setSelectedApp(preferred);
       }
     } catch (error) {
       console.error('Error loading applications:', error);

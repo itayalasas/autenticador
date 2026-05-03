@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, MoreVertical, Users, Globe, Palette, Settings, Trash2, Eye, Calendar, Shield, CreditCard as Edit, Copy, ExternalLink, Rocket } from 'lucide-react';
+import { Plus, Search, MoreVertical, Users, Globe, Palette, Settings, Trash2, Eye, Calendar, Shield, CreditCard as Edit, Copy, ExternalLink, Rocket, Building2 } from 'lucide-react';
 import { Application } from '../../types';
 import { applicationService } from '../../services/applicationService';
 import { userService } from '../../services/userService';
@@ -9,6 +9,7 @@ import NotificationModal from '../ui/NotificationModal';
 import ConfirmationModal from '../ui/ConfirmationModal';
 import CreateApplicationWizard from './CreateApplicationWizard';
 import EditApplicationWizard from './EditApplicationWizard';
+import TenantsModal from './TenantsModal';
 
 export default function ApplicationsList() {
   const [applications, setApplications] = useState<Application[]>([]);
@@ -18,6 +19,7 @@ export default function ApplicationsList() {
   const [showEditWizard, setShowEditWizard] = useState(false);
   const [editingApplication, setEditingApplication] = useState<Application | null>(null);
   const [showUsersModal, setShowUsersModal] = useState<string | null>(null);
+  const [showTenantsModal, setShowTenantsModal] = useState<Application | null>(null);
   const [modalUsers, setModalUsers] = useState<any[]>([]);
   const [modalUsersLoading, setModalUsersLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState<string | null>(null);
@@ -411,7 +413,8 @@ export default function ApplicationsList() {
                           </button>
                           <button
                             onClick={() => {
-                              navigator.clipboard.writeText(`${window.location.origin}/register?app_id=${app.application_id}&env=development`);
+                              const path = (app as any).auth_mode === 'tenant' ? '/register-tenant' : '/register';
+                              navigator.clipboard.writeText(`${window.location.origin}${path}?app_id=${app.application_id}&env=development`);
                               showSuccess(
                                 'URL copiada',
                                 'La URL de registro ha sido copiada al portapapeles.'
@@ -425,8 +428,11 @@ export default function ApplicationsList() {
                           </button>
                           <button
                             onClick={() => {
-                              setShowUsersModal(app.id);
-                              loadModalUsers(app.id);
+                              sessionStorage.setItem('selectedAppId', app.id);
+                              const event = new CustomEvent('changeSectionWithApp', {
+                                detail: { section: 'users', appId: app.id }
+                              });
+                              window.dispatchEvent(event);
                               setShowDropdown(null);
                             }}
                             className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
@@ -434,6 +440,18 @@ export default function ApplicationsList() {
                             <Users className="w-4 h-4" />
                             <span>Ver usuarios ({app.users_count || 0})</span>
                           </button>
+                          {(app as any).auth_mode === 'tenant' && (
+                            <button
+                              onClick={() => {
+                                setShowTenantsModal(app);
+                                setShowDropdown(null);
+                              }}
+                              className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                            >
+                              <Building2 className="w-4 h-4" />
+                              <span>Ver empresas</span>
+                            </button>
+                          )}
                           <button
                             onClick={() => {
                               handleBrandingClick(app.id);
@@ -730,6 +748,20 @@ export default function ApplicationsList() {
         ></div>
       )}
       
+      {showTenantsModal && (
+        <TenantsModal
+          isOpen={!!showTenantsModal}
+          onClose={() => setShowTenantsModal(null)}
+          applicationId={showTenantsModal.id}
+          applicationName={showTenantsModal.name}
+          onShowSuccess={showSuccess}
+          onShowError={showError}
+          onShowConfirmation={showConfirmation}
+          onCloseConfirmation={closeConfirmation}
+          setConfirmationLoading={setConfirmationLoading}
+        />
+      )}
+
       {/* Notification Modal */}
       <NotificationModal
         notification={notification}
