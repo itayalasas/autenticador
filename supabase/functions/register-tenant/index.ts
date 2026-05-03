@@ -13,6 +13,7 @@ interface RegisterTenantRequest {
   name: string;
   slug?: string;
   domain?: string;
+  plan_id?: string;
   metadata?: Record<string, any>;
 }
 
@@ -54,7 +55,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const { application_id, api_key, name, slug, domain, metadata } = body;
+    const { application_id, api_key, name, slug, domain, plan_id, metadata } = body;
 
     if (!application_id || !api_key || !name) {
       return new Response(
@@ -137,6 +138,9 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    const tenantMetadata: Record<string, any> = { ...(metadata || {}) };
+    if (plan_id) tenantMetadata.plan_id = plan_id;
+
     // Create the tenant
     const { data: tenant, error: tenantError } = await supabase
       .from('tenants')
@@ -146,7 +150,7 @@ Deno.serve(async (req: Request) => {
         slug: tenantSlug,
         domain: domain || null,
         status: 'active',
-        metadata: metadata || {}
+        metadata: tenantMetadata
       })
       .select()
       .single();

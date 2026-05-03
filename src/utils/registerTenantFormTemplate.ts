@@ -24,6 +24,7 @@ export default function RegisterTenantForm() {
   const appId = searchParams.get('app_id');
   const apiKey = searchParams.get('api_key');
   const redirectUri = searchParams.get('redirect_uri') || searchParams.get('callback_url');
+  const initialPlanId = searchParams.get('plan_id');
 
   const [appData, setAppData] = useState<any>(null);
   const [branding, setBranding] = useState<any>({});
@@ -41,6 +42,10 @@ export default function RegisterTenantForm() {
   const [tenantData, setTenantData] = useState({ name: '', slug: '', domain: '' });
   const [adminData, setAdminData] = useState({ name: '', email: '', password: '', confirmPassword: '' });
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
+
+  const [plans, setPlans] = useState<any[]>([]);
+  const [plansLoading, setPlansLoading] = useState(true);
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(initialPlanId);
 
   useEffect(() => {
     const loadApp = async () => {
@@ -88,6 +93,30 @@ export default function RegisterTenantForm() {
   }, [appId]);
 
   useEffect(() => {
+    const loadPlans = async () => {
+      if (!appId) { setPlansLoading(false); return; }
+      try {
+        const res = await fetch(\`https://veymthufmfqhxxxzfmfi.supabase.co/functions/v1/validation-api/plans?external_app_id=\${appId}\`);
+        const json = await res.json();
+        const list = Array.isArray(json?.plans) ? json.plans.filter((p: any) => p.is_active !== false) : [];
+        list.sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+        setPlans(list);
+        if (!selectedPlanId) {
+          const trial = list.find((p: any) => (p.trial_days ?? 0) > 0) || list.find((p: any) => Number(p.price) === 0) || list[0];
+          if (trial) setSelectedPlanId(trial.id);
+        } else if (!list.some((p: any) => p.id === selectedPlanId)) {
+          const fallback = list.find((p: any) => (p.trial_days ?? 0) > 0) || list[0];
+          if (fallback) setSelectedPlanId(fallback.id);
+        }
+      } catch {
+        /* ignore */
+      } finally { setPlansLoading(false); }
+    };
+    loadPlans();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appId]);
+
+  useEffect(() => {
     if (!slugManuallyEdited && tenantData.name) {
       const slug = tenantData.name.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').substring(0, 60);
       setTenantData(prev => ({ ...prev, slug }));
@@ -129,7 +158,7 @@ export default function RegisterTenantForm() {
       const tenantRes = await fetch(\`\${API_BASE_URL}/register-tenant\`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`, 'apikey': SUPABASE_ANON_KEY },
-        body: JSON.stringify({ application_id: appId, api_key: resolvedApiKey, name: tenantData.name, slug: tenantData.slug, domain: tenantData.domain || undefined }),
+        body: JSON.stringify({ application_id: appId, api_key: resolvedApiKey, name: tenantData.name, slug: tenantData.slug, domain: tenantData.domain || undefined, plan_id: selectedPlanId || undefined }),
       });
       const tenantResult = await tenantRes.json();
       if (!tenantRes.ok || !tenantResult.success) throw new Error(tenantResult?.error?.message || 'Error al registrar la empresa');
@@ -254,6 +283,47 @@ export default function RegisterTenantForm() {
                   onChange={e => { setTenantData(prev => ({ ...prev, domain: e.target.value })); setMessage(null); }}
                   placeholder="empresa.com" className="w-full px-4 py-2.5 border text-sm focus:outline-none transition-colors" style={inputStyle}
                   onFocus={e => (e.target.style.borderColor = primaryColor)} onBlur={e => (e.target.style.borderColor = '#D1D5DB')} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1.5" style={{ color: textColor }}>Plan de suscripción <span className="text-red-500">*</span></label>
+                {plansLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-gray-500 py-2">
+                    <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: primaryColor }} />
+                    <span>Cargando planes...</span>
+                  </div>
+                ) : plans.length === 0 ? (
+                  <p className="text-xs text-gray-500 italic">No hay planes disponibles. Se usará el plan por defecto.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {plans.map((p: any) => {
+                      const isSelected = selectedPlanId === p.id;
+                      const priceLabel = Number(p.price) === 0
+                        ? ((p.trial_days ?? 0) > 0 ? \`Gratis \${p.trial_days} dias\` : 'Gratis')
+                        : \`\${p.currency} \${p.price}/\${p.billing_cycle === 'yearly' ? 'año' : 'mes'}\`;
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setSelectedPlanId(p.id)}
+                          className="w-full text-left p-3 border transition-all flex items-start gap-3"
+                          style={{ borderRadius, borderColor: isSelected ? primaryColor : '#E5E7EB', backgroundColor: isSelected ? \`\${primaryColor}0D\` : '#fff' }}
+                        >
+                          <div className="w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5"
+                            style={{ borderColor: isSelected ? primaryColor : '#D1D5DB', backgroundColor: isSelected ? primaryColor : 'transparent' }}>
+                            {isSelected && <CheckCircle className="w-3 h-3 text-white" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-semibold" style={{ color: textColor }}>{p.name}</span>
+                              <span className="text-xs font-medium" style={{ color: primaryColor }}>{priceLabel}</span>
+                            </div>
+                            {p.description && <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{p.description}</p>}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
               <button type="button" onClick={handleNextStep}
                 className="w-full py-2.5 text-sm font-semibold flex items-center justify-center space-x-2 transition-all hover:opacity-90 mt-2" style={buttonStyle}>
