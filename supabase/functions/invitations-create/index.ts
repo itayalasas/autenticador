@@ -8,7 +8,7 @@ const corsHeaders = {
 };
 
 const EXTERNAL_EMAIL_API_URL = "https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email";
-const EXTERNAL_EMAIL_API_KEY = "sk_05f7d2638a2f33e2b730df9d0fb628d7e9230c7ee31a71df5d4f5cde01305e7f";
+const EXTERNAL_EMAIL_API_KEY = "sk_4b762d5e0cbf7382c81daf86487cef7baf6581168b2c224592f9b125679b654e";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
