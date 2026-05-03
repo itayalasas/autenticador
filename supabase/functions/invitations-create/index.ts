@@ -244,6 +244,11 @@ Deno.serve(async (req: Request) => {
 
     const acceptUrl = `${baseUrl}/accept-invitation?token=${token}&email=${encodeURIComponent(normalizedEmail)}`;
 
+    const emailSubject = `Invitación a ${app.name}`;
+    const emailHtml = `<p>Has sido invitado a ${app.name} con el rol ${role.display_name || role.name}.</p><p><a href="${acceptUrl}">Aceptar invitación</a></p>`;
+
+    let emailStatus: "sent" | "failed" = "sent";
+    let emailError: string | null = null;
     try {
       await sendInvitationEmail({
         recipientEmail: normalizedEmail,
@@ -254,27 +259,23 @@ Deno.serve(async (req: Request) => {
         confirmUrl: acceptUrl,
         expiresAt,
       });
-
-      await supabase.from("email_logs").insert({
-        application_id: app.id,
-        to_email: normalizedEmail,
-        from_email: "noreply@invite.app",
-        from_name: app.name,
-        subject: `Invitación a ${app.name}`,
-        status: "sent",
-        sent_at: new Date().toISOString(),
-      });
     } catch (emailErr: any) {
-      await supabase.from("email_logs").insert({
-        application_id: app.id,
-        to_email: normalizedEmail,
-        from_email: "noreply@invite.app",
-        from_name: app.name,
-        subject: `Invitación a ${app.name}`,
-        status: "failed",
-        error_message: emailErr?.message ?? "unknown",
-      });
+      emailStatus = "failed";
+      emailError = emailErr?.message ?? "unknown";
     }
+
+    const { error: logErr } = await supabase.from("email_logs").insert({
+      application_id: app.id,
+      to_email: normalizedEmail,
+      from_email: "noreply@invite.app",
+      from_name: app.name,
+      subject: emailSubject,
+      html_content: emailHtml,
+      status: emailStatus,
+      error_message: emailError,
+      sent_at: emailStatus === "sent" ? new Date().toISOString() : null,
+    });
+    if (logErr) console.error("email_logs insert error:", logErr.message);
 
     return jsonResponse({
       success: true,
