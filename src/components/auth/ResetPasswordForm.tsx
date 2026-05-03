@@ -115,55 +115,35 @@ export default function ResetPasswordForm() {
   const validateToken = async () => {
     setValidating(true);
     try {
-      const { data: tokenData, error: tokenError } = await supabase
-        .from('email_verification_tokens')
-        .select(`
-          *,
-          app_users (
-            id,
-            email,
-            application_id,
-            applications (
-              id,
-              name,
-              application_id,
-              domain
-            )
-          )
-        `)
-        .eq('token', token)
-        .maybeSingle();
+      const { data, error: rpcError } = await supabase.rpc('validate_reset_password_token', {
+        p_token: token,
+        p_email: emailFromUrl,
+      });
 
-      if (tokenError || !tokenData) {
-        setError('Token de recuperación inválido o expirado.');
+      if (rpcError) {
+        setError('Error al validar el token. Por favor intenta nuevamente.');
         setValidating(false);
         setLoading(false);
         return;
       }
 
-      if (new Date(tokenData.expires_at) < new Date()) {
-        setError('Este link de recuperación ha expirado. Por favor solicita uno nuevo.');
+      const result = data as { valid: boolean; reason?: string; application?: any } | null;
+
+      if (!result || !result.valid) {
+        const reasonMap: Record<string, string> = {
+          not_found: 'Token de recuperación inválido.',
+          expired: 'Este link de recuperación ha expirado. Por favor solicita uno nuevo.',
+          used: 'Este link de recuperación ya ha sido utilizado.',
+          email_mismatch: 'El email no coincide con el token.',
+          missing_params: 'Parámetros inválidos.',
+        };
+        setError(reasonMap[result?.reason || ''] || 'Token de recuperación inválido o expirado.');
         setValidating(false);
         setLoading(false);
         return;
       }
 
-      if (tokenData.used_at) {
-        setError('Este link de recuperación ya ha sido utilizado.');
-        setValidating(false);
-        setLoading(false);
-        return;
-      }
-
-      const appUser = tokenData.app_users;
-      if (!appUser || appUser.email !== emailFromUrl) {
-        setError('Email no coincide con el token.');
-        setValidating(false);
-        setLoading(false);
-        return;
-      }
-
-      const app = appUser.applications;
+      const app = result.application;
       if (app) {
         setApplication({
           id: app.id,
@@ -345,13 +325,20 @@ export default function ResetPasswordForm() {
     );
   }
 
-  if (error && mode === 'confirm' && !token) {
+  if (error && mode === 'confirm' && !application) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
         <div className="max-w-md w-full bg-white rounded-lg shadow-sm p-8 text-center">
           <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Error</h2>
-          <p className="text-gray-600">{error}</p>
+          <p className="text-gray-600 mb-6">{error}</p>
+          <a
+            href="/"
+            className="inline-flex items-center gap-2 text-sm text-blue-600 hover:underline"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Volver al inicio
+          </a>
         </div>
       </div>
     );
