@@ -4,6 +4,7 @@ import { useAuth } from './hooks/useAuth';
 import AuthPage from './components/auth/AuthPage';
 import PublicAuthRouter from './components/auth/PublicAuthRouter';
 import ResetPasswordForm from './components/auth/ResetPasswordForm';
+import VerifyEmailForm from './components/auth/VerifyEmailForm';
 import Sidebar from './components/layout/Sidebar';
 import Header from './components/layout/Header';
 import DashboardOverview from './components/dashboard/DashboardOverview';
@@ -225,6 +226,7 @@ function App() {
         <Route path="/reset-password" element={<ResetPasswordForm />} />
         <Route path="/reset-password-confirm" element={<ResetPasswordForm />} />
         <Route path="/register-tenant" element={<RegisterTenantForm />} />
+        <Route path="/verify-email" element={<VerifyEmailForm />} />
         <Route path="/github/callback" element={<GitHubCallback />} />
         <Route path="/:action" element={<PublicAuthRoute />} />
         <Route path="/*" element={<MainApp />} />

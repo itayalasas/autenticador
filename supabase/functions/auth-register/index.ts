@@ -28,6 +28,52 @@ function generateVerificationToken(): string {
   return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
+const EXTERNAL_EMAIL_API_URL = 'https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email';
+const EXTERNAL_EMAIL_API_KEY = 'sk_4b762d5e0cbf7382c81daf86487cef7baf6581168b2c224592f9b125679b654e';
+
+async function sendExternalConfirmationEmail(params: {
+  recipientEmail: string;
+  userName: string;
+  applicationName: string;
+  confirmUrl: string;
+  requestIp: string;
+}) {
+  const now = new Date();
+  const requestDate = `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()}`;
+
+  const payload = {
+    template_name: 'confirmacion_registro',
+    recipient_email: params.recipientEmail,
+    data: {
+      user_name: params.userName,
+      aplication_name: params.applicationName,
+      confirm_url: params.confirmUrl,
+      request_date: requestDate,
+      expires_in_hour: '24',
+      request_ip: params.requestIp
+    }
+  };
+
+  const response = await fetch(EXTERNAL_EMAIL_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': EXTERNAL_EMAIL_API_KEY
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const text = await response.text();
+  let data: any = null;
+  try { data = text ? JSON.parse(text) : null; } catch { /* ignore */ }
+
+  if (!response.ok || !data?.success) {
+    throw new Error(data?.message || `External email API error ${response.status}`);
+  }
+
+  return data;
+}
+
 interface EmailConfig {
   email_provider: 'system' | 'smtp' | 'resend' | 'sendgrid';
   from_name: string;
@@ -740,7 +786,10 @@ Deno.serve(async (req) => {
       has_smtp_user: !!emailConfig.smtp_user,
       has_smtp_password: !!emailConfig.smtp_password
     });
-    const requireEmailVerification = emailConfig.require_email_verification || false;
+    const appMetadata = (application as any).metadata || {};
+    const requireEmailVerification =
+      appMetadata.enable_email_verification === true ||
+      emailConfig.require_email_verification === true;
     const userStatus = requireEmailVerification ? 'pending' : 'active';
      
     // If application is in tenant mode, resolve tenant_id automatically
@@ -941,21 +990,40 @@ Deno.serve(async (req) => {
       } else {
       const baseUrl = callback_url ? callback_url.split('/callback')[0] : 'https://yourdomain.com';
       const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}&email=${encodeURIComponent(email)}`;
-      
+
         try {
-          await sendVerificationEmail(
-            supabase,
-            email,
-            name,
-            verificationUrl,
-            application.name,
-            application.id,
-            newUser.id,
-            emailConfig
-          );
-        } catch (emailError) {
-          console.error('Error sending verification email:', emailError);
-          // Continue without sending email if it fails
+          await sendExternalConfirmationEmail({
+            recipientEmail: email,
+            userName: name,
+            applicationName: application.name,
+            confirmUrl: verificationUrl,
+            requestIp: ipAddress
+          });
+
+          await supabase.from('email_logs').insert({
+            to_email: email,
+            from_email: emailConfig.from_email,
+            from_name: emailConfig.from_name,
+            subject: `Confirma tu cuenta - ${application.name}`,
+            html_content: null,
+            status: 'sent',
+            application_id: application.id,
+            app_user_id: newUser.id,
+            sent_at: new Date().toISOString()
+          });
+        } catch (emailError: any) {
+          console.error('Error sending external confirmation email:', emailError);
+          await supabase.from('email_logs').insert({
+            to_email: email,
+            from_email: emailConfig.from_email,
+            from_name: emailConfig.from_name,
+            subject: `Confirma tu cuenta - ${application.name}`,
+            html_content: null,
+            status: 'failed',
+            error_message: emailError?.message || 'Unknown error',
+            application_id: application.id,
+            app_user_id: newUser.id
+          });
         }
       }
       

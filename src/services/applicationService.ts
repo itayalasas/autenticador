@@ -24,6 +24,11 @@ export const applicationService = {
     domain: string;
     environment: 'development' | 'testing' | 'production';
     auth_mode?: 'classic' | 'tenant';
+    environment_urls?: any;
+    cors_origins?: string;
+    webhook_url?: string;
+    enable_email_verification?: boolean;
+    allow_public_registration?: boolean;
   }) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
@@ -36,7 +41,14 @@ export const applicationService = {
         description: appData.description,
         domain: appData.domain,
         owner_id: user.id,
-        auth_mode: appData.auth_mode || 'classic'
+        auth_mode: appData.auth_mode || 'classic',
+        metadata: {
+          environment_urls: appData.environment_urls,
+          cors_origins: appData.cors_origins,
+          webhook_url: appData.webhook_url,
+          enable_email_verification: appData.enable_email_verification ?? true,
+          allow_public_registration: appData.allow_public_registration ?? true
+        }
       })
       .select()
       .single();
