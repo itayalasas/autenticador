@@ -190,7 +190,17 @@ export default function AuthenticationSettings() {
         external_email_api_key: emailConfig.external_email_api_key || ''
       }));
 
-      setNotifications(mergeWithDefaults(emailConfig.notifications));
+      setNotifications(
+        mergeWithDefaults(emailConfig.notifications, {
+          require_email_verification: emailConfig.require_email_verification,
+          send_password_reset_email: emailConfig.send_password_reset_email,
+          send_welcome_email: emailConfig.send_welcome_email,
+          notify_admin_new_user: emailConfig.notify_admin_new_user,
+          admin_notification_email: emailConfig.admin_notification_email,
+          reset_password_template_name: emailConfig.reset_password_template_name,
+          reset_token_expiration_minutes: emailConfig.reset_token_expiration_minutes,
+        })
+      );
     } catch (error: any) {
       console.error('Error loading auth settings:', error);
       console.error('Error details:', {

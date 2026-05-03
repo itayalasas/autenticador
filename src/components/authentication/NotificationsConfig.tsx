@@ -131,9 +131,46 @@ export function buildDefaultNotifications(): NotificationsMap {
   }, {} as NotificationsMap);
 }
 
-export function mergeWithDefaults(stored: Partial<NotificationsMap> | undefined | null): NotificationsMap {
+export function mergeWithDefaults(
+  stored: Partial<NotificationsMap> | undefined | null,
+  legacy?: {
+    require_email_verification?: boolean;
+    send_password_reset_email?: boolean;
+    send_welcome_email?: boolean;
+    notify_admin_new_user?: boolean;
+    admin_notification_email?: string;
+    reset_password_template_name?: string;
+    reset_token_expiration_minutes?: number;
+  }
+): NotificationsMap {
   const defaults = buildDefaultNotifications();
+
+  if (legacy) {
+    if (typeof legacy.require_email_verification === 'boolean') {
+      defaults.email_confirmation.enabled = legacy.require_email_verification;
+    }
+    if (typeof legacy.send_password_reset_email === 'boolean') {
+      defaults.password_reset.enabled = legacy.send_password_reset_email;
+    }
+    if (typeof legacy.send_welcome_email === 'boolean') {
+      defaults.welcome.enabled = legacy.send_welcome_email;
+    }
+    if (typeof legacy.notify_admin_new_user === 'boolean') {
+      defaults.admin_new_user.enabled = legacy.notify_admin_new_user;
+    }
+    if (legacy.admin_notification_email) {
+      defaults.admin_new_user.admin_email = legacy.admin_notification_email;
+    }
+    if (legacy.reset_password_template_name) {
+      defaults.password_reset.template_name = legacy.reset_password_template_name;
+    }
+    if (legacy.reset_token_expiration_minutes) {
+      defaults.password_reset.token_expiration_minutes = legacy.reset_token_expiration_minutes;
+    }
+  }
+
   if (!stored) return defaults;
+
   const merged = { ...defaults };
   (Object.keys(defaults) as NotificationKey[]).forEach((key) => {
     if (stored[key]) {
