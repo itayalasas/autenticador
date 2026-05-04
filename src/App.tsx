@@ -17,7 +17,6 @@ import ApiKeysManager from './components/apikeys/ApiKeysManager';
 import RolesManager from './components/roles/RolesManager';
 import AuthenticationSettings from './components/authentication/AuthenticationSettings';
 import SettingsPage from './components/settings/SettingsPage';
-import SubscriptionManager from './components/subscription/SubscriptionManager';
 import LogsViewer from './components/activity/LogsViewer';
 import ConnectorsPage from './components/connectors/ConnectorsPage';
 import GitHubCallback from './components/github/GitHubCallback';
@@ -185,8 +184,6 @@ function MainApp() {
         return <ApiDocumentation />;
       case 'settings':
         return <SettingsPage />;
-      case 'subscription':
-        return <SubscriptionManager />;
       default:
         return <DashboardOverview />;
     }

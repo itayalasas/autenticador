@@ -54,8 +54,6 @@ export default function SettingsPage() {
 
   const tabs = [
     { id: 'profile', label: 'Perfil', icon: User },
-    { id: 'subscription', label: 'Suscripción', icon: Crown },
-    { id: 'billing', label: 'Facturación', icon: CreditCard },
     { id: 'security', label: 'Seguridad', icon: Shield },
     { id: 'notifications', label: 'Notificaciones', icon: Bell }
   ];

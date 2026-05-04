@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Zap, Shield, TrendingUp, Activity, AlertTriangle, Calendar, Clock, UserPlus, FileText, CheckCircle, XCircle, Wifi, Database, Server, Crown, ArrowRight } from 'lucide-react';
+import { Users, Zap, Shield, TrendingUp, Activity, AlertTriangle, Calendar, Clock, UserPlus, FileText, CheckCircle, XCircle, Wifi, Database, Server, ArrowRight } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { applicationService } from '../../services/applicationService';
-import { subscriptionService } from '../../services/subscriptionService';
 
 interface DashboardStats {
   totalApplications: number;
@@ -59,8 +58,6 @@ export default function DashboardOverview() {
     authentication: { status: 'checking', lastCheck: '' }
   });
 
-  const [subscription, setSubscription] = useState<any>(null);
-  const [usage, setUsage] = useState<any>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -81,62 +78,13 @@ export default function DashboardOverview() {
         loadApplicationStats(),
         loadUserStats(),
         loadAuthenticationStats(),
-        loadChartData(),
-        loadSubscriptionData()
+        loadChartData()
       ]);
 
     } catch (error) {
       console.error('Error loading dashboard data:', error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadSubscriptionData = async () => {
-    try {
-      const sub = await subscriptionService.getCurrentSubscription();
-      setSubscription(sub);
-
-      // Get real usage data
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      // Count applications
-      const { count: appsCount } = await supabase
-        .from('applications')
-        .select('id', { count: 'exact' })
-        .eq('owner_id', user.id)
-        .eq('status', 'active');
-
-      // Count users across all applications
-      const { count: usersCount } = await supabase
-        .from('app_users')
-        .select('id', { count: 'exact' })
-        .eq('status', 'active');
-
-      // Count API requests this month
-      const firstDayOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-      const { count: apiRequestsCount } = await supabase
-        .from('auth_logs')
-        .select('id', { count: 'exact' })
-        .gte('created_at', firstDayOfMonth.toISOString());
-
-      // Get active environments from API keys
-      const { data: apiKeys } = await supabase
-        .from('api_keys')
-        .select('environment')
-        .eq('is_active', true);
-
-      const activeEnvironments = [...new Set(apiKeys?.map(k => k.environment) || [])];
-
-      setUsage({
-        applications: appsCount || 0,
-        users: usersCount || 0,
-        api_requests: apiRequestsCount || 0,
-        environments: activeEnvironments
-      });
-    } catch (error) {
-      console.error('Error loading subscription data:', error);
     }
   };
 
@@ -506,101 +454,6 @@ export default function DashboardOverview() {
           Sistema funcionando correctamente.
         </p>
       </div>
-
-      {/* Subscription Overview */}
-      {subscription && (
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center space-x-3">
-              <Crown className="w-6 h-6 text-blue-500" />
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">Tu Suscripción Actual</h3>
-                <p className="text-sm text-gray-600">
-                  Plan {subscription.subscription_plans?.name || 'Básico'} -
-                  {subscription.status === 'active' ? ' Activa' : ' Inactiva'}
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => handleQuickAction('subscription')}
-              className="flex items-center space-x-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
-            >
-              <span>Gestionar Plan</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Usage Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <p className="text-sm text-gray-600 mb-1">Aplicaciones</p>
-              <div className="flex items-baseline space-x-2">
-                <p className="text-2xl font-bold text-gray-900">{usage.applications || 0}</p>
-                <p className="text-sm text-gray-500">
-                  / {subscription.subscription_plans?.limits?.applications || 1}
-                </p>
-              </div>
-              <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-blue-500 h-2 rounded-full"
-                  style={{
-                    width: `${Math.min(((usage.applications || 0) / (subscription.subscription_plans?.limits?.applications || 1)) * 100, 100)}%`
-                  }}
-                />
-              </div>
-            </div>
-
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <p className="text-sm text-gray-600 mb-1">Usuarios</p>
-              <div className="flex items-baseline space-x-2">
-                <p className="text-2xl font-bold text-gray-900">{usage.users || 0}</p>
-                <p className="text-sm text-gray-500">
-                  / {subscription.subscription_plans?.limits?.users_per_app || 100}
-                </p>
-              </div>
-              <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-green-500 h-2 rounded-full"
-                  style={{
-                    width: `${Math.min(((usage.users || 0) / (subscription.subscription_plans?.limits?.users_per_app || 100)) * 100, 100)}%`
-                  }}
-                />
-              </div>
-            </div>
-
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <p className="text-sm text-gray-600 mb-1">API Requests (mes)</p>
-              <div className="flex items-baseline space-x-2">
-                <p className="text-2xl font-bold text-gray-900">{usage.api_requests || 0}</p>
-                <p className="text-sm text-gray-500">
-                  / {(subscription.subscription_plans?.limits?.api_requests_per_month || 10000).toLocaleString()}
-                </p>
-              </div>
-              <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-purple-500 h-2 rounded-full"
-                  style={{
-                    width: `${Math.min(((usage.api_requests || 0) / (subscription.subscription_plans?.limits?.api_requests_per_month || 10000)) * 100, 100)}%`
-                  }}
-                />
-              </div>
-            </div>
-
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <p className="text-sm text-gray-600 mb-1">Ambientes</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {usage.environments?.length || 0}
-              </p>
-              <p className="text-sm text-gray-500 mt-2">
-                {usage.environments?.length > 0 ? usage.environments.join(', ') : 'Ninguno activo'}
-              </p>
-              <p className="text-xs text-gray-400 mt-1">
-                Disponibles: {subscription.subscription_plans?.limits?.environments?.join(', ') || 'development'}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
