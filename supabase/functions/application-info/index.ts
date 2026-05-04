@@ -137,6 +137,7 @@ Deno.serve(async (req: Request) => {
         status,
         metadata,
         users_count,
+        auth_mode,
         created_at,
         updated_at
       `)
@@ -159,22 +160,44 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    const appIds = applications?.map((app: any) => app.id) || [];
+
     // Get users for all applications
     const { data: appUsers, error: usersError } = await supabase
       .from("app_users")
       .select(`
         id,
         application_id,
+        tenant_id,
         email,
         name,
         status,
         last_login,
         created_at
       `)
-      .in("application_id", applications?.map((app: any) => app.id) || []);
+      .in("application_id", appIds);
 
     if (usersError) {
       console.error("Error fetching app users:", usersError);
+    }
+
+    // Get tenants for all applications
+    const { data: tenants, error: tenantsError } = await supabase
+      .from("tenants")
+      .select(`
+        id,
+        application_id,
+        name,
+        slug,
+        domain,
+        status,
+        created_at,
+        updated_at
+      `)
+      .in("application_id", appIds);
+
+    if (tenantsError) {
+      console.error("Error fetching tenants:", tenantsError);
     }
 
     // Group users by application_id
@@ -183,6 +206,24 @@ Deno.serve(async (req: Request) => {
         acc[user.application_id] = [];
       }
       acc[user.application_id].push({
+        id: user.id,
+        tenant_id: user.tenant_id,
+        email: user.email,
+        name: user.name,
+        status: user.status,
+        last_login: user.last_login,
+        created_at: user.created_at,
+      });
+      return acc;
+    }, {});
+
+    // Group users by tenant_id
+    const usersByTenant = (appUsers || []).reduce((acc: any, user: any) => {
+      if (!user.tenant_id) return acc;
+      if (!acc[user.tenant_id]) {
+        acc[user.tenant_id] = [];
+      }
+      acc[user.tenant_id].push({
         id: user.id,
         email: user.email,
         name: user.name,
@@ -193,10 +234,30 @@ Deno.serve(async (req: Request) => {
       return acc;
     }, {});
 
+    // Group tenants by application_id, embedding their members
+    const tenantsByApp = (tenants || []).reduce((acc: any, tenant: any) => {
+      if (!acc[tenant.application_id]) {
+        acc[tenant.application_id] = [];
+      }
+      acc[tenant.application_id].push({
+        id: tenant.id,
+        name: tenant.name,
+        slug: tenant.slug,
+        domain: tenant.domain,
+        status: tenant.status,
+        created_at: tenant.created_at,
+        updated_at: tenant.updated_at,
+        members: usersByTenant[tenant.id] || [],
+      });
+      return acc;
+    }, {});
+
     const responseData = applications.map((app: any) => {
       const metadata = app.metadata as any;
       const environmentUrls = metadata?.environment_urls || {};
       const appUsersList = usersByApp[app.id] || [];
+      const authType = app.auth_mode === "tenant" ? "tenant" : "basic";
+      const appTenants = tenantsByApp[app.id] || [];
 
       return {
         id: app.id,
@@ -205,12 +266,14 @@ Deno.serve(async (req: Request) => {
         status: app.status,
         url: app.domain,
         users_count: app.users_count || 0,
+        auth_type: authType,
         environment_urls: {
           development: environmentUrls.development?.base_url || null,
           testing: environmentUrls.testing?.base_url || null,
           production: environmentUrls.production?.base_url || null,
         },
         users: appUsersList,
+        tenants: authType === "tenant" ? appTenants : [],
         created_at: app.created_at,
         updated_at: app.updated_at,
       };
