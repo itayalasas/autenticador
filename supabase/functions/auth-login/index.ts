@@ -946,6 +946,20 @@ Deno.serve(async (req) => {
       response.data.license = validationData.license;
       response.data.has_access = validationData.has_access;
       response.data.available_plans = validationData.available_plans;
+
+      if (response.data.tenant && tenantId) {
+        const { count: activeUsersCount } = await supabase
+          .from('app_users')
+          .select('id', { count: 'exact', head: true })
+          .eq('application_id', application.id)
+          .eq('tenant_id', tenantId)
+          .eq('status', 'active');
+
+        response.data.tenant = {
+          ...response.data.tenant,
+          active_users_count: activeUsersCount || 0
+        };
+      }
     }
 
     if (callback_url) {
