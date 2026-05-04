@@ -494,7 +494,7 @@ Deno.serve(async (req) => {
       console.error('❌ No environment with auth_url available for this application; cannot build reset URL. Refusing to fall back to application.domain.')
     }
 
-    const resetUrl = `${baseUrl}/reset-password-confirm?token=${resetToken}&email=${encodeURIComponent(email)}`
+    const resetUrl = `${baseUrl}/reset-password-confirm?token=${resetToken}&email=${encodeURIComponent(email)}&api_key=${encodeURIComponent(api_key)}&app_id=${encodeURIComponent(application_id)}`
 
     console.log('🔗 Reset URL generated:', resetUrl);
 
