@@ -53,6 +53,7 @@ export default function BrandedPublicAuth({
   const [passwordStrength, setPasswordStrength] = useState<'weak' | 'medium' | 'strong' | 'very-strong'>('weak');
   const [availableRoles, setAvailableRoles] = useState<any[]>([]);
   const [selectedRole, setSelectedRole] = useState('');
+  const [allowPublicRegistration, setAllowPublicRegistration] = useState<boolean>(true);
   const activeSetupPollRunRef = React.useRef(0);
   const activeChallengePollRunRef = React.useRef(0);
   const SUPABASE_URL = 'https://sfqtmnncgiqkveaoqckt.supabase.co';
@@ -65,6 +66,32 @@ export default function BrandedPublicAuth({
     password: '',
     confirmPassword: ''
   });
+
+  // Load allow_public_registration flag from application metadata
+  useEffect(() => {
+    const loadAppFlag = async () => {
+      if (!applicationId) return;
+      try {
+        const { createClient } = await import('@supabase/supabase-js');
+        const supabase = createClient(
+          'https://sfqtmnncgiqkveaoqckt.supabase.co',
+          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNmcXRtbm5jZ2lxa3ZlYW9xY2t0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4MDEyNDMsImV4cCI6MjA3NTM3NzI0M30.n2yaYrfHDLAFePP1tA3-250P6bgKmf696fYJFHfRZaQ'
+        );
+        const { data: app } = await supabase
+          .from('applications')
+          .select('metadata')
+          .eq('application_id', applicationId)
+          .maybeSingle();
+        if (app) {
+          const meta: any = app.metadata || {};
+          setAllowPublicRegistration(meta.allow_public_registration !== false);
+        }
+      } catch (e) {
+        console.error('Error loading app flag:', e);
+      }
+    };
+    loadAppFlag();
+  }, [applicationId]);
 
   // Load available roles for registration
   useEffect(() => {
@@ -961,11 +988,13 @@ export default function BrandedPublicAuth({
                    style={{ color: branding.primary_color }}>
                   {getText('login_forgot_password_text', '¿Olvidaste tu contraseña?')}
                 </a>
-                <a href={buildNavUrl('/register')}
-                   className="transition-colors hover:opacity-80"
-                   style={{ color: branding.primary_color }}>
-                  {getText('login_register_link_text', '¿No tienes cuenta? Regístrate aquí').split('? ')[1] || 'Regístrate aquí'}
-                </a>
+                {allowPublicRegistration && (
+                  <a href={buildNavUrl('/register')}
+                     className="transition-colors hover:opacity-80"
+                     style={{ color: branding.primary_color }}>
+                    {getText('login_register_link_text', '¿No tienes cuenta? Regístrate aquí').split('? ')[1] || 'Regístrate aquí'}
+                  </a>
+                )}
               </>
             )}
             {formType === 'register' && (
