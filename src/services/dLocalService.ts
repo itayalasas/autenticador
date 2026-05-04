@@ -228,11 +228,7 @@ class DLocalService {
   }
 
   // Create subscription (redirect to DLocal checkout)
-  async createSubscription(
-    planToken: string,
-    userInfo: any,
-    options?: { returnUrl?: string }
-  ) {
+  async createSubscription(planToken: string, userInfo: any) {
     try {
       console.log('🔄 Creating subscription with DLocal...');
 
@@ -252,40 +248,21 @@ class DLocalService {
         plan_currency: selectedPlan.currency,
         user_id: userInfo.id,
         user_email: userInfo.email,
-        return_url: options?.returnUrl || null,
         timestamp: Date.now()
       }));
-
-      // Build checkout URL with return/success URL. DLocalGo's hosted
-      // checkout accepts success_url / back_url parameters to redirect the
-      // customer after completing the payment.
-      let checkoutUrl = selectedPlan.subscribe_url;
-      const returnUrl = (options?.returnUrl || '').trim();
-      if (returnUrl) {
-        try {
-          const urlObj = new URL(checkoutUrl);
-          urlObj.searchParams.set('success_url', returnUrl);
-          urlObj.searchParams.set('back_url', returnUrl);
-          checkoutUrl = urlObj.toString();
-        } catch {
-          const sep = checkoutUrl.includes('?') ? '&' : '?';
-          checkoutUrl = `${checkoutUrl}${sep}success_url=${encodeURIComponent(returnUrl)}&back_url=${encodeURIComponent(returnUrl)}`;
-        }
-      }
 
       console.log('💾 Stored pending subscription:', {
         plan_token: planToken,
         plan_name: selectedPlan.name,
-        subscribe_url: checkoutUrl,
-        return_url: returnUrl || '(none)'
+        subscribe_url: selectedPlan.subscribe_url
       });
 
       // Redirect to DLocal checkout
-      window.open(checkoutUrl, '_blank', 'width=800,height=600,scrollbars=yes,resizable=yes');
+      window.open(selectedPlan.subscribe_url, '_blank', 'width=800,height=600,scrollbars=yes,resizable=yes');
 
       return {
         success: true,
-        checkout_url: checkoutUrl,
+        checkout_url: selectedPlan.subscribe_url,
         plan: selectedPlan
       };
     } catch (error) {
