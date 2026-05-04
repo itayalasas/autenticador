@@ -431,18 +431,46 @@ Deno.serve(async (req) => {
 
     console.log('✅ Reset password successful for user:', appUser.email);
     
-    // Build reset URL - always use the application's auth domain (where the
-    // public reset-password-confirm screen is served), NOT the caller's
-    // callback_url (which points to the client app that initiated the flow).
-    const rawDomain = (application.domain || '').trim()
-    const baseUrl = rawDomain
-      ? (rawDomain.startsWith('http://') || rawDomain.startsWith('https://')
-          ? rawDomain.replace(/\/$/, '')
-          : `https://${rawDomain.replace(/\/$/, '')}`)
-      : ''
-    if (!baseUrl) {
-      console.error('❌ Application has no domain configured, cannot build reset URL')
+    // Build reset URL from the environment's auth_url (URL Base) matching the
+    // API key environment. The reset-password-confirm form is served at that
+    // URL Base, not at the application.domain (which is the client-facing site
+    // we do not control).
+    const normalizeUrl = (raw: string | null | undefined): string => {
+      const v = (raw || '').trim()
+      if (!v) return ''
+      const withScheme = (v.startsWith('http://') || v.startsWith('https://')) ? v : `https://${v}`
+      return withScheme.replace(/\/$/, '')
     }
+
+    const apiKeyEnv = (apiKeyData as any).environment || 'development'
+
+    let baseUrl = ''
+    const { data: envRow, error: envLookupError } = await supabase
+      .from('environments')
+      .select('auth_url, domain, name')
+      .eq('application_id', application.id)
+      .eq('name', apiKeyEnv)
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (envLookupError) {
+      console.error('⚠️ Error looking up environment for reset URL:', envLookupError)
+    }
+
+    if (envRow) {
+      baseUrl = normalizeUrl(envRow.auth_url) || normalizeUrl(envRow.domain)
+      console.log(`🌐 Using environment "${envRow.name}" for reset URL base:`, baseUrl)
+    }
+
+    if (!baseUrl) {
+      baseUrl = normalizeUrl(application.domain)
+      console.log('⚠️ Falling back to application.domain for reset URL base:', baseUrl)
+    }
+
+    if (!baseUrl) {
+      console.error('❌ No auth_url/domain available for application, cannot build reset URL')
+    }
+
     const resetUrl = `${baseUrl}/reset-password-confirm?token=${resetToken}&email=${encodeURIComponent(email)}`
 
     console.log('🔗 Reset URL generated:', resetUrl);
