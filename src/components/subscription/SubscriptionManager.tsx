@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Crown, CreditCard, Check, X, Star, Zap, Shield, Users, Globe, Sparkles, ArrowRight, Calendar, DollarSign, AlertTriangle } from 'lucide-react';
+import { Crown, CreditCard, Check, X, Star, Zap, Shield, Users, Globe, Sparkles, ArrowRight, Calendar, DollarSign, AlertTriangle, ExternalLink, Save } from 'lucide-react';
 import { subscriptionService } from '../../services/subscriptionService';
 import { dLocalService } from '../../services/dLocalService';
+import { supabase } from '../../lib/supabase';
 import { requireSupabaseAnonKey, requireSupabaseUrl } from '../../lib/supabaseRuntime';
 import { useNotification } from '../../hooks/useNotification';
 import NotificationModal from '../ui/NotificationModal';
@@ -18,6 +19,9 @@ export default function SubscriptionManager() {
   const [selectedPlan, setSelectedPlan] = useState<any>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [returnUrl, setReturnUrl] = useState('');
+  const [savedReturnUrl, setSavedReturnUrl] = useState('');
+  const [savingReturnUrl, setSavingReturnUrl] = useState(false);
 
   const {
     notification,
@@ -42,7 +46,8 @@ export default function SubscriptionManager() {
         loadPlans(),
         loadUsage(),
         loadPaymentMethods(),
-        loadInvoices()
+        loadInvoices(),
+        loadReturnUrl()
       ]);
     } catch (error) {
       console.error('Error loading subscription data:', error);
@@ -84,6 +89,57 @@ export default function SubscriptionManager() {
       setPaymentMethods(methods);
     } catch (error) {
       console.error('Error loading payment methods:', error);
+    }
+  };
+
+  const loadReturnUrl = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from('profiles')
+        .select('subscription_return_url')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      const url = (data?.subscription_return_url || '').trim();
+      setReturnUrl(url);
+      setSavedReturnUrl(url);
+    } catch (error) {
+      console.error('Error loading return URL:', error);
+    }
+  };
+
+  const validateReturnUrl = (url: string): boolean => {
+    if (!url) return true;
+    try {
+      const parsed = new URL(url);
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  };
+
+  const handleSaveReturnUrl = async () => {
+    const trimmed = returnUrl.trim();
+    if (trimmed && !validateReturnUrl(trimmed)) {
+      showError('URL inválida', 'Ingresa una URL completa con http:// o https://');
+      return;
+    }
+    try {
+      setSavingReturnUrl(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Usuario no autenticado');
+      const { error } = await supabase
+        .from('profiles')
+        .update({ subscription_return_url: trimmed || null })
+        .eq('user_id', user.id);
+      if (error) throw error;
+      setSavedReturnUrl(trimmed);
+      showSuccess('URL guardada', 'La URL de retorno ha sido actualizada.');
+    } catch (error: any) {
+      showError('Error al guardar', error.message || 'No se pudo guardar la URL.');
+    } finally {
+      setSavingReturnUrl(false);
     }
   };
 
@@ -141,6 +197,8 @@ export default function SubscriptionManager() {
       await dLocalService.createSubscription(planToken, {
         id: user.id,
         email: user.email
+      }, {
+        returnUrl: savedReturnUrl || undefined
       });
 
       setShowUpgradeModal(false);
@@ -311,6 +369,43 @@ export default function SubscriptionManager() {
         <h2 className="text-3xl font-bold text-gray-900 mb-4">Gestión de Suscripción</h2>
         <p className="text-gray-600 max-w-2xl mx-auto">
           Elige el plan perfecto para tus necesidades. Cambia o cancela en cualquier momento.
+        </p>
+      </div>
+
+      {/* Return URL Configuration */}
+      <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex items-start space-x-3">
+            <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
+              <ExternalLink className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900">URL de retorno tras suscripción</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                Configura a qué página de tu sitio debe redirigirse al usuario cuando complete el pago en dLocal.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <input
+            type="url"
+            value={returnUrl}
+            onChange={(e) => setReturnUrl(e.target.value)}
+            placeholder="https://tu-sitio.com/suscripcion/ok"
+            className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+          />
+          <button
+            onClick={handleSaveReturnUrl}
+            disabled={savingReturnUrl || returnUrl.trim() === savedReturnUrl.trim()}
+            className="px-4 py-2.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg flex items-center justify-center space-x-2 transition-colors text-sm font-medium"
+          >
+            <Save className="w-4 h-4" />
+            <span>{savingReturnUrl ? 'Guardando...' : 'Guardar'}</span>
+          </button>
+        </div>
+        <p className="text-xs text-gray-500 mt-2">
+          Debe comenzar con http:// o https://. Si se deja vacío, el usuario permanecerá en la página de dLocal al finalizar el pago.
         </p>
       </div>
 
