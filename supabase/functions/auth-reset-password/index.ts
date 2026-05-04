@@ -444,31 +444,54 @@ Deno.serve(async (req) => {
 
     const apiKeyEnv = (apiKeyData as any).environment || 'development'
 
+    // The reset-password-confirm form is served at the environment's auth_url
+    // (URL Base). The application.domain points to the client-facing site we
+    // do not control, so we must NEVER use it for the reset link.
     let baseUrl = ''
-    const { data: envRow, error: envLookupError } = await supabase
+    let selectedEnvName = ''
+
+    // 1. Exact match: api_key.environment -> environments.name
+    const { data: exactEnv, error: exactEnvError } = await supabase
       .from('environments')
-      .select('auth_url, domain, name')
+      .select('auth_url, name, is_active')
       .eq('application_id', application.id)
       .eq('name', apiKeyEnv)
       .eq('is_active', true)
       .maybeSingle()
 
-    if (envLookupError) {
-      console.error('⚠️ Error looking up environment for reset URL:', envLookupError)
+    if (exactEnvError) {
+      console.error('⚠️ Error looking up exact environment for reset URL:', exactEnvError)
     }
 
-    if (envRow) {
-      baseUrl = normalizeUrl(envRow.auth_url) || normalizeUrl(envRow.domain)
-      console.log(`🌐 Using environment "${envRow.name}" for reset URL base:`, baseUrl)
+    if (exactEnv) {
+      baseUrl = normalizeUrl(exactEnv.auth_url)
+      selectedEnvName = exactEnv.name
     }
 
+    // 2. Fallback: any active environment of this application with a usable auth_url
     if (!baseUrl) {
-      baseUrl = normalizeUrl(application.domain)
-      console.log('⚠️ Falling back to application.domain for reset URL base:', baseUrl)
+      const { data: anyEnvs, error: anyEnvError } = await supabase
+        .from('environments')
+        .select('auth_url, name')
+        .eq('application_id', application.id)
+        .eq('is_active', true)
+
+      if (anyEnvError) {
+        console.error('⚠️ Error looking up fallback environments for reset URL:', anyEnvError)
+      }
+
+      const firstWithAuth = (anyEnvs || []).find((e: any) => normalizeUrl(e.auth_url))
+      if (firstWithAuth) {
+        baseUrl = normalizeUrl(firstWithAuth.auth_url)
+        selectedEnvName = firstWithAuth.name
+        console.log(`⚠️ No environment matched "${apiKeyEnv}", using env "${selectedEnvName}" auth_url as fallback`)
+      }
     }
 
-    if (!baseUrl) {
-      console.error('❌ No auth_url/domain available for application, cannot build reset URL')
+    if (baseUrl) {
+      console.log(`🌐 Using environment "${selectedEnvName}" auth_url for reset URL base:`, baseUrl)
+    } else {
+      console.error('❌ No environment with auth_url available for this application; cannot build reset URL. Refusing to fall back to application.domain.')
     }
 
     const resetUrl = `${baseUrl}/reset-password-confirm?token=${resetToken}&email=${encodeURIComponent(email)}`
