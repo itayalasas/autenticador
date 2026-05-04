@@ -117,6 +117,17 @@ export default function ResetPasswordForm() {
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error?.message || 'Error al solicitar recuperación');
       setEmailSent(true);
+      setTimeout(() => {
+        if (appId && apiKey && callbackUrl) {
+          const params = new URLSearchParams();
+          params.set('app_id', appId);
+          params.set('api_key', apiKey);
+          params.set('callback_url', callbackUrl);
+          window.location.href = \`/login?\${params.toString()}\`;
+        } else {
+          window.location.href = '/';
+        }
+      }, 3000);
     } catch (err: any) {
       setError(err.message || 'Error al solicitar recuperación');
     } finally {
