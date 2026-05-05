@@ -723,7 +723,21 @@ Deno.serve(async (req) => {
     const accessToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify(accessTokenPayload))}.signature`
     const refreshToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify({...accessTokenPayload, type: 'refresh', exp: now + (30 * 24 * 60 * 60)}))}.signature`
 
-    const twoFactorEnabled = application?.metadata?.enable_two_factor === true;
+    const appTwoFactorEnabled = application?.metadata?.enable_two_factor === true;
+    const planFeatures = (validationData?.subscription?.entitlements?.features || []) as Array<any>;
+    const planTwoFactorFeature = planFeatures.find((f: any) => f?.code === 'two_factor_auth');
+    const planTwoFactorEnabled = planTwoFactorFeature
+      ? String(planTwoFactorFeature.value).toLowerCase() === 'true'
+      : false;
+
+    const twoFactorEnabled = appTwoFactorEnabled && planTwoFactorEnabled;
+
+    console.log('🔒 2FA gating:', {
+      app_enabled: appTwoFactorEnabled,
+      plan_enabled: planTwoFactorEnabled,
+      effective: twoFactorEnabled,
+      plan: validationData?.subscription?.plan_name
+    });
 
     if (twoFactorEnabled) {
       const { data: activeMfaDevices, error: deviceCheckError } = await supabase
@@ -904,7 +918,9 @@ Deno.serve(async (req) => {
               'Escanea el QR o pega el pairing token',
               'Registra el dispositivo',
               'Vuelve a iniciar sesión'
-            ]
+            ],
+            subscription: validationData?.subscription || null,
+            tenant: validationData?.tenant || null
           }
         }),
         {

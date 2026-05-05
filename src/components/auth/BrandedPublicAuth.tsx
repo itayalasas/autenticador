@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Mail, Lock, User, ArrowRight, Shield, X } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, Shield, X, Smartphone, QrCode, CheckCircle2, Copy, Apple } from 'lucide-react';
 import {
   BrandedContainer,
   BrandedCard,
@@ -561,23 +561,52 @@ export default function BrandedPublicAuth({
         )}
 
         {formType === 'login' && mfaSetupData && (
-          <div className="mb-6 p-4 rounded-lg border" style={{ backgroundColor: '#EEF6FF', borderColor: '#BFDBFE' }}>
-            <h4 className="font-semibold mb-2" style={{ color: '#1E3A8A' }}>Configura tu Authenticator</h4>
-            <p className="text-xs mb-2" style={{ color: '#1E3A8A' }}>Paso {mfaSetupStep} de 3</p>
+          <div className="mb-6 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            <div className="px-6 pt-5 pb-4 border-b border-slate-100 bg-gradient-to-br from-slate-50 to-white">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                  <Shield className="w-5 h-5" />
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-semibold text-slate-900 leading-tight">Activa la verificación en dos pasos</h4>
+                  <p className="text-xs text-slate-500 mt-0.5">Protege tu cuenta con la app Authenticator</p>
+                </div>
+              </div>
+              <div className="mt-4 flex items-center gap-2">
+                {[1, 2, 3].map((s) => {
+                  const done = mfaSetupStep > s || mfaSetupLinked;
+                  const active = mfaSetupStep === s && !mfaSetupLinked;
+                  return (
+                    <div key={s} className="flex-1 flex items-center gap-2">
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold transition-colors ${done ? 'bg-emerald-500 text-white' : active ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                        {done ? <CheckCircle2 className="w-4 h-4" /> : s}
+                      </div>
+                      {s < 3 && <div className={`flex-1 h-0.5 rounded-full ${done ? 'bg-emerald-500' : 'bg-slate-200'}`} />}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-2 grid grid-cols-3 text-[10px] font-medium text-slate-500 uppercase tracking-wide">
+                <span className={mfaSetupStep === 1 && !mfaSetupLinked ? 'text-blue-700' : ''}>Instalar</span>
+                <span className={`text-center ${mfaSetupStep === 2 && !mfaSetupLinked ? 'text-blue-700' : ''}`}>Descargar</span>
+                <span className={`text-right ${mfaSetupStep === 3 && !mfaSetupLinked ? 'text-blue-700' : ''}`}>Vincular</span>
+              </div>
+            </div>
+            <div className="p-6">
 
             {!mfaSetupLinked && mfaSetupStep === 1 && (
               <>
-                <p className="text-sm mb-3" style={{ color: '#1E40AF' }}>
-                  Debes agregar la app Authenticator de este sistema para continuar.
+                <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 mx-auto mb-4">
+                  <Smartphone className="w-7 h-7" />
+                </div>
+                <h5 className="text-center text-slate-900 font-semibold mb-1">Necesitas la app Authenticator</h5>
+                <p className="text-sm text-slate-600 text-center mb-5 leading-relaxed">
+                  Para continuar debes vincular tu cuenta con nuestra app oficial Authenticator. Instálala en tu móvil y aprueba el acceso cada vez que inicies sesión.
                 </p>
                 <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setMfaSetupStep(2)}
-                    className="px-3 py-2 rounded-lg text-white text-sm font-semibold"
-                    style={{ backgroundColor: '#2563EB' }}
-                  >
+                  <button type="button" onClick={() => setMfaSetupStep(2)} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors shadow-sm">
                     Siguiente
+                    <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>
               </>
@@ -585,43 +614,36 @@ export default function BrandedPublicAuth({
 
             {!mfaSetupLinked && mfaSetupStep === 2 && (
               <>
-                <p className="text-sm mb-3" style={{ color: '#1E40AF' }}>Descarga la aplicación en tu móvil.</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
-                  <a
-                    href="https://play.google.com/store"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-3 py-2 text-sm text-center rounded-lg border"
-                    style={{ color: '#1E3A8A', borderColor: '#BFDBFE', backgroundColor: '#FFFFFF' }}
-                  >
-                    🤖 Google Play
+                <h5 className="text-slate-900 font-semibold mb-1">Descarga la app en tu móvil</h5>
+                <p className="text-sm text-slate-600 mb-5">Elige tu tienda y descarga la app Authenticator oficial.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+                  <a href="https://play.google.com/store" target="_blank" rel="noreferrer" className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 transition-colors">
+                    <svg viewBox="0 0 512 512" className="w-7 h-7 shrink-0" aria-hidden="true">
+                      <path fill="#00D1FF" d="M325.3 234.3L104.5 13.5l255.7 147.6-35 73.2z" />
+                      <path fill="#FFD400" d="M393 256L104 92.3v327.4L393 256z" />
+                      <path fill="#FF3A44" d="M325.3 277.7l35 73.2L104.5 498.5 325.3 277.7z" />
+                      <path fill="#00F076" d="M104.5 13.5L325.3 234.3 104.5 498.5V13.5z" />
+                    </svg>
+                    <div className="flex-1 leading-tight">
+                      <p className="text-[10px] font-medium text-slate-300 uppercase tracking-wide">Descargar en</p>
+                      <p className="text-sm font-semibold text-white">Google Play</p>
+                    </div>
                   </a>
-                  <a
-                    href="https://www.apple.com/app-store/"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-3 py-2 text-sm text-center rounded-lg border"
-                    style={{ color: '#1E3A8A', borderColor: '#BFDBFE', backgroundColor: '#FFFFFF' }}
-                  >
-                     App Store
+                  <a href="https://www.apple.com/app-store/" target="_blank" rel="noreferrer" className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 transition-colors">
+                    <Apple className="w-7 h-7 text-white shrink-0" />
+                    <div className="flex-1 leading-tight">
+                      <p className="text-[10px] font-medium text-slate-300 uppercase tracking-wide">Descargar en</p>
+                      <p className="text-sm font-semibold text-white">App Store</p>
+                    </div>
                   </a>
                 </div>
                 <div className="flex justify-between">
-                  <button
-                    type="button"
-                    onClick={() => setMfaSetupStep(1)}
-                    className="px-3 py-2 rounded-lg text-sm font-semibold border"
-                    style={{ color: '#1E3A8A', borderColor: '#93C5FD', backgroundColor: '#FFFFFF' }}
-                  >
+                  <button type="button" onClick={() => setMfaSetupStep(1)} className="px-4 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors">
                     Atrás
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setMfaSetupStep(3)}
-                    className="px-3 py-2 rounded-lg text-white text-sm font-semibold"
-                    style={{ backgroundColor: '#2563EB' }}
-                  >
-                    Siguiente
+                  <button type="button" onClick={() => setMfaSetupStep(3)} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors shadow-sm">
+                    Ya la instalé
+                    <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>
               </>
@@ -629,63 +651,62 @@ export default function BrandedPublicAuth({
 
             {!mfaSetupLinked && mfaSetupStep === 3 && (
               <>
-                <p className="text-sm mb-3" style={{ color: '#1E40AF' }}>
-                  Escanea el QR con la app móvil de este sistema (no Google/Microsoft Authenticator).
+                <div className="flex items-center gap-2 mb-1">
+                  <QrCode className="w-4 h-4 text-blue-600" />
+                  <h5 className="text-slate-900 font-semibold">Escanea el código QR</h5>
+                </div>
+                <p className="text-sm text-slate-600 mb-4">
+                  Abre la app Authenticator oficial de este sistema y escanea el código para vincular tu cuenta.
                 </p>
                 {mfaSetupData?.qr_text && (
-                  <div className="bg-white rounded-lg border p-3 w-fit mx-auto mb-3" style={{ borderColor: '#DBEAFE' }}>
-                    <img
-                      src={
-                        'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' +
-                        encodeURIComponent(mfaSetupData.qr_text)
-                      }
-                      alt="QR de configuración MFA"
-                      className="w-44 h-44"
-                    />
+                  <div className="mx-auto mb-4 w-fit rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <img src={'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(mfaSetupData.qr_text)} alt="QR de configuración MFA" className="w-44 h-44" />
                   </div>
                 )}
-
                 {mfaSetupData?.pairing_token && (
-                  <p className="text-xs break-all mb-3" style={{ color: '#1E3A8A' }}>
-                    Token manual: {mfaSetupData.pairing_token}
-                  </p>
+                  <div className="mb-4 rounded-xl bg-slate-50 border border-slate-200 p-3">
+                    <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-1">¿No puedes escanear? Pega este token</p>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 text-xs break-all text-slate-800 font-mono">{mfaSetupData.pairing_token}</code>
+                      <button type="button" onClick={() => navigator.clipboard?.writeText(mfaSetupData.pairing_token)} className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-200 transition-colors shrink-0" title="Copiar token">
+                        <Copy className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
                 )}
-
-                <button
-                  type="button"
-                  onClick={() => setMfaSetupStep(2)}
-                  className="px-3 py-2 rounded-lg text-sm font-semibold border"
-                  style={{ color: '#1E3A8A', borderColor: '#93C5FD', backgroundColor: '#FFFFFF' }}
-                >
+                <button type="button" onClick={() => setMfaSetupStep(2)} className="px-4 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors">
                   Atrás
                 </button>
               </>
             )}
 
             {mfaSetupPolling && !mfaSetupLinked && (
-              <p className="text-xs mt-3" style={{ color: '#1E40AF' }}>
+              <div className="mt-4 flex items-center gap-2 text-xs text-slate-500">
+                <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
                 Esperando confirmación de vinculación desde el móvil...
-              </p>
+              </div>
             )}
 
             {mfaSetupLinked && (
-              <div className="mt-3 p-3 rounded-lg border" style={{ backgroundColor: '#ECFDF5', borderColor: '#BBF7D0' }}>
-                <p className="text-sm mb-2" style={{ color: '#166534' }}>✅ Dispositivo vinculado correctamente.</p>
-                <p className="text-xs mb-2" style={{ color: '#166534' }}>
-                  {mfaAutoStartingSession ? 'Iniciando sesión automáticamente...' : 'Si no avanza, presiona OK para continuar.'}
-                </p>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    await handleSubmit({ preventDefault: () => {} } as React.FormEvent);
-                  }}
-                  className="px-3 py-2 rounded-lg text-white text-sm font-semibold"
-                  style={{ backgroundColor: '#16A34A' }}
-                >
-                  OK
-                </button>
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
+                    <CheckCircle2 className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-emerald-900">Dispositivo vinculado correctamente</p>
+                    <p className="text-xs text-emerald-700 mt-0.5">
+                      {mfaAutoStartingSession ? 'Iniciando sesión automáticamente...' : 'Si no avanza, presiona Continuar.'}
+                    </p>
+                    <button type="button" onClick={async () => { await handleSubmit({ preventDefault: () => {} } as React.FormEvent); }} className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors">
+                      Continuar
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
+            </div>
           </div>
         )}
 
