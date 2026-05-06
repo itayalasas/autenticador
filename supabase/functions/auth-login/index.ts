@@ -757,6 +757,49 @@ Deno.serve(async (req) => {
         const verificationNumber = String(Math.floor(Math.random() * 99) + 1).padStart(2, '0');
         const challengeExpiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
+        let preparedTenantPayload: any = validationData?.tenant || null;
+        if (preparedTenantPayload && tenantId) {
+          const { count: activeUsersCount } = await supabase
+            .from('app_users')
+            .select('id', { count: 'exact', head: true })
+            .eq('application_id', application.id)
+            .eq('tenant_id', tenantId)
+            .eq('status', 'active');
+
+          preparedTenantPayload = {
+            ...preparedTenantPayload,
+            active_users_count: activeUsersCount || 0
+          };
+        }
+
+        const finalResponsePayload = {
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: roleName,
+            permissions: rolePermissions,
+            permissions_hierarchy: rolePermissionsHierarchy,
+            metadata: user.metadata || {},
+            created_at: user.created_at,
+            ...(tenantId ? { tenant_id: tenantId, tenant_name: tenantName } : {})
+          },
+          application: {
+            id: application_id,
+            name: application.name,
+            domain: application.domain
+          },
+          ...(validationData && validationData.success
+            ? {
+                tenant: preparedTenantPayload,
+                subscription: validationData.subscription,
+                license: validationData.license,
+                has_access: validationData.has_access,
+                available_plans: validationData.available_plans
+              }
+            : {})
+        };
+
         const { data: challengeRow, error: challengeError } = await supabase
           .from('mfa_login_challenges')
           .insert({
@@ -774,6 +817,7 @@ Deno.serve(async (req) => {
               user_name: user.name,
               ip_address: ipAddress,
               verification_number: verificationNumber,
+              final_response: finalResponsePayload,
             }
           })
           .select('id, expires_at')
