@@ -161,9 +161,8 @@ function PublicAuthForms({
   }, [applicationId]);
 
   useEffect(() => {
-    if (!defaultBranding.favicon_url) return;
-
-    const faviconUrl = defaultBranding.favicon_url;
+    const AUTHSYSTEM_DEFAULT_FAVICON = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHZpZXdCb3g9IjAgMCA0OCA0OCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIxMiIgZmlsbD0idXJsKCNncmFkaWVudDEpIi8+CiAgPHBhdGggZD0iTTI0IDEyTDMwIDE4TDI0IDI0TDE4IDE4TDI0IDEyWiIgZmlsbD0id2hpdGUiIG9wYWNpdHk9IjAuOSIvPgogIDxwYXRoIGQ9Ik0yNCAyNEwzMCAzMEwyNCAzNkwxOCAzMEwyNCAyNFoiIGZpbGw9IndoaXRlIiBvcGFjaXR5PSIwLjciLz4KICA8Y2lyY2xlIGN4PSIyNCIgY3k9IjI0IiByPSIzIiBmaWxsPSJ3aGl0ZSIvPgogIDxkZWZzPgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJncmFkaWVudDEiIHgxPSIwIiB5MT0iMCIgeDI9IjQ4IiB5Mj0iNDgiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj4KICAgICAgPHN0b3Agc3RvcC1jb2xvcj0iIzNCODJGNiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiMxRDRFRDgiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgPC9kZWZzPgo8L3N2Zz4K';
+    const faviconUrl = defaultBranding.favicon_url || AUTHSYSTEM_DEFAULT_FAVICON;
     const isData = faviconUrl.startsWith('data:');
     const href = isData
       ? faviconUrl
