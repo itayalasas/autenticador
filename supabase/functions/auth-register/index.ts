@@ -988,7 +988,48 @@ Deno.serve(async (req) => {
     }
 
     console.log('✅ Registration successful for user:', newUser.email);
-    
+
+    // Trigger subscription auto-sync (activate-trial) if enabled for this application
+    try {
+      const syncEnabled = appMetadata.subscription_sync_enabled === true;
+      const syncApiKey = appMetadata.subscription_sync_api_key as string | undefined;
+      const syncPlanId = (metadata?.plan_id as string | undefined) || (appMetadata.subscription_sync_plan_id as string | undefined);
+
+      if (syncEnabled && syncApiKey && syncPlanId && tenantId) {
+        console.log('Triggering activate-trial for tenant:', tenantId);
+        const trialRes = await fetch(
+          'https://veymthufmfqhxxxzfmfi.supabase.co/functions/v1/admin-api/activate-trial',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Api-Key': syncApiKey,
+            },
+            body: JSON.stringify({
+              application_id: application_id,
+              plan_id: syncPlanId,
+              tenant_id: tenantId,
+            }),
+          }
+        );
+        if (!trialRes.ok) {
+          const errText = await trialRes.text();
+          console.error('activate-trial failed in auth-register:', trialRes.status, errText);
+        } else {
+          console.log('activate-trial succeeded in auth-register');
+        }
+      } else {
+        console.log('activate-trial skipped:', {
+          syncEnabled,
+          hasApiKey: !!syncApiKey,
+          hasPlanId: !!syncPlanId,
+          hasTenantId: !!tenantId,
+        });
+      }
+    } catch (syncError: any) {
+      console.error('activate-trial exception in auth-register:', syncError?.message || syncError);
+    }
+
     try {
       const { error: logError } = await supabase.from('auth_logs').insert({
         application_id: application.id,
