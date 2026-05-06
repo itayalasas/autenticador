@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Key, Lock, Users, Settings, AlertTriangle, CheckCircle, Save, RotateCcw, Mail, AlertCircle } from 'lucide-react';
+import { Shield, Key, Lock, Users, Settings, AlertTriangle, CheckCircle, Save, RotateCcw, Mail, AlertCircle, Zap } from 'lucide-react';
 import { applicationService } from '../../services/applicationService';
 import { supabase } from '../../lib/supabase';
 import { useNotification } from '../../hooks/useNotification';
@@ -73,7 +73,12 @@ export default function AuthenticationSettings() {
 
     // Global notification provider configuration
     external_email_api_url: '',
-    external_email_api_key: ''
+    external_email_api_key: '',
+
+    // Subscription auto-sync (activate-trial on new tenant/user registration)
+    subscription_sync_enabled: false,
+    subscription_sync_api_key: '',
+    subscription_sync_plan_id: ''
   });
 
   const [notifications, setNotifications] = useState<NotificationsMap>(buildDefaultNotifications());
@@ -187,7 +192,10 @@ export default function AuthenticationSettings() {
         // Load API key
         api_key: emailConfig.api_key || '',
         external_email_api_url: emailConfig.external_email_api_url || '',
-        external_email_api_key: emailConfig.external_email_api_key || ''
+        external_email_api_key: emailConfig.external_email_api_key || '',
+        subscription_sync_enabled: metadata.subscription_sync_enabled ?? false,
+        subscription_sync_api_key: metadata.subscription_sync_api_key || '',
+        subscription_sync_plan_id: metadata.subscription_sync_plan_id || ''
       }));
 
       setNotifications(
@@ -245,6 +253,9 @@ export default function AuthenticationSettings() {
         allowed_callback_urls: authSettings.allowed_callback_urls.split('\n').filter(url => url.trim()),
         allowed_logout_urls: authSettings.allowed_logout_urls.split('\n').filter(url => url.trim()),
         cors_origins: authSettings.allowed_origins.split('\n').filter(url => url.trim()),
+        subscription_sync_enabled: authSettings.subscription_sync_enabled,
+        subscription_sync_api_key: authSettings.subscription_sync_api_key,
+        subscription_sync_plan_id: authSettings.subscription_sync_plan_id,
         updated_at: new Date().toISOString()
       };
 
@@ -373,7 +384,10 @@ export default function AuthenticationSettings() {
       smtp_password: '',
       api_key: '',
       external_email_api_url: '',
-      external_email_api_key: ''
+      external_email_api_key: '',
+      subscription_sync_enabled: false,
+      subscription_sync_api_key: '',
+      subscription_sync_plan_id: ''
     });
     setNotifications(buildDefaultNotifications());
   };
@@ -477,6 +491,72 @@ export default function AuthenticationSettings() {
                   <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                 </label>
               </div>
+            </div>
+          </div>
+
+          {/* Subscription Auto-Sync */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
+              <Zap className="w-5 h-5 text-amber-500" />
+              <span>Sincronizacion Automatica de Suscripcion</span>
+            </h3>
+
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div className="pr-4">
+                  <h4 className="font-medium text-gray-900">Activar trial automatico al registrar</h4>
+                  <p className="text-sm text-gray-600">
+                    Cuando un nuevo tenant o usuario se registra, se invoca automaticamente la API de activacion de trial
+                    con la aplicacion, el tenant y el plan configurados.
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={authSettings.subscription_sync_enabled}
+                    onChange={(e) => handleSettingChange('subscription_sync_enabled', e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+
+              {authSettings.subscription_sync_enabled && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-amber-900 mb-2">
+                      API Key de integracion (X-Api-Key)
+                    </label>
+                    <input
+                      type="password"
+                      value={authSettings.subscription_sync_api_key}
+                      onChange={(e) => handleSettingChange('subscription_sync_api_key', e.target.value)}
+                      className="w-full px-3 py-2 border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent bg-white font-mono text-sm"
+                      placeholder="myHtQcF1mVtir88Unxf9F9BnH1aA1nzLidUi2EVJqE0oLdYp6AUjS1vZNJ6i1VbB"
+                    />
+                    <p className="text-xs text-amber-700 mt-2">
+                      Esta API key se envia como header <code className="bg-white px-1 py-0.5 rounded">X-Api-Key</code> al endpoint{' '}
+                      <code className="bg-white px-1 py-0.5 rounded">/admin-api/activate-trial</code>.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-amber-900 mb-2">
+                      Plan ID por defecto
+                    </label>
+                    <input
+                      type="text"
+                      value={authSettings.subscription_sync_plan_id}
+                      onChange={(e) => handleSettingChange('subscription_sync_plan_id', e.target.value)}
+                      className="w-full px-3 py-2 border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent bg-white font-mono text-sm"
+                      placeholder="932d92e0-871e-4c46-915f-df8aac6291f1"
+                    />
+                    <p className="text-xs text-amber-700 mt-2">
+                      UUID del plan que se asignara automaticamente al activar el trial para cada nuevo tenant.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

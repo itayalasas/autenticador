@@ -82,7 +82,7 @@ Deno.serve(async (req: Request) => {
     // Load application
     const { data: application, error: appError } = await supabase
       .from('applications')
-      .select('id, name, domain, auth_mode, application_id')
+      .select('id, name, domain, auth_mode, application_id, metadata')
       .eq('application_id', application_id)
       .single();
 
@@ -163,6 +163,49 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    // Trigger subscription auto-sync (activate-trial) if enabled for this application
+    let subscriptionSync: { attempted: boolean; success: boolean; error?: string } = {
+      attempted: false,
+      success: false,
+    };
+
+    const appMeta = (application.metadata || {}) as Record<string, any>;
+    const syncEnabled = appMeta.subscription_sync_enabled === true;
+    const syncApiKey = appMeta.subscription_sync_api_key as string | undefined;
+    const syncPlanId = (plan_id as string | undefined) || (appMeta.subscription_sync_plan_id as string | undefined);
+
+    if (syncEnabled && syncApiKey && syncPlanId) {
+      subscriptionSync.attempted = true;
+      try {
+        const trialRes = await fetch(
+          'https://veymthufmfqhxxxzfmfi.supabase.co/functions/v1/admin-api/activate-trial',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Api-Key': syncApiKey,
+            },
+            body: JSON.stringify({
+              application_id: application_id,
+              plan_id: syncPlanId,
+              tenant_id: tenant.id,
+            }),
+          }
+        );
+
+        if (trialRes.ok) {
+          subscriptionSync.success = true;
+        } else {
+          const errText = await trialRes.text();
+          subscriptionSync.error = `HTTP ${trialRes.status}: ${errText}`;
+          console.error('activate-trial failed:', subscriptionSync.error);
+        }
+      } catch (syncError: any) {
+        subscriptionSync.error = syncError?.message || 'Unknown error';
+        console.error('activate-trial exception:', syncError);
+      }
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -177,7 +220,8 @@ Deno.serve(async (req: Request) => {
           application: {
             id: application_id,
             name: application.name
-          }
+          },
+          subscription_sync: subscriptionSync
         }
       }),
       { status: 201, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
