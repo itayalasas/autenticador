@@ -636,15 +636,34 @@ Deno.serve(async (req) => {
       console.log('📝 Logged successful login for:', email);
     }
 
+    // Resolve tenant early so we can pass it to the validation API
+    let tenantIdForValidation: string | null = null;
+    let tenantNameForValidation: string | null = null;
+    if (application.auth_mode === 'tenant' && user.tenant_id) {
+      tenantIdForValidation = user.tenant_id;
+      const { data: tenantDataEarly } = await supabase
+        .from('tenants')
+        .select('name, slug, domain')
+        .eq('id', user.tenant_id)
+        .maybeSingle();
+      if (tenantDataEarly) {
+        tenantNameForValidation = tenantDataEarly.name;
+      }
+    }
+
     let validationData = null;
 
     try {
       console.log('🔍 Validating user license with external API...');
 
-      const validationPayload = {
+      const validationPayload: Record<string, any> = {
         external_app_id: application_id,
         external_user_id: user.id
       };
+      if (tenantIdForValidation) {
+        validationPayload.external_tenant_id = tenantIdForValidation;
+        validationPayload.tenant_id = tenantIdForValidation;
+      }
 
       console.log('📤 Sending validation request with payload:', validationPayload);
 
@@ -677,20 +696,9 @@ Deno.serve(async (req) => {
       console.error('❌ Error validating license:', validationError);
     }
 
-    // Resolve tenant_id if application is in tenant mode
-    let tenantId: string | null = null;
-    let tenantName: string | null = null;
-    if (application.auth_mode === 'tenant' && user.tenant_id) {
-      tenantId = user.tenant_id;
-      const { data: tenantData } = await supabase
-        .from('tenants')
-        .select('name, slug, domain')
-        .eq('id', user.tenant_id)
-        .maybeSingle();
-      if (tenantData) {
-        tenantName = tenantData.name;
-      }
-    }
+    // Resolve tenant_id if application is in tenant mode (reuses early lookup)
+    const tenantId: string | null = tenantIdForValidation;
+    const tenantName: string | null = tenantNameForValidation;
 
     const now = Math.floor(Date.now() / 1000)
     const accessTokenPayload: Record<string, any> = {
