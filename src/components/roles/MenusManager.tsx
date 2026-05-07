@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Menu, Plus, Edit, Trash2, Save, X, Grid, ChevronDown, ChevronUp } from 'lucide-react';
+import { Menu, Plus, CreditCard as Edit, Trash2, Save, X, Grid2x2 as Grid, ChevronDown, ChevronUp } from 'lucide-react';
 import { permissionsService, MenuWithActions } from '../../services/permissionsService';
 import { useNotification } from '../../hooks/useNotification';
 import ConfirmationModal from '../ui/ConfirmationModal';
@@ -452,15 +452,15 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
       })()}
 
       {/* Delete Confirmation Modal */}
-      {deleteModal.show && (
-        <ConfirmationModal
-          title="Eliminar Menú"
-          message="¿Estás seguro de que deseas eliminar este menú? Esta acción eliminará también todas las acciones y permisos asociados."
-          confirmText="Eliminar"
-          onConfirm={handleDeleteMenu}
-          onCancel={() => setDeleteModal({ show: false, menuId: null })}
-        />
-      )}
+      <ConfirmationModal
+        isOpen={deleteModal.show}
+        title="Eliminar Menú"
+        message="¿Estás seguro de que deseas eliminar este menú? Esta acción eliminará también todas las acciones y permisos asociados."
+        confirmText="Eliminar"
+        type="danger"
+        onConfirm={handleDeleteMenu}
+        onClose={() => setDeleteModal({ show: false, menuId: null })}
+      />
 
       {/* Notification Modal */}
       <NotificationModal
