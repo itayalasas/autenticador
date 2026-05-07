@@ -149,6 +149,44 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
     return result;
   };
 
+  const flattenMenusWithDepth = (
+    items: MenuWithActions[],
+    depth = 0
+  ): Array<{ menu: MenuWithActions; depth: number }> => {
+    const result: Array<{ menu: MenuWithActions; depth: number }> = [];
+    items.forEach(menu => {
+      result.push({ menu, depth });
+      if (menu.submenus.length > 0) {
+        result.push(...flattenMenusWithDepth(menu.submenus, depth + 1));
+      }
+    });
+    return result;
+  };
+
+  const getMenuById = (id: string): MenuWithActions | null => {
+    return flattenMenus(menus).find(m => m.id === id) || null;
+  };
+
+  const getParentSlugChain = (parentId: string | null | undefined): string => {
+    if (!parentId) return '';
+    const parent = getMenuById(parentId);
+    if (!parent) return '';
+    return parent.slug;
+  };
+
+  const getLeafFromSlug = (fullSlug: string): string => {
+    const parts = fullSlug.split('.');
+    return parts[parts.length - 1] || '';
+  };
+
+  const composeSlug = (parentId: string | null | undefined, leaf: string): string => {
+    const cleanLeaf = generateSlug(leaf);
+    const parentChain = getParentSlugChain(parentId);
+    if (!parentChain) return cleanLeaf;
+    if (!cleanLeaf) return parentChain;
+    return `${parentChain}.${cleanLeaf}`;
+  };
+
   const getDescendantMenuIds = (menuId: string): Set<string> => {
     const descendants = new Set<string>();
     const allMenus = flattenMenus(menus);
@@ -176,11 +214,22 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
 
   const renderMenuItem = (menu: MenuWithActions, depth = 0) => {
     const totalChildren = menu.submenus.length;
+    const isRoot = depth === 0;
+    const headerBg = isRoot ? 'bg-blue-50' : 'bg-gray-50';
+    const levelBadge = isRoot
+      ? { label: 'Menú principal', cls: 'bg-blue-100 text-blue-700' }
+      : depth === 1
+        ? { label: 'Submenú', cls: 'bg-green-100 text-green-700' }
+        : { label: `Nivel ${depth + 1}`, cls: 'bg-amber-100 text-amber-700' };
 
     return (
-      <div key={menu.id} className="border border-gray-200 rounded-lg overflow-hidden">
-        <div className="bg-gray-50 p-4 flex items-center justify-between" style={{ paddingLeft: `${16 + depth * 20}px` }}>
+      <div
+        key={menu.id}
+        className={`border ${isRoot ? 'border-blue-200' : 'border-gray-200'} rounded-lg overflow-hidden`}
+      >
+        <div className={`${headerBg} p-4 flex items-center justify-between`} style={{ paddingLeft: `${16 + depth * 24}px` }}>
           <div className="flex items-center space-x-3 flex-1">
+            {depth > 0 && <span className="text-gray-400 font-mono text-sm">└─</span>}
             <button
               onClick={() => toggleMenuExpanded(menu.id)}
               className="p-1 hover:bg-gray-200 rounded transition-colors"
@@ -192,8 +241,13 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
               )}
             </button>
             {menu.icon && <span className="text-2xl">{menu.icon}</span>}
-            <div>
-              <h3 className="font-semibold text-gray-900">{menu.name}</h3>
+            <div className="flex-1">
+              <div className="flex items-center space-x-2">
+                <h3 className="font-semibold text-gray-900">{menu.name}</h3>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${levelBadge.cls}`}>
+                  {levelBadge.label}
+                </span>
+              </div>
               <p className="text-sm text-gray-500">
                 {menu.slug} • {menu.actions.length} acciones{totalChildren > 0 ? ` • ${totalChildren} submenús` : ''}
               </p>
@@ -303,17 +357,28 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
                     </label>
                     <select
                       value={menuForm.parent_menu_id}
-                      onChange={(e) => setMenuForm(prev => ({ ...prev, parent_menu_id: e.target.value }))}
+                      onChange={(e) => {
+                        const newParent = e.target.value;
+                        setMenuForm(prev => {
+                          const leaf = getLeafFromSlug(prev.slug) || generateSlug(prev.name);
+                          return {
+                            ...prev,
+                            parent_menu_id: newParent,
+                            slug: composeSlug(newParent, leaf)
+                          };
+                        });
+                      }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="">(Menú principal)</option>
-                      {allMenus.map(menu => {
+                      {flattenMenusWithDepth(menus).map(({ menu, depth }) => {
                         const isSelf = editingMenu?.id === menu.id;
                         const isDescendant = blockedParentIds.has(menu.id);
+                        const prefix = depth > 0 ? `${'\u00A0\u00A0\u00A0\u00A0'.repeat(depth)}└ ` : '';
 
                         return (
                           <option key={menu.id} value={menu.id} disabled={isSelf || isDescendant}>
-                            {menu.name}
+                            {prefix}{menu.name}
                           </option>
                         );
                       })}
@@ -327,10 +392,13 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
                       type="text"
                       value={menuForm.name}
                       onChange={(e) => {
+                        const newName = e.target.value;
                         setMenuForm(prev => ({
                           ...prev,
-                          name: e.target.value,
-                          slug: editingMenu ? prev.slug : generateSlug(e.target.value)
+                          name: newName,
+                          slug: editingMenu
+                            ? prev.slug
+                            : composeSlug(prev.parent_menu_id, newName)
                         }));
                       }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
