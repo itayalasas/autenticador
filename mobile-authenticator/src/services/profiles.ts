@@ -9,7 +9,8 @@ export type AppProfile = {
   applicationId: string;
   apiKey: string;
   email: string;
-  password: string;
+  password?: string;
+  deviceToken?: string;
   deviceId: string;
   deviceName: string;
   createdAt: string;

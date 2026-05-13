@@ -7,9 +7,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-const EXTERNAL_EMAIL_API_URL = "https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email";
-const EXTERNAL_EMAIL_API_KEY = "sk_4b762d5e0cbf7382c81daf86487cef7baf6581168b2c224592f9b125679b654e";
-
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -26,7 +23,7 @@ function generateToken(): string {
 async function validateAppAndKey(supabase: any, application_id: string, api_key: string) {
   const { data: app } = await supabase
     .from("applications")
-    .select("id, application_id, name")
+    .select("id, application_id, name, email_config, metadata")
     .eq("application_id", application_id)
     .maybeSingle();
   if (!app) return { error: { code: "APPLICATION_NOT_FOUND", message: "Aplicación no encontrada" }, status: 404 };
@@ -77,7 +74,16 @@ async function sendInvitationEmail(params: {
   invitationId: string;
   confirmUrl: string;
   expiresAt: string;
-}) {
+}, emailConfig: Record<string, any> = {}) {
+  const notificationCfg = emailConfig?.notifications?.invitations || emailConfig?.notifications?.invitation || {};
+  const apiUrl = notificationCfg.api_url || emailConfig?.external_email_api_url || Deno.env.get("EMAIL_API_URL") || Deno.env.get("EXTERNAL_EMAIL_API_URL") || "";
+  const apiKey = notificationCfg.api_key || emailConfig?.external_email_api_key || Deno.env.get("EMAIL_API_KEY") || Deno.env.get("EXTERNAL_EMAIL_API_KEY") || "";
+  const normalizedApiUrl = apiUrl.trim().replace(/\/$/, "");
+
+  if (!normalizedApiUrl || !apiKey.trim()) {
+    throw new Error("Missing email API configuration");
+  }
+
   const payload = {
     template_name: "invitacion_usuario",
     recipient_email: params.recipientEmail,
@@ -91,11 +97,11 @@ async function sendInvitationEmail(params: {
     },
   };
 
-  const res = await fetch(EXTERNAL_EMAIL_API_URL, {
+  const res = await fetch(normalizedApiUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": EXTERNAL_EMAIL_API_KEY,
+      "x-api-key": apiKey.trim(),
     },
     body: JSON.stringify(payload),
   });
@@ -258,7 +264,7 @@ Deno.serve(async (req: Request) => {
         invitationId,
         confirmUrl: acceptUrl,
         expiresAt,
-      });
+      }, (app as any).email_config || {});
     } catch (emailErr: any) {
       emailStatus = "failed";
       emailError = emailErr?.message ?? "unknown";

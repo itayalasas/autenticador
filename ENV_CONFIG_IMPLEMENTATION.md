@@ -12,6 +12,9 @@ El servicio `envConfigService` es responsable de:
 - Cargar las variables de entorno desde la API externa al inicio de la aplicación
 - Almacenar las variables en `window.__ENV__` para acceso global
 - Proporcionar funciones helper para acceder a las variables
+- Resolver primero la configuración remota y, si falla, usar variables `VITE_*` del build como respaldo
+- Permitir sobrescribir el endpoint de bootstrap con `VITE_ENV_CONFIG_URL`
+- Permitir sobrescribir la llave de acceso con `VITE_ENV_CONFIG_ACCESS_KEY`
 
 **API Endpoint:**
 ```
@@ -48,13 +51,14 @@ const anonKey = useSupabaseAnonKey();
 Las siguientes variables se cargan desde la API:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `JWT_SECRET`
-- `PORT`
 - `VITE_DLOCAL_API_URL`
 - `VITE_DLOCAL_API_KEY`
 - `VITE_DLOCAL_SECRET_KEY`
 - `VITE_DLOCAL_PLANS_ENDPOINT`
+- `VITE_NETLIFY_ACCESS_TOKEN`
+- `VITE_NETLIFY_SITE_ID`
+
+> Nota: si la API no está disponible, el sistema usa los `VITE_*` del build para mantener el entorno de desarrollo operativo.
 
 ## Archivos Modificados
 
@@ -124,5 +128,5 @@ En la consola del navegador verás:
 - La API debe estar disponible para que la aplicación funcione
 - La primera carga puede tardar unos segundos dependiendo de la conexión
 - Se recomienda implementar caché local o service workers para aplicaciones offline
-- La API key está hardcodeada pero debería considerarse un método más seguro en producción
-- **Importante**: El archivo `.env` local es ignorado, todas las variables vienen de la API
+- El endpoint de bootstrap y la clave de acceso pueden configurarse por entorno si se despliega en otra infraestructura
+- **Importante**: La fuente de verdad es `/get-env`, pero el build puede funcionar como respaldo para desarrollo local

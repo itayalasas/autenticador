@@ -482,12 +482,12 @@ function PublicAuthForms({
         }
 
         if (loginData?.access_token) {
-          localStorage.setItem('auth_token', loginData.access_token);
-          localStorage.setItem('refresh_token', loginData.refresh_token);
+          sessionStorage.setItem('auth_token', loginData.access_token);
+          sessionStorage.setItem('refresh_token', loginData.refresh_token);
           if (loginData?.user) {
-            localStorage.setItem('user_data', JSON.stringify(loginData.user));
+            sessionStorage.setItem('user_data', JSON.stringify(loginData.user));
           }
-          console.log('💾 Tokens guardados en localStorage');
+          console.log('💾 Tokens guardados en sessionStorage');
         }
       };
 

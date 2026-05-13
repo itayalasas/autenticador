@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Key, Lock, Users, Settings, AlertTriangle, CheckCircle, Save, RotateCcw, Mail, AlertCircle, Zap } from 'lucide-react';
+import { Shield, Key, Lock, Users, Settings, AlertTriangle, CheckCircle, Save, RotateCcw, Mail, AlertCircle, Zap, CreditCard } from 'lucide-react';
 import { applicationService } from '../../services/applicationService';
 import { supabase } from '../../lib/supabase';
 import { useNotification } from '../../hooks/useNotification';
@@ -77,6 +77,7 @@ export default function AuthenticationSettings() {
 
     // Subscription auto-sync (activate-trial on new tenant/user registration)
     subscription_sync_enabled: false,
+    subscription_sync_api_url: '',
     subscription_sync_api_key: '',
     subscription_sync_plan_id: ''
   });
@@ -194,6 +195,7 @@ export default function AuthenticationSettings() {
         external_email_api_url: emailConfig.external_email_api_url || '',
         external_email_api_key: emailConfig.external_email_api_key || '',
         subscription_sync_enabled: metadata.subscription_sync_enabled ?? false,
+        subscription_sync_api_url: metadata.subscription_sync_api_url || '',
         subscription_sync_api_key: metadata.subscription_sync_api_key || '',
         subscription_sync_plan_id: metadata.subscription_sync_plan_id || ''
       }));
@@ -254,6 +256,7 @@ export default function AuthenticationSettings() {
         allowed_logout_urls: authSettings.allowed_logout_urls.split('\n').filter(url => url.trim()),
         cors_origins: authSettings.allowed_origins.split('\n').filter(url => url.trim()),
         subscription_sync_enabled: authSettings.subscription_sync_enabled,
+        subscription_sync_api_url: authSettings.subscription_sync_api_url,
         subscription_sync_api_key: authSettings.subscription_sync_api_key,
         subscription_sync_plan_id: authSettings.subscription_sync_plan_id,
         updated_at: new Date().toISOString()
@@ -386,6 +389,7 @@ export default function AuthenticationSettings() {
       external_email_api_url: '',
       external_email_api_key: '',
       subscription_sync_enabled: false,
+      subscription_sync_api_url: '',
       subscription_sync_api_key: '',
       subscription_sync_plan_id: ''
     });
@@ -436,6 +440,39 @@ export default function AuthenticationSettings() {
 
       {selectedApp && (
         <div className="space-y-6">
+          <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-blue-900 rounded-2xl border border-slate-800 p-6 text-white shadow-sm">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="max-w-2xl">
+                <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-blue-100">
+                  <CreditCard className="w-3.5 h-3.5" />
+                  Monetización separada
+                </div>
+                <h3 className="mt-4 text-xl font-semibold">Planes y suscripciones ahora viven en un módulo propio</h3>
+                <p className="mt-2 text-sm leading-6 text-blue-50/90">
+                  Desde ahí gestionas catálogo comercial, sincronización con Mercado Pago y el estado real de las suscripciones
+                  que luego usa el login para habilitar acceso.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  sessionStorage.setItem('selectedAppId', selectedApp);
+                  window.dispatchEvent(new CustomEvent('changeSectionWithApp', {
+                    detail: {
+                      section: 'plans-subscriptions',
+                      appId: selectedApp,
+                    },
+                  }));
+                }}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 transition hover:bg-blue-50"
+              >
+                <CreditCard className="w-4 h-4" />
+                Abrir Planes y Suscripciones
+              </button>
+            </div>
+          </div>
+
           {/* Authentication Methods */}
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
@@ -494,14 +531,19 @@ export default function AuthenticationSettings() {
             </div>
           </div>
 
-          {/* Subscription Auto-Sync */}
+          {/* Legacy Subscription Auto-Sync */}
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
               <Zap className="w-5 h-5 text-amber-500" />
-              <span>Sincronizacion Automatica de Suscripcion</span>
+              <span>Integracion Legacy de Trial Externo</span>
             </h3>
 
             <div className="space-y-6">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                Usa esta seccion solo mientras sigas dependiendo de la plataforma anterior para activar trials.
+                Si ya migras los planes a AuthSystem con Mercado Pago, la capa nueva de arriba reemplaza esta logica.
+              </div>
+
               <div className="flex items-center justify-between">
                 <div className="pr-4">
                   <h4 className="font-medium text-gray-900">Activar trial automatico al registrar</h4>
@@ -523,6 +565,22 @@ export default function AuthenticationSettings() {
 
               {authSettings.subscription_sync_enabled && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-amber-900 mb-2">
+                      URL del endpoint de activacion
+                    </label>
+                    <input
+                      type="url"
+                      value={authSettings.subscription_sync_api_url}
+                      onChange={(e) => handleSettingChange('subscription_sync_api_url', e.target.value)}
+                      className="w-full px-3 py-2 border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent bg-white font-mono text-sm"
+                      placeholder="https://tu-servicio-suscripciones/functions/v1/admin-api"
+                    />
+                    <p className="text-xs text-amber-700 mt-2">
+                      Se agregara automaticamente <code className="bg-white px-1 py-0.5 rounded">/activate-trial</code> si no lo incluyes.
+                    </p>
+                  </div>
+
                   <div>
                     <label className="block text-sm font-medium text-amber-900 mb-2">
                       API Key de integracion (X-Api-Key)

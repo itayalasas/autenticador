@@ -336,6 +336,155 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Public application plans endpoint
+app.all('/api/application/plans', async (req, res) => {
+  try {
+    const requestBody = req.method === 'GET'
+      ? req.query
+      : (req.body || {});
+
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/application-plans`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.VITE_SUPABASE_ANON_KEY || ''}`
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    const result = await response.json();
+    return res.status(response.status).json(result);
+  } catch (error) {
+    console.error('Application plans proxy error:', error);
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: 'PROXY_ERROR',
+        message: 'No se pudo consultar el listado de planes'
+      }
+    });
+  }
+});
+
+app.post('/api/application/subscription/start-checkout', async (req, res) => {
+  try {
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/subscription-start-checkout`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.VITE_SUPABASE_ANON_KEY || ''}`,
+      },
+      body: JSON.stringify(req.body || {})
+    });
+
+    const result = await response.json();
+    return res.status(response.status).json(result);
+  } catch (error) {
+    console.error('Subscription checkout start proxy error:', error);
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: 'PROXY_ERROR',
+        message: 'No se pudo iniciar el checkout de la suscripcion'
+      }
+    });
+  }
+});
+
+app.all('/api/application/subscription/session', async (req, res) => {
+  try {
+    const requestBody = req.method === 'GET'
+      ? req.query
+      : (req.body || {});
+
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/subscription-checkout-status`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.VITE_SUPABASE_ANON_KEY || ''}`,
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    const result = await response.json();
+    return res.status(response.status).json(result);
+  } catch (error) {
+    console.error('Subscription checkout session proxy error:', error);
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: 'PROXY_ERROR',
+        message: 'No se pudo consultar el estado del checkout'
+      }
+    });
+  }
+});
+
+app.all('/api/application/subscription/return', async (req, res) => {
+  try {
+    const targetUrl = new URL(`${SUPABASE_URL}/functions/v1/mercadopago-return`);
+    Object.entries(req.query || {}).forEach(([key, value]) => {
+      if (value === undefined || value === null) return;
+      targetUrl.searchParams.set(key, String(value));
+    });
+
+    const response = await fetch(targetUrl.toString(), {
+      method: req.method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.VITE_SUPABASE_ANON_KEY || ''}`,
+      },
+      body: req.method === 'GET' ? undefined : JSON.stringify(req.body || {}),
+      redirect: 'manual',
+    });
+
+    const location = response.headers.get('location');
+    if (location) {
+      return res.redirect(response.status, location);
+    }
+
+    const contentType = response.headers.get('content-type') || 'text/html; charset=utf-8';
+    const payload = await response.text();
+    return res.status(response.status).type(contentType).send(payload);
+  } catch (error) {
+    console.error('Mercado Pago return proxy error:', error);
+    return res.status(500).send('No se pudo procesar el retorno de Mercado Pago');
+  }
+});
+
+app.post('/api/webhooks/mercadopago', async (req, res) => {
+  try {
+    const targetUrl = new URL(`${SUPABASE_URL}/functions/v1/mercadopago-webhook`);
+    Object.entries(req.query || {}).forEach(([key, value]) => {
+      if (value === undefined || value === null) return;
+      targetUrl.searchParams.set(key, String(value));
+    });
+
+    const response = await fetch(targetUrl.toString(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.VITE_SUPABASE_ANON_KEY || ''}`,
+        'x-signature': req.headers['x-signature'] || '',
+        'x-request-id': req.headers['x-request-id'] || '',
+      },
+      body: JSON.stringify(req.body || {})
+    });
+
+    const result = await response.json();
+    return res.status(response.status).json(result);
+  } catch (error) {
+    console.error('Mercado Pago webhook proxy error:', error);
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: 'PROXY_ERROR',
+        message: 'No se pudo procesar el webhook de Mercado Pago'
+      }
+    });
+  }
+});
+
 // Login endpoint
 app.post('/api/auth/login', validateApiKey, dynamicRateLimit, async (req, res) => {
   try {

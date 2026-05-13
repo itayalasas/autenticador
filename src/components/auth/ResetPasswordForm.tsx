@@ -3,6 +3,9 @@ import { useSearchParams } from 'react-router-dom';
 import { Eye, EyeOff, Lock, CheckCircle, AlertCircle, Mail, ArrowLeft } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { requireSupabaseAnonKey, requireSupabaseUrl } from '../../lib/supabaseRuntime';
+import { getTrustedCallbackUrl } from '../../utils/publicCallbackUrl';
+import { applicationService } from '../../services/applicationService';
+import { AuthSystemBadge } from '../ui/BrandedComponents';
 
 interface BrandingConfig {
   primary_color: string;
@@ -20,6 +23,7 @@ interface Application {
   name: string;
   application_id: string;
   domain: string;
+  metadata?: Record<string, any>;
   email_config?: {
     password_min_length?: number;
     password_require_uppercase?: boolean;
@@ -37,6 +41,7 @@ export default function ResetPasswordForm() {
   const appId = searchParams.get('app_id');
   const apiKey = searchParams.get('api_key');
   const callbackUrl = searchParams.get('callback_url');
+  const preferredEnvironment = (searchParams.get('env') || 'development').toLowerCase();
 
   const [mode, setMode] = useState<'request' | 'confirm'>('request');
   const [loading, setLoading] = useState(true);
@@ -58,6 +63,11 @@ export default function ResetPasswordForm() {
     primary_color: '#3B82F6',
     secondary_color: '#1E40AF',
   });
+  const trustedCallbackUrl = getTrustedCallbackUrl(
+    application?.metadata?.environment_urls || null,
+    callbackUrl,
+    preferredEnvironment
+  );
 
   useEffect(() => {
     if (token && emailFromUrl) {
@@ -95,11 +105,10 @@ export default function ResetPasswordForm() {
         email_config: app.email_config,
       });
 
-      const { data: brandingData } = await supabase
-        .from('branding_configs')
-        .select('*')
-        .eq('application_id', app.id)
-        .maybeSingle();
+      const brandingData = await applicationService.getPublicBranding(app.id, {
+        environmentName: preferredEnvironment,
+        host: window.location.hostname
+      });
 
       if (brandingData) {
         setBranding(brandingData);
@@ -153,11 +162,10 @@ export default function ResetPasswordForm() {
           email_config: app.email_config,
         });
 
-        const { data: brandingData } = await supabase
-          .from('branding_configs')
-          .select('*')
-          .eq('application_id', app.id)
-          .maybeSingle();
+        const brandingData = await applicationService.getPublicBranding(app.id, {
+          environmentName: preferredEnvironment,
+          host: window.location.hostname
+        });
 
         if (brandingData) {
           setBranding(brandingData);
@@ -193,7 +201,7 @@ export default function ResetPasswordForm() {
           body: JSON.stringify({
             application_id: appId,
             email,
-            callback_url: callbackUrl || window.location.origin,
+            callback_url: trustedCallbackUrl || undefined,
           }),
         }
       );
@@ -287,23 +295,29 @@ export default function ResetPasswordForm() {
 
       setSuccess(true);
 
-      // If we have tokens and a callback URL, redirect with authentication
-      if (data.data?.access_token && callbackUrl) {
-        const params = new URLSearchParams({
-          token: data.data.access_token,
-          refresh_token: data.data.refresh_token,
-          user_id: data.data.user.id,
-          state: 'password_reset_success',
-        });
+      const redirectTarget = data.data?.callback_url || trustedCallbackUrl;
+
+      if (redirectTarget) {
+        setTimeout(() => {
+          window.location.href = redirectTarget;
+        }, 2000);
+      } else if (data.data?.access_token) {
+        sessionStorage.setItem('auth_token', data.data.access_token);
+        sessionStorage.setItem('refresh_token', data.data.refresh_token);
+        if (data.data?.user) {
+          sessionStorage.setItem('user_data', JSON.stringify(data.data.user));
+        }
 
         setTimeout(() => {
-          window.location.href = `${callbackUrl}?${params.toString()}`;
-        }, 2000);
+          if (application) {
+            window.location.href = `/login?app_id=${application.application_id}${apiKey ? `&api_key=${apiKey}` : ''}${trustedCallbackUrl ? `&callback_url=${encodeURIComponent(trustedCallbackUrl)}` : ''}`;
+          }
+        }, 3000);
       } else {
         // Otherwise redirect to login page
         setTimeout(() => {
           if (application) {
-            window.location.href = `/login?app_id=${application.application_id}${apiKey ? `&api_key=${apiKey}` : ''}${callbackUrl ? `&callback_url=${encodeURIComponent(callbackUrl)}` : ''}`;
+            window.location.href = `/login?app_id=${application.application_id}${apiKey ? `&api_key=${apiKey}` : ''}${trustedCallbackUrl ? `&callback_url=${encodeURIComponent(trustedCallbackUrl)}` : ''}`;
           }
         }, 3000);
       }
@@ -354,7 +368,7 @@ export default function ResetPasswordForm() {
             Tu contraseña ha sido actualizada exitosamente.
           </p>
           <p className="text-sm text-gray-500">
-            {callbackUrl ? 'Redirigiendo a tu aplicación...' : 'Serás redirigido a la página de inicio de sesión...'}
+            {trustedCallbackUrl ? 'Redirigiendo a tu aplicación...' : 'Serás redirigido a la página de inicio de sesión...'}
           </p>
         </div>
       </div>
@@ -374,7 +388,7 @@ export default function ResetPasswordForm() {
             Revisa tu bandeja de entrada y sigue las instrucciones.
           </p>
           <a
-            href={`/login?app_id=${appId}${apiKey ? `&api_key=${apiKey}` : ''}${callbackUrl ? `&callback_url=${encodeURIComponent(callbackUrl)}` : ''}`}
+            href={`/login?app_id=${appId}${apiKey ? `&api_key=${apiKey}` : ''}${trustedCallbackUrl ? `&callback_url=${encodeURIComponent(trustedCallbackUrl)}` : ''}`}
             className="inline-flex items-center gap-2 px-6 py-2 rounded-lg text-white font-semibold transition-all duration-200"
             style={{ backgroundColor: branding.primary_color }}
           >
@@ -457,7 +471,7 @@ export default function ResetPasswordForm() {
 
             <div className="mt-6 text-center">
               <a
-                href={`/login?app_id=${appId}${apiKey ? `&api_key=${apiKey}` : ''}${callbackUrl ? `&callback_url=${encodeURIComponent(callbackUrl)}` : ''}`}
+                href={`/login?app_id=${appId}${apiKey ? `&api_key=${apiKey}` : ''}${trustedCallbackUrl ? `&callback_url=${encodeURIComponent(trustedCallbackUrl)}` : ''}`}
                 className="inline-flex items-center gap-2 text-sm hover:underline"
                 style={{ color: branding.accent_color || primaryColor }}
               >
@@ -467,9 +481,7 @@ export default function ResetPasswordForm() {
             </div>
 
             <div className="mt-6 text-center">
-              <p className="text-sm text-gray-500">
-                Powered by AuthSystem
-              </p>
+              <AuthSystemBadge branding={branding as any} text="AuthSystem" compact />
             </div>
           </div>
         </div>
@@ -627,9 +639,7 @@ export default function ResetPasswordForm() {
           </form>
 
           <div className="mt-6 text-center">
-            <p className="text-sm text-gray-500">
-              Powered by AuthSystem
-            </p>
+            <AuthSystemBadge branding={branding as any} text="AuthSystem" compact />
           </div>
         </div>
       </div>

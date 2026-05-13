@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { Palette, Wand2, Layers, Type, Sparkles, Settings } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Palette, Wand2, Layers, Type, Sparkles, Settings, Languages, Image as ImageIcon, LayoutTemplate, MessagesSquare } from 'lucide-react';
 import { themePresets } from '../../utils/themePresets';
 import { ThemeStyle, CardStyle, InputStyle, ButtonVariant, ButtonSize, ShadowIntensity, AnimationSpeed, FormWidth, Spacing } from '../../types';
+import { BRANDING_LANGUAGE_OPTIONS, BrandingLanguage } from '../../utils/brandingTranslations';
 
 interface ExtendedBrandingState {
   theme_style?: ThemeStyle;
@@ -46,9 +47,9 @@ interface BrandingExtendedControlsProps {
   branding: ExtendedBrandingState;
   onChange: (field: string, value: any) => void;
   onApplyTheme: (themeName: string) => void;
-  selectedLanguage: 'es' | 'en';
-  onLanguageChange: (language: 'es' | 'en') => void;
-  onTranslateMessages: (language: 'es' | 'en') => void;
+  selectedLanguage: BrandingLanguage;
+  onLanguageChange: (language: BrandingLanguage) => void;
+  onTranslateMessages: (language: BrandingLanguage) => void;
   onGenerateThemeFromPrompt: (prompt: string) => Promise<void>;
   isGeneratingTheme: boolean;
   generatedThemeDraft: {
@@ -59,6 +60,122 @@ interface BrandingExtendedControlsProps {
   } | null;
   onSelectGeneratedTheme: () => void;
   onSaveGeneratedTheme: () => void;
+}
+
+function ControlCard({
+  icon: Icon,
+  title,
+  description,
+  children
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="min-w-0 rounded-3xl border border-slate-200/80 bg-white/90 p-6 shadow-[0_24px_80px_-48px_rgba(15,23,42,0.35)] backdrop-blur">
+      <div className="mb-5 flex items-start gap-4">
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-50 to-blue-100 text-sky-700 shadow-inner">
+          <Icon className="h-5 w-5" />
+        </div>
+        <div>
+          <h3 className="text-lg font-semibold text-slate-950">{title}</h3>
+          <p className="mt-1 text-sm text-slate-600">{description}</p>
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function LabeledColorField({
+  label,
+  value,
+  onChange,
+  placeholder
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <div className="min-w-0 space-y-2">
+      <label className="block text-sm font-medium text-slate-700">{label}</label>
+      <div className="grid min-w-0 grid-cols-[48px_minmax(0,1fr)] items-center gap-3">
+        <input
+          type="color"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-11 w-12 cursor-pointer rounded-xl border border-slate-200 bg-white"
+        />
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-11 min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
+          placeholder={placeholder}
+        />
+      </div>
+    </div>
+  );
+}
+
+function SelectField({
+  label,
+  value,
+  onChange,
+  options
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <div className="min-w-0 space-y-2">
+      <label className="block text-sm font-medium text-slate-700">{label}</label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function ToggleField({
+  label,
+  description,
+  checked,
+  onChange
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <label className="flex items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+      <div>
+        <div className="text-sm font-medium text-slate-800">{label}</div>
+        <div className="mt-1 text-xs text-slate-500">{description}</div>
+      </div>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-1 h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+      />
+    </label>
+  );
 }
 
 export default function BrandingExtendedControls({
@@ -76,643 +193,511 @@ export default function BrandingExtendedControls({
 }: BrandingExtendedControlsProps) {
   const [prompt, setPrompt] = useState('');
 
+  const activeTheme = useMemo(
+    () => themePresets.find((theme) => theme.name === branding.theme_style),
+    [branding.theme_style]
+  );
+
   return (
     <div className="space-y-8">
-      {/* Theme Selector */}
-      <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-        <div className="flex items-center gap-2 mb-4">
-          <Wand2 className="w-5 h-5 text-blue-600" />
-          <h3 className="text-lg font-semibold text-gray-900">Tema Predefinido</h3>
-        </div>
-        <p className="text-sm text-gray-600 mb-4">
-          Selecciona un tema base y personalízalo después
-        </p>
+      <ControlCard
+        icon={Wand2}
+        title="Sistema de temas"
+        description="Parte de un preset listo para producción y luego afina la atmósfera, copy y microdetalles sin romper el flujo actual."
+      >
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {themePresets.map((theme) => {
+            const isActive = branding.theme_style === theme.name;
+            const palette = [
+              theme.config.primary_color,
+              theme.config.secondary_color,
+              theme.config.accent_color
+            ].filter(Boolean) as string[];
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {themePresets.map((theme) => (
-            <button
-              key={theme.name}
-              onClick={() => onApplyTheme(theme.name)}
-              className={`p-4 rounded-lg border-2 transition-all hover:shadow-md ${
-                branding.theme_style === theme.name
-                  ? 'border-blue-600 bg-blue-50'
-                  : 'border-gray-200 hover:border-blue-300'
-              }`}
-            >
-              <div className="text-left">
-                <div className="font-semibold text-gray-900 mb-1">{theme.label}</div>
-                <div className="text-xs text-gray-600">{theme.description}</div>
-              </div>
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-6 pt-6 border-t border-gray-200 space-y-3">
-          <label className="block text-sm font-medium text-gray-700">
-            Generar tema con prompt
-          </label>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            rows={3}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            placeholder="Ej: Quiero un diseño oscuro elegante con gradiente morado y botones redondeados"
-          />
-          <div className="flex items-center gap-3">
-            <button
-              onClick={async () => {
-                if (!prompt.trim()) return;
-                await onGenerateThemeFromPrompt(prompt);
-              }}
-              disabled={!prompt.trim() || isGeneratingTheme}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-            >
-              {isGeneratingTheme ? 'Generando...' : 'Generar Diseño'}
-            </button>
-            <button
-              onClick={onSaveGeneratedTheme}
-              disabled={!generatedThemeDraft || isGeneratingTheme}
-              className="px-4 py-2 border border-blue-300 text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 disabled:opacity-50"
-            >
-              Guardar Tema
-            </button>
-          </div>
-
-          {generatedThemeDraft && (
-            <button
-              onClick={onSelectGeneratedTheme}
-              className="w-full mt-3 p-4 border rounded-lg text-left transition-all hover:border-blue-400 hover:bg-blue-50"
-            >
-              <div className="flex items-center justify-between mb-1">
-                <p className="font-semibold text-gray-900">{generatedThemeDraft.label}</p>
-                <span className={`text-xs px-2 py-1 rounded-full ${
-                  generatedThemeDraft.status === 'saved'
-                    ? 'bg-green-100 text-green-700'
-                    : 'bg-amber-100 text-amber-700'
-                }`}>
-                  {generatedThemeDraft.status === 'saved' ? 'guardado' : 'borrador'}
-                </span>
-              </div>
-              <p className="text-xs text-gray-600">{generatedThemeDraft.description}</p>
-              <p className="text-xs text-gray-500 mt-1">
-                Generado: {new Date(generatedThemeDraft.created_at).toLocaleString()}
-              </p>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Card Styling */}
-      <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-        <div className="flex items-center gap-2 mb-4">
-          <Layers className="w-5 h-5 text-blue-600" />
-          <h3 className="text-lg font-semibold text-gray-900">Estilo de Tarjeta</h3>
+            return (
+              <button
+                key={theme.name}
+                type="button"
+                onClick={() => onApplyTheme(theme.name)}
+                className={`group rounded-3xl border p-4 text-left transition-all ${
+                  isActive
+                    ? 'border-sky-400 bg-sky-50/90 shadow-[0_16px_40px_-28px_rgba(14,165,233,0.7)]'
+                    : 'border-slate-200 bg-white hover:-translate-y-0.5 hover:border-sky-200 hover:shadow-[0_18px_40px_-28px_rgba(15,23,42,0.35)]'
+                }`}
+              >
+                <div className="mb-4 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {palette.slice(0, 3).map((color, index) => (
+                      <span
+                        key={`${theme.name}-${index}`}
+                        className="h-8 w-8 rounded-full border border-white/70 shadow-sm"
+                        style={{ background: color }}
+                      />
+                    ))}
+                  </div>
+                  {isActive && (
+                    <span className="rounded-full bg-sky-600 px-2.5 py-1 text-xs font-semibold text-white">
+                      Activo
+                    </span>
+                  )}
+                </div>
+                <div className="text-base font-semibold text-slate-900">{theme.label}</div>
+                <p className="mt-1 text-sm text-slate-600">{theme.description}</p>
+              </button>
+            );
+          })}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Estilo
-            </label>
-            <select
-              value={branding.card_style || 'elevated'}
-              onChange={(e) => onChange('card_style', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="flat">Plano (Flat)</option>
-              <option value="elevated">Elevado (Elevated)</option>
-              <option value="glass">Vidrio (Glass)</option>
-              <option value="neumorphic">Neumórfico</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Color de Fondo
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="color"
-                value={branding.card_background || '#FFFFFF'}
-                onChange={(e) => onChange('card_background', e.target.value)}
-                className="w-12 h-10 rounded border border-gray-300 cursor-pointer"
-              />
-              <input
-                type="text"
-                value={branding.card_background || '#FFFFFF'}
-                onChange={(e) => onChange('card_background', e.target.value)}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="#FFFFFF"
-              />
+        <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(280px,1fr)]">
+          <div className="min-w-0 rounded-3xl border border-slate-200 bg-slate-50/80 p-5">
+            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
+              <Sparkles className="h-4 w-4 text-sky-600" />
+              Generar dirección creativa desde prompt
+            </div>
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              rows={4}
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
+              placeholder="Ej: Quiero una experiencia premium, minimalista y tecnológica, con fondos suaves, tipografía elegante y llamadas a la acción muy claras."
+            />
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!prompt.trim()) return;
+                  await onGenerateThemeFromPrompt(prompt);
+                }}
+                disabled={!prompt.trim() || isGeneratingTheme}
+                className="inline-flex items-center rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isGeneratingTheme ? 'Generando propuesta...' : 'Generar propuesta'}
+              </button>
+              <button
+                type="button"
+                onClick={onSaveGeneratedTheme}
+                disabled={!generatedThemeDraft || isGeneratingTheme}
+                className="inline-flex items-center rounded-2xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm font-semibold text-sky-700 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Guardar tema IA
+              </button>
             </div>
           </div>
 
-          {branding.card_style === 'glass' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Intensidad de Blur
-              </label>
+          <div className="min-w-0 rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-sky-950 p-5 text-white shadow-[0_24px_60px_-32px_rgba(2,132,199,0.65)]">
+            <div className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-200/80">
+              Tema actual
+            </div>
+            <div className="mt-3 text-2xl font-semibold">
+              {generatedThemeDraft?.label || activeTheme?.label || 'Custom'}
+            </div>
+            <p className="mt-2 text-sm text-slate-200/80">
+              {generatedThemeDraft?.description || activeTheme?.description || 'Combinación personalizada lista para seguir afinando.'}
+            </p>
+            {generatedThemeDraft && (
+              <button
+                type="button"
+                onClick={onSelectGeneratedTheme}
+                className="mt-5 inline-flex rounded-2xl bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/15"
+              >
+                Aplicar esta propuesta
+              </button>
+            )}
+          </div>
+        </div>
+      </ControlCard>
+
+      <ControlCard
+        icon={Languages}
+        title="Copy, idioma y traducciones"
+        description="Define el tono base del formulario y rellena automáticamente títulos, mensajes y textos clave del flujo público."
+      >
+        <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
+          <div className="grid gap-4 xl:grid-cols-2">
+            <SelectField
+              label="Idioma base del borrador"
+              value={selectedLanguage}
+              onChange={(value) => onLanguageChange(value as BrandingLanguage)}
+              options={BRANDING_LANGUAGE_OPTIONS.map((option) => ({
+                value: option.value,
+                label: option.label
+              }))}
+            />
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="text-sm font-medium text-slate-800">
+                {BRANDING_LANGUAGE_OPTIONS.find((option) => option.value === selectedLanguage)?.label}
+              </div>
+              <div className="mt-1 text-xs text-slate-500">
+                {BRANDING_LANGUAGE_OPTIONS.find((option) => option.value === selectedLanguage)?.description}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onTranslateMessages(selectedLanguage)}
+            className="inline-flex h-11 items-center justify-center rounded-2xl bg-sky-600 px-5 text-sm font-semibold text-white transition hover:bg-sky-700"
+          >
+            Aplicar textos sugeridos
+          </button>
+        </div>
+
+        <div className="mt-5 rounded-3xl border border-slate-200 bg-white p-5">
+          <div className="text-sm font-semibold text-slate-900">Mensajería transaccional</div>
+          <div className="mt-4 grid gap-4 xl:grid-cols-2">
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-slate-700">Texto mientras procesa</label>
+              <input
+                type="text"
+                value={branding.message_loading_text || ''}
+                onChange={(e) => onChange('message_loading_text', e.target.value)}
+                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-slate-700">Texto de éxito</label>
+              <input
+                type="text"
+                value={branding.message_success_text || ''}
+                onChange={(e) => onChange('message_success_text', e.target.value)}
+                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <label className="block text-sm font-medium text-slate-700">Texto de error</label>
+              <input
+                type="text"
+                value={branding.message_error_text || ''}
+                onChange={(e) => onChange('message_error_text', e.target.value)}
+                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <label className="block text-sm font-medium text-slate-700">Ayuda complementaria en errores</label>
+              <textarea
+                value={branding.message_error_help_text || ''}
+                onChange={(e) => onChange('message_error_help_text', e.target.value)}
+                rows={3}
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700 outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
+              />
+            </div>
+          </div>
+        </div>
+      </ControlCard>
+
+      <ControlCard
+        icon={LayoutTemplate}
+        title="Layout y atmósfera"
+        description="Ajusta ancho, ritmo visual, fondo e imagen de ambiente para que el formulario se sienta consistente con la marca."
+      >
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <SelectField
+            label="Ancho del formulario"
+            value={branding.form_width || 'medium'}
+            onChange={(value) => onChange('form_width', value)}
+            options={[
+              { value: 'narrow', label: 'Compacto' },
+              { value: 'medium', label: 'Balanceado' },
+              { value: 'wide', label: 'Amplio' }
+            ]}
+          />
+          <SelectField
+            label="Espaciado general"
+            value={branding.spacing || 'normal'}
+            onChange={(value) => onChange('spacing', value)}
+            options={[
+              { value: 'compact', label: 'Compacto' },
+              { value: 'normal', label: 'Normal' },
+              { value: 'relaxed', label: 'Aireado' }
+            ]}
+          />
+          <SelectField
+            label="Escala tipográfica"
+            value={branding.font_size_scale || 'medium'}
+            onChange={(value) => onChange('font_size_scale', value)}
+            options={[
+              { value: 'small', label: 'Pequeña' },
+              { value: 'medium', label: 'Media' },
+              { value: 'large', label: 'Grande' }
+            ]}
+          />
+          <SelectField
+            label="Patrón de fondo"
+            value={branding.background_pattern || 'none'}
+            onChange={(value) => onChange('background_pattern', value === 'none' ? '' : value)}
+            options={[
+              { value: 'none', label: 'Sin patrón' },
+              { value: 'dot-grid', label: 'Puntos suaves' },
+              { value: 'mesh', label: 'Malla difusa' },
+              { value: 'diagonal-lines', label: 'Líneas diagonales' },
+              { value: 'radial-burst', label: 'Radial moderno' }
+            ]}
+          />
+        </div>
+
+        <div className="mt-5 grid gap-4 xl:grid-cols-2">
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-700">Fuente para titulares</label>
+            <input
+              type="text"
+              value={branding.heading_font_family || ''}
+              onChange={(e) => onChange('heading_font_family', e.target.value)}
+              placeholder="Ej: Space Grotesk, Manrope, Inter"
+              className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-700">Imagen de fondo opcional</label>
+            <div className="relative">
+              <ImageIcon className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
+              <input
+                type="url"
+                value={branding.background_image_url || ''}
+                onChange={(e) => onChange('background_image_url', e.target.value)}
+                placeholder="https://..."
+                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm text-slate-700 outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
+              />
+            </div>
+          </div>
+        </div>
+      </ControlCard>
+
+      <div className="grid gap-8 xl:grid-cols-2">
+        <ControlCard
+          icon={Layers}
+          title="Tarjeta principal"
+          description="Controla el lenguaje visual de la superficie central del login: profundidad, blur y tipo de elevación."
+        >
+          <div className="grid gap-4 xl:grid-cols-2">
+            <SelectField
+              label="Estilo de tarjeta"
+              value={branding.card_style || 'elevated'}
+              onChange={(value) => onChange('card_style', value)}
+              options={[
+                { value: 'flat', label: 'Flat' },
+                { value: 'elevated', label: 'Elevated' },
+                { value: 'glass', label: 'Glass' },
+                { value: 'neumorphic', label: 'Neumorphic' }
+              ]}
+            />
+            <SelectField
+              label="Intensidad de sombra"
+              value={branding.shadow_intensity || 'medium'}
+              onChange={(value) => onChange('shadow_intensity', value)}
+              options={[
+                { value: 'none', label: 'Sin sombra' },
+                { value: 'light', label: 'Ligera' },
+                { value: 'medium', label: 'Media' },
+                { value: 'strong', label: 'Fuerte' }
+              ]}
+            />
+            <LabeledColorField
+              label="Fondo de tarjeta"
+              value={branding.card_background || '#FFFFFF'}
+              onChange={(value) => onChange('card_background', value)}
+            />
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-slate-700">Blur de tarjeta</label>
               <input
                 type="range"
                 min="0"
                 max="40"
                 value={branding.card_blur || 0}
-                onChange={(e) => onChange('card_blur', parseInt(e.target.value))}
-                className="w-full"
+                onChange={(e) => onChange('card_blur', Number(e.target.value))}
+                className="w-full accent-sky-600"
               />
-              <div className="text-sm text-gray-600 mt-1">{branding.card_blur || 0}px</div>
+              <div className="text-xs text-slate-500">{branding.card_blur || 0}px</div>
             </div>
-          )}
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Intensidad de Sombra
-            </label>
-            <select
-              value={branding.shadow_intensity || 'medium'}
-              onChange={(e) => onChange('shadow_intensity', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="none">Sin sombra</option>
-              <option value="light">Ligera</option>
-              <option value="medium">Media</option>
-              <option value="strong">Fuerte</option>
-            </select>
           </div>
-        </div>
-      </div>
+        </ControlCard>
 
-      {/* Input Styling */}
-      <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-        <div className="flex items-center gap-2 mb-4">
-          <Type className="w-5 h-5 text-blue-600" />
-          <h3 className="text-lg font-semibold text-gray-900">Estilo de Inputs</h3>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Estilo
-            </label>
-            <select
+        <ControlCard
+          icon={Type}
+          title="Campos e inputs"
+          description="Ajusta contraste, foco y lenguaje visual de los campos para priorizar legibilidad y confianza."
+        >
+          <div className="grid gap-4 xl:grid-cols-2">
+            <SelectField
+              label="Estilo de input"
               value={branding.input_style || 'outlined'}
-              onChange={(e) => onChange('input_style', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="outlined">Outlined (borde)</option>
-              <option value="filled">Filled (relleno)</option>
-              <option value="underlined">Underlined (línea)</option>
-            </select>
+              onChange={(value) => onChange('input_style', value)}
+              options={[
+                { value: 'outlined', label: 'Outlined' },
+                { value: 'filled', label: 'Filled' },
+                { value: 'underlined', label: 'Underlined' }
+              ]}
+            />
+            <LabeledColorField
+              label="Color de foco"
+              value={branding.input_focus_color || '#3B82F6'}
+              onChange={(value) => onChange('input_focus_color', value)}
+            />
+            <LabeledColorField
+              label="Fondo de input"
+              value={branding.input_background || '#F8FAFC'}
+              onChange={(value) => onChange('input_background', value)}
+            />
+            <LabeledColorField
+              label="Borde de input"
+              value={branding.input_border_color || '#D1D5DB'}
+              onChange={(value) => onChange('input_border_color', value)}
+            />
           </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Color de Fondo
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="color"
-                value={branding.input_background || '#F9FAFB'}
-                onChange={(e) => onChange('input_background', e.target.value)}
-                className="w-12 h-10 rounded border border-gray-300 cursor-pointer"
-              />
-              <input
-                type="text"
-                value={branding.input_background || '#F9FAFB'}
-                onChange={(e) => onChange('input_background', e.target.value)}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="#F9FAFB"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Color de Borde
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="color"
-                value={branding.input_border_color || '#D1D5DB'}
-                onChange={(e) => onChange('input_border_color', e.target.value)}
-                className="w-12 h-10 rounded border border-gray-300 cursor-pointer"
-              />
-              <input
-                type="text"
-                value={branding.input_border_color || '#D1D5DB'}
-                onChange={(e) => onChange('input_border_color', e.target.value)}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="#D1D5DB"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Color en Focus
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="color"
-                value={branding.input_focus_color || '#3B82F6'}
-                onChange={(e) => onChange('input_focus_color', e.target.value)}
-                className="w-12 h-10 rounded border border-gray-300 cursor-pointer"
-              />
-              <input
-                type="text"
-                value={branding.input_focus_color || '#3B82F6'}
-                onChange={(e) => onChange('input_focus_color', e.target.value)}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="#3B82F6"
-              />
-            </div>
-          </div>
-        </div>
+        </ControlCard>
       </div>
 
-      {/* Button Styling */}
-      <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-        <div className="flex items-center gap-2 mb-4">
-          <Settings className="w-5 h-5 text-blue-600" />
-          <h3 className="text-lg font-semibold text-gray-900">Estilo de Botones</h3>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Variante
-            </label>
-            <select
+      <div className="grid gap-8 xl:grid-cols-2">
+        <ControlCard
+          icon={Settings}
+          title="CTA y botones"
+          description="Haz que el llamado a la acción se sienta fuerte, claro y consistente con el tipo de marca que estás construyendo."
+        >
+          <div className="grid gap-4 xl:grid-cols-2">
+            <SelectField
+              label="Variante principal"
               value={branding.button_variant || 'solid'}
-              onChange={(e) => onChange('button_variant', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="solid">Sólido</option>
-              <option value="outline">Outline</option>
-              <option value="ghost">Ghost</option>
-              <option value="gradient">Gradiente</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Tamaño
-            </label>
-            <select
+              onChange={(value) => onChange('button_variant', value)}
+              options={[
+                { value: 'solid', label: 'Solid' },
+                { value: 'outline', label: 'Outline' },
+                { value: 'ghost', label: 'Ghost' },
+                { value: 'gradient', label: 'Gradient' }
+              ]}
+            />
+            <SelectField
+              label="Tamaño"
               value={branding.button_size || 'medium'}
-              onChange={(e) => onChange('button_size', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="small">Pequeño</option>
-              <option value="medium">Mediano</option>
-              <option value="large">Grande</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="flex items-center gap-2 pt-8">
-              <input
-                type="checkbox"
-                checked={branding.button_hover_transform || false}
-                onChange={(e) => onChange('button_hover_transform', e.target.checked)}
-                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-              />
-              <span className="text-sm font-medium text-gray-700">
-                Transformación en Hover
-              </span>
-            </label>
-          </div>
-        </div>
-      </div>
-
-      {/* Extended Colors */}
-      <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-        <div className="flex items-center gap-2 mb-4">
-          <Palette className="w-5 h-5 text-blue-600" />
-          <h3 className="text-lg font-semibold text-gray-900">Colores Extendidos</h3>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Color de Éxito
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="color"
-                value={branding.success_color || '#10B981'}
-                onChange={(e) => onChange('success_color', e.target.value)}
-                className="w-12 h-10 rounded border border-gray-300 cursor-pointer"
-              />
-              <input
-                type="text"
-                value={branding.success_color || '#10B981'}
-                onChange={(e) => onChange('success_color', e.target.value)}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="#10B981"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Color de Error
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="color"
-                value={branding.error_color || '#EF4444'}
-                onChange={(e) => onChange('error_color', e.target.value)}
-                className="w-12 h-10 rounded border border-gray-300 cursor-pointer"
-              />
-              <input
-                type="text"
-                value={branding.error_color || '#EF4444'}
-                onChange={(e) => onChange('error_color', e.target.value)}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="#EF4444"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Color de Advertencia
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="color"
-                value={branding.warning_color || '#F59E0B'}
-                onChange={(e) => onChange('warning_color', e.target.value)}
-                className="w-12 h-10 rounded border border-gray-300 cursor-pointer"
-              />
-              <input
-                type="text"
-                value={branding.warning_color || '#F59E0B'}
-                onChange={(e) => onChange('warning_color', e.target.value)}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="#F59E0B"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-6 pt-6 border-t border-gray-200">
-          <div className="flex items-center gap-2 mb-4">
-            <input
-              type="checkbox"
-              checked={branding.use_gradient || false}
-              onChange={(e) => onChange('use_gradient', e.target.checked)}
-              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              onChange={(value) => onChange('button_size', value)}
+              options={[
+                { value: 'small', label: 'Pequeño' },
+                { value: 'medium', label: 'Medio' },
+                { value: 'large', label: 'Grande' }
+              ]}
             />
-            <label className="text-sm font-medium text-gray-700">
-              Usar Gradiente en Fondo
-            </label>
           </div>
 
-          {branding.use_gradient && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Color Inicial del Gradiente
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="color"
-                    value={branding.gradient_start || '#3B82F6'}
-                    onChange={(e) => onChange('gradient_start', e.target.value)}
-                    className="w-12 h-10 rounded border border-gray-300 cursor-pointer"
-                  />
-                  <input
-                    type="text"
-                    value={branding.gradient_start || '#3B82F6'}
-                    onChange={(e) => onChange('gradient_start', e.target.value)}
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="#3B82F6"
-                  />
-                </div>
-              </div>
+          <div className="mt-5 grid gap-3">
+            <ToggleField
+              label="Transformación en hover"
+              description="Aplica un leve lift para que el CTA responda con más intención."
+              checked={branding.button_hover_transform ?? true}
+              onChange={(value) => onChange('button_hover_transform', value)}
+            />
+            <ToggleField
+              label="Usar gradiente de marca"
+              description="Permite usar un CTA más expresivo cuando el preset lo amerita."
+              checked={branding.use_gradient ?? false}
+              onChange={(value) => onChange('use_gradient', value)}
+            />
+          </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Color Final del Gradiente
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="color"
-                    value={branding.gradient_end || '#8B5CF6'}
-                    onChange={(e) => onChange('gradient_end', e.target.value)}
-                    className="w-12 h-10 rounded border border-gray-300 cursor-pointer"
-                  />
-                  <input
-                    type="text"
-                    value={branding.gradient_end || '#8B5CF6'}
-                    onChange={(e) => onChange('gradient_end', e.target.value)}
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="#8B5CF6"
-                  />
-                </div>
-              </div>
+          {(branding.use_gradient || branding.button_variant === 'gradient') && (
+            <div className="mt-5 grid gap-4 xl:grid-cols-2">
+              <LabeledColorField
+                label="Inicio del gradiente"
+                value={branding.gradient_start || '#3B82F6'}
+                onChange={(value) => onChange('gradient_start', value)}
+              />
+              <LabeledColorField
+                label="Fin del gradiente"
+                value={branding.gradient_end || '#8B5CF6'}
+                onChange={(value) => onChange('gradient_end', value)}
+              />
             </div>
           )}
-        </div>
-      </div>
+        </ControlCard>
 
-      {/* Effects */}
-      <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-        <div className="flex items-center gap-2 mb-4">
-          <Sparkles className="w-5 h-5 text-blue-600" />
-          <h3 className="text-lg font-semibold text-gray-900">Efectos Visuales</h3>
-        </div>
-
-        <div className="space-y-4">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={branding.glass_effect || false}
-              onChange={(e) => onChange('glass_effect', e.target.checked)}
-              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+        <ControlCard
+          icon={MessagesSquare}
+          title="Mensajes de estado"
+          description="Refina los colores de éxito, error y loading para que la UI responda con una narrativa clara y moderna."
+        >
+          <div className="grid gap-4 xl:grid-cols-2">
+            <LabeledColorField
+              label="Color de éxito"
+              value={branding.success_color || '#10B981'}
+              onChange={(value) => onChange('success_color', value)}
             />
-            <span className="text-sm font-medium text-gray-700">
-              Efecto Glassmorphism
-            </span>
-          </label>
-
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={branding.blur_background || false}
-              onChange={(e) => onChange('blur_background', e.target.checked)}
-              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+            <LabeledColorField
+              label="Color de error"
+              value={branding.error_color || '#EF4444'}
+              onChange={(value) => onChange('error_color', value)}
             />
-            <span className="text-sm font-medium text-gray-700">
-              Blur en Fondo (blobs animados)
-            </span>
-          </label>
-
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={branding.enable_animations || true}
-              onChange={(e) => onChange('enable_animations', e.target.checked)}
-              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+            <LabeledColorField
+              label="Color de advertencia"
+              value={branding.warning_color || '#F59E0B'}
+              onChange={(value) => onChange('warning_color', value)}
             />
-            <span className="text-sm font-medium text-gray-700">
-              Habilitar Animaciones
-            </span>
-          </label>
-
-          {branding.enable_animations && (
-            <div className="ml-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Velocidad de Animación
-              </label>
-              <select
-                value={branding.animation_speed || 'normal'}
-                onChange={(e) => onChange('animation_speed', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="slow">Lenta</option>
-                <option value="normal">Normal</option>
-                <option value="fast">Rápida</option>
-              </select>
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-slate-700">Retraso antes del redirect</label>
+              <input
+                type="number"
+                min="500"
+                step="100"
+                value={branding.redirect_delay || 2000}
+                onChange={(e) => onChange('redirect_delay', Number(e.target.value))}
+                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
+              />
             </div>
-          )}
-        </div>
+            <LabeledColorField
+              label="Fondo de loading"
+              value={branding.message_loading_bg || '#DBEAFE'}
+              onChange={(value) => onChange('message_loading_bg', value)}
+            />
+            <LabeledColorField
+              label="Fondo de éxito"
+              value={branding.message_success_bg || '#DCFCE7'}
+              onChange={(value) => onChange('message_success_bg', value)}
+            />
+            <LabeledColorField
+              label="Fondo de error"
+              value={branding.message_error_bg || '#FEE2E2'}
+              onChange={(value) => onChange('message_error_bg', value)}
+            />
+          </div>
+        </ControlCard>
       </div>
 
-      {/* Layout */}
-      <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Layout</h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Ancho del Formulario
-            </label>
-            <select
-              value={branding.form_width || 'medium'}
-              onChange={(e) => onChange('form_width', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="narrow">Estrecho</option>
-              <option value="medium">Mediano</option>
-              <option value="wide">Ancho</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Espaciado
-            </label>
-            <select
-              value={branding.spacing || 'normal'}
-              onChange={(e) => onChange('spacing', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="compact">Compacto</option>
-              <option value="normal">Normal</option>
-              <option value="relaxed">Relajado</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Custom Messages */}
-      <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Mensajes Personalizados</h3>
-
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <label className="text-sm font-medium text-gray-700">Idioma activo</label>
-          <select
-            value={selectedLanguage}
-            onChange={(e) => onLanguageChange(e.target.value as 'es' | 'en')}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          >
-            <option value="es">Español</option>
-            <option value="en">English</option>
-          </select>
-          <button
-            onClick={() => onTranslateMessages(selectedLanguage)}
-            className="px-3 py-2 border border-blue-200 text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100"
-          >
-            Traducir mensajes al idioma activo
-          </button>
+      <ControlCard
+        icon={Sparkles}
+        title="Movimiento y ambiente"
+        description="Activa una experiencia más viva, con patrones y desenfoques que elevan la percepción del formulario sin cambiar su estructura."
+      >
+        <div className="grid gap-3 lg:grid-cols-3">
+          <ToggleField
+            label="Glass effect"
+            description="Añade transparencia y borde de cristal sobre la tarjeta principal."
+            checked={branding.glass_effect ?? false}
+            onChange={(value) => onChange('glass_effect', value)}
+          />
+          <ToggleField
+            label="Blur en el fondo"
+            description="Genera orbes y capas atmosféricas detrás del formulario."
+            checked={branding.blur_background ?? false}
+            onChange={(value) => onChange('blur_background', value)}
+          />
+          <ToggleField
+            label="Animaciones"
+            description="Mantiene transiciones suaves entre inputs, botones y estados."
+            checked={branding.enable_animations ?? true}
+            onChange={(value) => onChange('enable_animations', value)}
+          />
         </div>
 
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Mensaje de Carga
-            </label>
-            <input
-              type="text"
-              value={branding.message_loading_text || 'Authenticating...'}
-              onChange={(e) => onChange('message_loading_text', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Authenticating..."
+        {branding.enable_animations !== false && (
+          <div className="mt-5 max-w-sm">
+            <SelectField
+              label="Velocidad de animación"
+              value={branding.animation_speed || 'normal'}
+              onChange={(value) => onChange('animation_speed', value)}
+              options={[
+                { value: 'slow', label: 'Lenta' },
+                { value: 'normal', label: 'Normal' },
+                { value: 'fast', label: 'Rápida' }
+              ]}
             />
           </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Mensaje de Éxito
-            </label>
-            <input
-              type="text"
-              value={branding.message_success_text || 'Welcome back! Redirecting...'}
-              onChange={(e) => onChange('message_success_text', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Welcome back! Redirecting..."
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Mensaje de Error
-            </label>
-            <input
-              type="text"
-              value={branding.message_error_text || 'Invalid credentials. Please try again.'}
-              onChange={(e) => onChange('message_error_text', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Invalid credentials. Please try again."
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Texto de Ayuda en Error
-            </label>
-            <input
-              type="text"
-              value={branding.message_error_help_text || 'Please check your email and password.'}
-              onChange={(e) => onChange('message_error_help_text', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Please check your email and password."
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Tiempo de Redirección (milisegundos)
-            </label>
-            <input
-              type="number"
-              min="0"
-              max="10000"
-              step="500"
-              value={branding.redirect_delay || 2000}
-              onChange={(e) => onChange('redirect_delay', parseInt(e.target.value))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="2000"
-            />
-            <div className="text-sm text-gray-600 mt-1">
-              {((branding.redirect_delay || 2000) / 1000).toFixed(1)} segundos
-            </div>
-          </div>
-        </div>
-      </div>
+        )}
+      </ControlCard>
     </div>
   );
 }

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:api": "PORT=3001 node src/server/index.js",
+    "dev:api": "node src/server/index.js",
     "dev:full": "concurrently \"npm run dev\" \"npm run dev:api\"",
     "build": "npm run build:frontend && npm run build:functions",
     "build:frontend": "vite build",
@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@ngrok/ngrok": "^1.5.2",
+    "@simplewebauthn/browser": "^13.3.0",
     "@supabase/supabase-js": "^2.57.4",
     "@types/bcryptjs": "^2.4.6",
     "bcryptjs": "^3.0.2",

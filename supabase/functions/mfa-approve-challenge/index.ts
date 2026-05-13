@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
 import bcrypt from "npm:bcryptjs@2.4.3";
+import { hashDeviceToken } from '../_shared/device-token.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -12,8 +13,9 @@ const corsHeaders = {
 interface ApproveRequest {
   application_id: string;
   api_key: string;
-  email: string;
-  password: string;
+  email?: string;
+  password?: string;
+  device_token?: string;
   challenge_id: string;
   challenge_code: string;
   verification_number?: string;
@@ -51,10 +53,10 @@ Deno.serve(async (req) => {
     }
 
     const body: ApproveRequest = await req.json();
-    const { application_id, api_key, email, password, challenge_id, challenge_code, verification_number, action = 'approve' } = body;
+    const { application_id, api_key, email, password, device_token, challenge_id, challenge_code, verification_number, action = 'approve' } = body;
 
-    if (!application_id || !api_key || !email || !password || !challenge_id || !challenge_code) {
-      return new Response(JSON.stringify({ success: false, error: { code: 'MISSING_FIELDS', message: 'Missing required fields' } }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    if (!application_id || !api_key || !challenge_id || !challenge_code || (!device_token && (!email || !password))) {
+      return new Response(JSON.stringify({ success: false, error: { code: 'MISSING_FIELDS', message: 'Missing required fields. Use device_token or email/password.' } }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     const supabase = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '');
@@ -69,14 +71,60 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ success: false, error: { code: 'INVALID_API_KEY', message: 'API Key inválida para la aplicación' } }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    const { data: user } = await supabase.from('app_users').select('id, email, password_hash, status').eq('application_id', application.id).eq('email', email).maybeSingle();
-    if (!user || user.status !== 'active') {
-      return new Response(JSON.stringify({ success: false, error: { code: 'USER_NOT_FOUND', message: 'Usuario no encontrado o inactivo' } }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
+    let user: any = null;
 
-    const validPassword = await bcrypt.compare(password, user.password_hash || '');
-    if (!validPassword) {
-      return new Response(JSON.stringify({ success: false, error: { code: 'INVALID_CREDENTIALS', message: 'Credenciales inválidas' } }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    if (device_token) {
+      const deviceTokenHash = await hashDeviceToken(device_token);
+      const { data: device } = await supabase
+        .from('mfa_devices')
+        .select('id, app_user_id, device_id, device_name, is_active')
+        .eq('application_id', application.id)
+        .eq('device_token_hash', deviceTokenHash)
+        .maybeSingle();
+
+      if (!device) {
+        return new Response(JSON.stringify({ success: false, error: { code: 'DEVICE_TOKEN_NOT_FOUND', message: 'Token de dispositivo no encontrado' } }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+
+      if (!device.is_active) {
+        return new Response(JSON.stringify({ success: false, error: { code: 'DEVICE_NOT_ACTIVE', message: 'El dispositivo está inactivo' } }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+
+      const { data: deviceUser } = await supabase
+        .from('app_users')
+        .select('id, email, status')
+        .eq('id', device.app_user_id)
+        .maybeSingle();
+
+      if (!deviceUser || deviceUser.status !== 'active') {
+        return new Response(JSON.stringify({ success: false, error: { code: 'USER_NOT_FOUND', message: 'Usuario no encontrado o inactivo' } }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+
+      if (email && deviceUser.email && deviceUser.email.toLowerCase() !== email.toLowerCase()) {
+        return new Response(JSON.stringify({ success: false, error: { code: 'USER_MISMATCH', message: 'El correo no coincide con el dispositivo vinculado' } }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+
+      user = deviceUser;
+
+      await supabase
+        .from('mfa_devices')
+        .update({
+          last_seen_at: new Date().toISOString(),
+          device_token_last_used_at: new Date().toISOString(),
+        })
+        .eq('id', device.id);
+    } else {
+      const { data: passwordUser } = await supabase.from('app_users').select('id, email, password_hash, status').eq('application_id', application.id).eq('email', email).maybeSingle();
+      if (!passwordUser || passwordUser.status !== 'active') {
+        return new Response(JSON.stringify({ success: false, error: { code: 'USER_NOT_FOUND', message: 'Usuario no encontrado o inactivo' } }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+
+      const validPassword = await bcrypt.compare(password || '', passwordUser.password_hash || '');
+      if (!validPassword) {
+        return new Response(JSON.stringify({ success: false, error: { code: 'INVALID_CREDENTIALS', message: 'Credenciales inválidas' } }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+
+      user = passwordUser;
     }
 
     const { data: challenge } = await supabase

@@ -1,16 +1,18 @@
 import React, { useRef, useState } from 'react';
-import { Palette, Upload, Eye, Save, RotateCcw, Type, MessageSquare, Wand2, Settings } from 'lucide-react';
+import { Palette, Upload, Eye, Save, RotateCcw, Type, MessageSquare, Wand2, Sparkles, Rocket, Globe2, CheckCircle2, Clock3, ArrowUpRight } from 'lucide-react';
 import { applicationService } from '../../services/applicationService';
 import { useEffect } from 'react';
 import { useNotification } from '../../hooks/useNotification';
 import NotificationModal from '../ui/NotificationModal';
 import BrandingExtendedControls from './BrandingExtendedControls';
-import { applyThemePreset } from '../../utils/themePresets';
+import { applyThemePreset, themePresets } from '../../utils/themePresets';
 import BrandedPublicAuth from '../auth/BrandedPublicAuth';
+import BrandedTenantRegistration from '../auth/BrandedTenantRegistration';
 import { FORM_TEXT_TRANSLATIONS, MESSAGE_TRANSLATIONS, BrandingLanguage, getLanguageFromCustomTexts } from '../../utils/brandingTranslations';
 import { generateThemeFromPrompt, generateThemeLabelFromPrompt, generateThemeDescriptionFromPrompt } from '../../utils/themePromptGenerator';
-import { BrandingConfig } from '../../types';
+import { BrandingConfig, Environment } from '../../types';
 import { applyFaviconToDocument } from '../../utils/favicon';
+import { AuthSystemBadge } from '../ui/BrandedComponents';
 
 type GeneratedThemeStatus = 'draft' | 'saved';
 
@@ -36,6 +38,7 @@ function isGeneratedThemeDraft(value: unknown): value is GeneratedThemeDraft {
 
 export default function BrandingManager() {
   const [applications, setApplications] = useState<any[]>([]);
+  const [applicationEnvironments, setApplicationEnvironments] = useState<Environment[]>([]);
   const [selectedApp, setSelectedApp] = useState('');
   const [loading, setLoading] = useState(false);
   const [saveLoading, setSaveLoading] = useState(false);
@@ -113,6 +116,8 @@ export default function BrandingManager() {
   useEffect(() => {
     if (selectedApp) {
       loadBranding();
+      loadEnvironments();
+      sessionStorage.setItem('selectedAppId', selectedApp);
     }
   }, [selectedApp]);
 
@@ -212,6 +217,16 @@ export default function BrandingManager() {
       console.error('Error loading branding:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadEnvironments = async () => {
+    try {
+      const environments = await applicationService.getEnvironments(selectedApp);
+      setApplicationEnvironments(environments);
+    } catch (error) {
+      console.error('Error loading environments:', error);
+      setApplicationEnvironments([]);
     }
   };
 
@@ -526,6 +541,14 @@ export default function BrandingManager() {
     setGeneratedThemeDraft(null);
   };
 
+  const handleOpenEnvironments = () => {
+    if (!selectedApp) return;
+
+    window.dispatchEvent(new CustomEvent('changeSectionWithApp', {
+      detail: { section: 'environments', appId: selectedApp }
+    }));
+  };
+
   const handleSave = async () => {
     try {
       setSaveLoading(true);
@@ -556,14 +579,14 @@ export default function BrandingManager() {
         ...extendedBranding
       } as any);
       showSuccess(
-        'Branding guardado',
-        'La configuración de branding y textos ha sido guardada exitosamente.'
+        'Borrador guardado',
+        'El nuevo branding quedó listo como borrador. Para publicarlo en formularios reales, despliega el ambiente desde Ambientes.'
       );
     } catch (error) {
       console.error('Error saving branding:', error);
       showError(
         'Error al guardar',
-        'Ha ocurrido un error al guardar la configuración de branding. Por favor, inténtalo de nuevo.'
+        'No pudimos guardar el borrador de branding. Inténtalo nuevamente.'
       );
     } finally {
       setSaveLoading(false);
@@ -990,76 +1013,223 @@ export default function BrandingManager() {
     }
   };
 
+  const selectedApplication = applications.find((application) => application.id === selectedApp);
+  const activePreset = themePresets.find((theme) => theme.name === extendedBranding.theme_style);
+  const publishedEnvironments = applicationEnvironments.filter((environment) => environment.metadata?.branding_snapshot);
+  const hasPublishedBranding = publishedEnvironments.length > 0;
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">Gestión de Branding</h2>
-        <p className="text-gray-600">
-          Personaliza la apariencia y textos de los formularios de autenticación para cada aplicación
-        </p>
-      </div>
+      <section className="overflow-hidden rounded-[32px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.18),_transparent_38%),linear-gradient(135deg,#0f172a_0%,#111827_45%,#0f3b68_100%)] text-white shadow-[0_34px_90px_-46px_rgba(15,23,42,0.75)]">
+        <div className="grid gap-8 px-6 py-7 lg:grid-cols-[1.5fr_0.9fr] lg:px-8">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-sky-100">
+              <Sparkles className="h-3.5 w-3.5" />
+              Branding Studio
+            </div>
+            <h2 className="mt-5 max-w-3xl text-3xl font-semibold tracking-[-0.04em] text-white lg:text-4xl">
+              Diseña formularios públicos premium sin publicar cambios hasta desplegar por ambiente.
+            </h2>
+            <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-200/85 lg:text-base">
+              Aquí trabajamos en borrador. El branding, los textos y los presets se guardan primero para revisión y recién se publican cuando haces deploy desde Ambientes.
+            </p>
 
-      {/* Application Selector */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Seleccionar Aplicación</h3>
-        <select 
-          value={selectedApp}
-          onChange={(e) => setSelectedApp(e.target.value)}
-          disabled={loading}
-          className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-        >
-          <option value="">Selecciona una aplicación</option>
-          {applications.map((app) => (
-            <option key={app.id} value={app.id}>
-              {app.name} ({app.domain})
-            </option>
-          ))}
-        </select>
-      </div>
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur">
+                <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-300">Aplicación</div>
+                <div className="mt-2 text-lg font-semibold text-white">{selectedApplication?.name || 'Sin seleccionar'}</div>
+                <div className="mt-1 text-xs text-slate-300">{selectedApplication?.domain || 'Selecciona una aplicación para editar su experiencia pública.'}</div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur">
+                <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-300">Tema activo</div>
+                <div className="mt-2 text-lg font-semibold text-white">{generatedThemeDraft?.label || activePreset?.label || 'Custom'}</div>
+                <div className="mt-1 text-xs text-slate-300">{extendedBranding.theme_style || 'custom'}</div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur">
+                <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-300">Ambientes publicados</div>
+                <div className="mt-2 text-lg font-semibold text-white">{publishedEnvironments.length}</div>
+                <div className="mt-1 text-xs text-slate-300">{hasPublishedBranding ? 'Hay snapshots publicados por deploy.' : 'Todavía no hay branding publicado en ambientes.'}</div>
+              </div>
+            </div>
+          </div>
 
-      {/* Tabs Navigation */}
-      <div className="bg-white rounded-lg border border-gray-200 p-2">
-        <div className="flex space-x-2">
-          <button
-            onClick={() => setActiveTab('basic')}
-            className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg font-medium transition-all ${
-              activeTab === 'basic'
-                ? 'bg-blue-600 text-white shadow-md'
-                : 'text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            <Palette className="w-5 h-5" />
-            <span>Diseño Base</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('advanced')}
-            className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg font-medium transition-all ${
-              activeTab === 'advanced'
-                ? 'bg-blue-600 text-white shadow-md'
-                : 'text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            <Wand2 className="w-5 h-5" />
-            <span>Avanzado</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('texts')}
-            className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg font-medium transition-all ${
-              activeTab === 'texts'
-                ? 'bg-blue-600 text-white shadow-md'
-                : 'text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            <MessageSquare className="w-5 h-5" />
-            <span>Contenido</span>
-          </button>
+          <div className="rounded-[28px] border border-white/12 bg-white/10 p-5 backdrop-blur">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-400/15 text-emerald-200">
+                <Rocket className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-white">Flujo recomendado</div>
+                <div className="text-sm text-slate-300">Guardar borrador, validar preview y desplegar por ambiente.</div>
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-3 text-sm text-slate-200/85">
+              <div className="flex items-start gap-3 rounded-2xl border border-white/8 bg-black/10 px-4 py-3">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-300" />
+                <span><strong>Guardar borrador</strong> conserva el trabajo del equipo sin tocar los formularios públicos.</span>
+              </div>
+              <div className="flex items-start gap-3 rounded-2xl border border-white/8 bg-black/10 px-4 py-3">
+                <Globe2 className="mt-0.5 h-4 w-4 text-sky-300" />
+                <span><strong>Deploy en Ambientes</strong> toma un snapshot del branding y lo convierte en la versión publicada.</span>
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={handleOpenEnvironments}
+                disabled={!selectedApp}
+                className="inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Ir a Ambientes
+                <ArrowUpRight className="h-4 w-4" />
+              </button>
+              <div className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-medium text-slate-200">
+                <Clock3 className="h-4 w-4" />
+                Los cambios no se publican automáticamente.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+        <div className="min-w-0 rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_24px_80px_-48px_rgba(15,23,42,0.35)]">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-950">Aplicación y publicación</h3>
+              <p className="mt-1 text-sm text-slate-600">
+                Selecciona la app que vas a editar y revisa en qué ambientes ya existe una versión publicada.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleOpenEnvironments}
+              disabled={!selectedApp}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Abrir Ambientes
+              <ArrowUpRight className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(280px,360px)_1fr]">
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-slate-700">Aplicación</label>
+              <select
+                value={selectedApp}
+                onChange={(e) => setSelectedApp(e.target.value)}
+                disabled={loading}
+                className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
+              >
+                <option value="">Selecciona una aplicación</option>
+                {applications.map((app) => (
+                  <option key={app.id} value={app.id}>
+                    {app.name} ({app.domain})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {applicationEnvironments.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500 sm:col-span-2 xl:col-span-3">
+                  Aún no encontramos ambientes para esta aplicación.
+                </div>
+              ) : (
+                applicationEnvironments.map((environment) => {
+                  const isPublished = !!environment.metadata?.branding_snapshot;
+                  return (
+                    <div
+                      key={environment.id}
+                      className={`rounded-2xl border px-4 py-4 ${
+                        isPublished
+                          ? 'border-emerald-200 bg-emerald-50/80'
+                          : 'border-amber-200 bg-amber-50/80'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold capitalize text-slate-900">{environment.name}</div>
+                          <div className="mt-1 text-xs text-slate-500">{environment.domain || 'Sin dominio configurado'}</div>
+                        </div>
+                        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] ${
+                          isPublished ? 'bg-emerald-600 text-white' : 'bg-amber-500 text-white'
+                        }`}>
+                          {isPublished ? 'Publicado' : 'Pendiente'}
+                        </span>
+                      </div>
+                      <div className="mt-3 text-xs text-slate-600">
+                        {isPublished
+                          ? `Tema: ${environment.metadata?.branding_theme_label || 'custom'}`
+                          : 'Necesita deploy para reflejar el borrador actual.'}
+                      </div>
+                      {environment.metadata?.branding_published_at && (
+                        <div className="mt-1 text-xs text-slate-500">
+                          Publicado: {new Date(environment.metadata.branding_published_at).toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="min-w-0 rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_24px_80px_-48px_rgba(15,23,42,0.35)]">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-950">Espacios de trabajo</h3>
+              <p className="mt-1 text-sm text-slate-600">
+                Ajusta estructura, preset avanzado o contenidos según el foco de la iteración actual.
+              </p>
+            </div>
+            <div className="w-full max-w-full rounded-2xl bg-slate-100 p-1 md:w-auto">
+              <div className="flex flex-wrap gap-1">
+                <button
+                  onClick={() => setActiveTab('basic')}
+                  className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-medium transition-all ${
+                    activeTab === 'basic'
+                      ? 'bg-white text-slate-950 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Palette className="h-4 w-4" />
+                  Diseño base
+                </button>
+                <button
+                  onClick={() => setActiveTab('advanced')}
+                  className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-medium transition-all ${
+                    activeTab === 'advanced'
+                      ? 'bg-white text-slate-950 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Wand2 className="h-4 w-4" />
+                  Avanzado
+                </button>
+                <button
+                  onClick={() => setActiveTab('texts')}
+                  className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-medium transition-all ${
+                    activeTab === 'texts'
+                      ? 'bg-white text-slate-950 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  Copy y contenido
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         {/* Configuration Panel */}
-        <div className="space-y-6">{(activeTab === 'basic' || activeTab === 'texts') && (
+        <div className="min-w-0 space-y-6">{(activeTab === 'basic' || activeTab === 'texts') && (
           <>
           {activeTab === 'basic' && (
           <>
@@ -1801,37 +1971,45 @@ export default function BrandingManager() {
           )}
 
           {/* Actions */}
-          <div className="sticky bottom-0 z-20 -mx-2 px-2 py-3 bg-white/95 backdrop-blur border-t border-gray-200">
-            <div className="flex items-center space-x-4">
-              <button 
+          <div className="sticky bottom-0 z-20 -mx-2 rounded-t-[28px] border-t border-slate-200 bg-white/95 px-2 py-4 backdrop-blur">
+            <div className="flex flex-wrap items-center gap-3">
+              <button
                 onClick={resetToDefaults}
-                className="flex items-center space-x-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
               >
-                <RotateCcw className="w-4 h-4" />
-                <span>Restablecer</span>
+                <RotateCcw className="h-4 w-4" />
+                <span>Restablecer borrador</span>
               </button>
-              <button 
+              <button
+                onClick={handleOpenEnvironments}
+                disabled={!selectedApp}
+                className="inline-flex items-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm font-semibold text-sky-700 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Rocket className="h-4 w-4" />
+                <span>Publicar desde Ambientes</span>
+              </button>
+              <button
                 onClick={handleSave}
                 disabled={saveLoading || !selectedApp}
-                className="flex items-center space-x-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex-1 disabled:opacity-50"
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <Save className="w-4 h-4" />
-                <span>{saveLoading ? 'Guardando...' : 'Guardar Cambios'}</span>
+                <Save className="h-4 w-4" />
+                <span>{saveLoading ? 'Guardando borrador...' : 'Guardar borrador'}</span>
               </button>
             </div>
           </div>
         </div>
 
         {/* Preview Panel */}
-        <div className="space-y-6 lg:sticky lg:top-24 self-start">
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900 flex items-center space-x-2">
-                <Eye className="w-5 h-5" />
-                <span>Vista Previa</span>
+        <div className="min-w-0 space-y-6 self-start lg:sticky lg:top-24">
+          <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_24px_80px_-48px_rgba(15,23,42,0.35)]">
+            <div className="mb-4 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <h3 className="flex items-center space-x-2 text-lg font-semibold text-slate-950">
+                <Eye className="h-5 w-5" />
+                <span>Vista previa del borrador</span>
               </h3>
               
-              <div className="flex items-center space-x-2">
+              <div className="flex flex-wrap items-center gap-2 xl:justify-end">
                 <button
                   onClick={() => setPreviewMode('login')}
                   className={`px-3 py-1.5 rounded text-sm ${
@@ -1877,9 +2055,46 @@ export default function BrandingManager() {
               </div>
             </div>
 
+            <div className="mb-4 rounded-2xl border border-sky-100 bg-sky-50/70 px-4 py-3 text-sm text-sky-800">
+              La vista previa siempre representa el <strong>borrador actual</strong>. El formulario público real cambia cuando publicas el ambiente.
+            </div>
+
             {/* Preview Window */}
-            <div className="preview-scroll border-2 border-gray-200 rounded-lg overflow-y-auto overflow-x-hidden max-h-[70vh] lg:max-h-[calc(100vh-13rem)]">
+            <div className="preview-scroll max-h-[70vh] overflow-y-auto overflow-x-hidden rounded-[24px] border border-slate-200 bg-slate-50 lg:max-h-[calc(100vh-13rem)]">
               {previewMode === 'register-tenant' ? (
+                <>
+                  <div className="pointer-events-none">
+                    <BrandedTenantRegistration
+                      applicationName={applications.find(a => a.id === selectedApp)?.name || 'Mi Aplicacion'}
+                      branding={{
+                        ...branding,
+                        ...extendedBranding,
+                        border_radius: parseInt(branding.border_radius),
+                        custom_texts: texts
+                      }}
+                      currentStep={1}
+                      tenantData={{
+                        name: 'Acme Corp',
+                        slug: 'acme-corp',
+                        domain: 'empresa.com'
+                      }}
+                      adminData={{
+                        name: 'Pedro Ayala',
+                        email: 'admin@empresa.com',
+                        password: '********',
+                        confirmPassword: '********'
+                      }}
+                      showPassword={false}
+                      mode="preview"
+                      loginHref="/login"
+                      onTenantFieldChange={() => undefined}
+                      onAdminFieldChange={() => undefined}
+                      onNextStep={() => undefined}
+                      onPreviousStep={() => undefined}
+                      onSubmit={(event) => event.preventDefault()}
+                    />
+                  </div>
+                  <div className="hidden">
                 <div
                   className="min-h-full flex items-center justify-center p-6"
                   style={{ backgroundColor: branding.background_color || '#F9FAFB', fontFamily: branding.font_family || 'Inter' }}
@@ -1957,12 +2172,14 @@ export default function BrandingManager() {
                       </div>
                     </div>
 
-                    <p className="text-center text-xs text-gray-500 mt-4">
+                    <p className="mt-4 text-center text-xs text-gray-500">
                       ¿Ya tienes cuenta?{' '}
                       <span className="font-medium" style={{ color: branding.primary_color }}>Inicia sesión</span>
                     </p>
                   </div>
                 </div>
+                  </div>
+                </>
               ) : (
                 <BrandedPublicAuth
                   applicationId={selectedApp || 'preview'}
@@ -1989,20 +2206,25 @@ export default function BrandingManager() {
           </div>
 
           {/* Security Badge Preview */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h4 className="text-md font-semibold text-gray-900 mb-4">Badge de Seguridad</h4>
+          <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_24px_80px_-48px_rgba(15,23,42,0.35)]">
+            <h4 className="mb-4 text-md font-semibold text-slate-950">Insignia de plataforma</h4>
             <div className="text-center">
-              <div className="inline-flex items-center space-x-2 text-sm text-gray-500">
-                <span>{texts.security_badge_text}</span>
-              </div>
+              <AuthSystemBadge
+                branding={{
+                  ...branding,
+                  border_radius: parseInt(branding.border_radius)
+                }}
+                text={texts.security_badge_text}
+                compact
+              />
             </div>
             <div className="mt-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Texto del Badge</label>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Texto junto al icono</label>
               <input
                 type="text"
                 value={texts.security_badge_text}
                 onChange={(e) => handleTextChange('security_badge_text', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
               />
             </div>
           </div>

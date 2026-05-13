@@ -755,6 +755,8 @@ export default function EnvironmentsManager() {
         addLog('❌ Ambiente no encontrado', 'error');
         return;
       }
+      let currentEnvironmentMetadata = { ...(environment.metadata || {}) };
+      let deployedBrandingSnapshot: any = null;
 
       // Get base URL from environment (priority: environment.auth_url > fallback)
       // Always use the auth_url from the environment (which can be edited by user)
@@ -766,6 +768,15 @@ export default function EnvironmentsManager() {
 
       addLog(`🌐 Base URL: ${baseUrl}`, 'info');
       addLog(`🔄 Callback URL: ${callbackUrl}`, 'info');
+      addLog('🎨 Publicando snapshot del branding para este ambiente...', 'info');
+      try {
+        const publishResult = await applicationService.publishBrandingToEnvironment(selectedApp, environmentId);
+        deployedBrandingSnapshot = publishResult.snapshot;
+        currentEnvironmentMetadata = { ...(publishResult.environment.metadata || {}) };
+        addLog('✅ Snapshot de branding publicado para el ambiente', 'success');
+      } catch (publishError: any) {
+        addLog(`⚠️ No se pudo publicar el snapshot de branding: ${publishError?.message || 'Error desconocido'}`, 'warning');
+      }
 
       // Verificar si ya existe una API Key para este ambiente
       addLog('🔑 Verificando API Key existente...', 'info');
@@ -836,19 +847,20 @@ export default function EnvironmentsManager() {
 
       // Update environment with test results
       addLog('💾 Paso 8: Actualizando configuración del ambiente...', 'info');
-      try {
-        await applicationService.updateEnvironment(environmentId, {
-          auth_url: baseUrl,
-          callback_url: callbackUrl,
-          metadata: {
-            ...environment.metadata,
-            api_key: apiKey,
-            deployment_status: 'deployed',
-            test_results: testResults,
-            deployed_at: new Date().toISOString()
-          }
-        });
-        addLog('✅ Ambiente actualizado exitosamente', 'success');
+        try {
+          const updatedEnvironment = await applicationService.updateEnvironment(environmentId, {
+            auth_url: baseUrl,
+            callback_url: callbackUrl,
+            metadata: {
+              ...currentEnvironmentMetadata,
+              api_key: apiKey,
+              deployment_status: 'deployed',
+              test_results: testResults,
+              deployed_at: new Date().toISOString()
+            }
+          });
+          currentEnvironmentMetadata = { ...(updatedEnvironment.metadata || {}) };
+          addLog('✅ Ambiente actualizado exitosamente', 'success');
         addLog('', 'info');
 
         // Reload environments to show updated data
@@ -950,16 +962,16 @@ export default function EnvironmentsManager() {
       const app = selectedApplication;
       // supabaseUrl ya fue declarado arriba (línea 387)
 
-      // Obtener branding de la base de datos
-      addLog('🎨 Obteniendo branding actualizado...', 'info');
-      const { data: brandingData } = await supabase
-        .from('branding_configs')
-        .select('*')
-        .eq('application_id', app.id)
-        .maybeSingle();
+      // Usar el snapshot de branding publicado para este ambiente
+      addLog('🎨 Preparando branding publicado del ambiente...', 'info');
+      const brandingData = deployedBrandingSnapshot || await applicationService.getPublicBranding(app.id, {
+        environmentId,
+        environmentName,
+        host: environment.domain
+      });
 
       if (brandingData) {
-        addLog(`   ✓ Branding: ${brandingData.primary_color || 'default'}`, 'success');
+        addLog(`   ✓ Branding publicado listo (${brandingData.primary_color || 'default'})`, 'success');
       } else {
         addLog('   ℹ️  Usando branding por defecto', 'info');
       }
@@ -998,7 +1010,10 @@ export default function EnvironmentsManager() {
         deployBranch,
         environmentId,
         environmentName,
-        environment,
+        environment: {
+          ...environment,
+          metadata: currentEnvironmentMetadata
+        },
         applicationId,
         apiKey
       };
@@ -1275,13 +1290,20 @@ export default function EnvironmentsManager() {
       const supabaseUrl = requireSupabaseUrl();
       const supabaseAnonKey = requireSupabaseAnonKey();
 
-      // Obtener branding actual de la base de datos
-      addLog('🎨 Obteniendo configuración de branding...', 'info');
-      const { data: brandingData } = await supabase
-        .from('branding_configs')
-        .select('*')
-        .eq('application_id', app.id)
-        .maybeSingle();
+      // Publicar y usar el branding del ambiente para el deploy
+      addLog('🎨 Publicando branding del ambiente...', 'info');
+      let brandingData = null;
+      try {
+        const publishResult = await applicationService.publishBrandingToEnvironment(app.id, environmentId);
+        brandingData = publishResult.snapshot;
+      } catch (publishError: any) {
+        addLog(`   ⚠️ No se pudo publicar snapshot: ${publishError?.message || 'Error desconocido'}`, 'warning');
+        brandingData = await applicationService.getPublicBranding(app.id, {
+          environmentId,
+          environmentName,
+          host: environment.domain
+        });
+      }
 
       if (brandingData) {
         addLog(`   ✓ Branding cargado (Color: ${brandingData.primary_color || 'default'})`, 'success');

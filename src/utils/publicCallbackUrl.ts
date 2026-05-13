@@ -1,0 +1,92 @@
+export function normalizePublicUrl(raw: string | null | undefined): string {
+  const value = (raw || '').trim();
+  if (!value) return '';
+
+  if (value.startsWith('/')) {
+    return `${window.location.origin}${value}`.replace(/\/$/, '');
+  }
+
+  const withScheme = value.startsWith('http://') || value.startsWith('https://')
+    ? value
+    : `https://${value}`;
+
+  return withScheme.replace(/\/$/, '');
+}
+
+export function buildPublicRedirectUrl(
+  baseUrl: string,
+  params: Record<string, string | number | boolean | null | undefined>,
+): string {
+  const normalizedBaseUrl = normalizePublicUrl(baseUrl);
+  if (!normalizedBaseUrl) return '';
+
+  try {
+    const url = new URL(normalizedBaseUrl);
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null) return;
+      url.searchParams.set(key, String(value));
+    });
+    return url.toString();
+  } catch (error) {
+    console.error('Error building public redirect URL:', error);
+
+    const queryParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null) return;
+      queryParams.set(key, String(value));
+    });
+
+    const separator = normalizedBaseUrl.includes('?') ? '&' : '?';
+    return `${normalizedBaseUrl}${queryParams.toString() ? `${separator}${queryParams.toString()}` : ''}`;
+  }
+}
+
+function getEnvironmentEntries(environmentUrls: Record<string, any> | null | undefined): Array<{ key: string; callbackUrl: string }> {
+  if (!environmentUrls || typeof environmentUrls !== 'object') {
+    return [];
+  }
+
+  return Object.entries(environmentUrls)
+    .map(([key, envConfig]) => ({
+      key: key.toLowerCase(),
+      callbackUrl: normalizePublicUrl((envConfig as any)?.callback_url),
+    }))
+    .filter((entry) => !!entry.callbackUrl);
+}
+
+export function getCanonicalCallbackUrl(
+  environmentUrls: Record<string, any> | null | undefined,
+  preferredEnvironment?: string | null,
+): string | null {
+  const envEntries = getEnvironmentEntries(environmentUrls);
+  if (!envEntries.length) return null;
+
+  const preferredKey = (preferredEnvironment || '').trim().toLowerCase();
+  if (preferredKey) {
+    const preferredEntry = envEntries.find((entry) => entry.key === preferredKey);
+    if (preferredEntry?.callbackUrl) {
+      return preferredEntry.callbackUrl;
+    }
+  }
+
+  return envEntries[0]?.callbackUrl || null;
+}
+
+export function getTrustedCallbackUrl(
+  environmentUrls: Record<string, any> | null | undefined,
+  requestedUrl: string | null | undefined,
+  preferredEnvironment?: string | null,
+): string | null {
+  const normalizedRequested = normalizePublicUrl(requestedUrl);
+  const envEntries = getEnvironmentEntries(environmentUrls);
+  if (!envEntries.length) return null;
+
+  if (normalizedRequested) {
+    const requestedEntry = envEntries.find((entry) => entry.callbackUrl === normalizedRequested);
+    if (requestedEntry?.callbackUrl) {
+      return requestedEntry.callbackUrl;
+    }
+  }
+
+  return getCanonicalCallbackUrl(environmentUrls, preferredEnvironment);
+}

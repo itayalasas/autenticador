@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.43.2";
 import bcrypt from "npm:bcryptjs@2.4.3";
 import { create, getNumericDate } from "https://deno.land/x/djwt@v2.8/mod.ts";
+import { buildRedirectUrl, resolveApplicationAuthUrl } from "../_shared/application-auth-url.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -336,11 +337,11 @@ Deno.serve(async (req) => {
     // Get application JWT secret
     const { data: appData } = await supabase
       .from("applications")
-      .select("jwt_secret")
+      .select("jwt_secret, application_id, name, domain")
       .eq("id", appUser.application_id)
       .maybeSingle();
 
-    let authTokens = null;
+    let authTokens: any = null;
     if (appData?.jwt_secret) {
       try {
         const tokens = await generateAuthTokens(
@@ -361,6 +362,38 @@ Deno.serve(async (req) => {
         console.log("✅ Auth tokens generated for auto-login");
       } catch (tokenError) {
         console.error("⚠️ Error generating auth tokens:", tokenError);
+      }
+    }
+
+    if (authTokens) {
+      const { callbackUrl: configuredCallbackUrl } = await resolveApplicationAuthUrl(
+        supabase,
+        appUser.application_id,
+        null
+      );
+
+      if (configuredCallbackUrl) {
+        const authCode = crypto.randomUUID();
+        const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+
+        const { error: authCodeError } = await supabase.from("auth_codes").insert({
+          code: authCode,
+          access_token: authTokens.access_token,
+          refresh_token: authTokens.refresh_token,
+          user_id: appUser.id,
+          application_id: appUser.application_id,
+          expires_at: expiresAt,
+        });
+
+        if (authCodeError) {
+          console.error("⚠️ Error saving auth code for password reset callback:", authCodeError);
+        } else {
+          authTokens.callback_url = buildRedirectUrl(configuredCallbackUrl, {
+            code: authCode,
+            application_id: appData?.application_id || "",
+            state: "password_reset_success",
+          });
+        }
       }
     }
 

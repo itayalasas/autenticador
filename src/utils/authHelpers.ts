@@ -1,4 +1,6 @@
-// Utility functions for handling authentication tokens and callbacks
+import { requireSupabaseAnonKey, requireSupabaseUrl } from '../lib/supabaseRuntime';
+
+// Utility functions for handling authentication sessions and callback exchanges
 
 export interface AuthTokenData {
   access_token: string;
@@ -20,80 +22,143 @@ export interface AuthTokenData {
   expires_in: number;
 }
 
-/**
- * Parse callback URL parameters to extract authentication data
- */
-export function parseCallbackParams(url: string): AuthTokenData | null {
+export interface CallbackExchangeParams {
+  code: string;
+  application_id: string;
+}
+
+export interface CallbackUrlParams extends CallbackExchangeParams {
+  state: string | null;
+}
+
+export function extractCallbackExchangeParams(url: string): CallbackUrlParams | null {
   try {
     const urlObj = new URL(url);
     const params = urlObj.searchParams;
-    
-    const accessToken = params.get('token');
-    const refreshToken = params.get('refresh_token');
-    const userId = params.get('user_id');
-    const userEmail = params.get('user_email');
-    const userName = params.get('user_name');
-    const expiresIn = params.get('expires_in');
-    
-    if (!accessToken || !refreshToken || !userId) {
+
+    const code = params.get('code');
+    const applicationId = params.get('application_id') || params.get('app_id');
+
+    if (!code || !applicationId) {
       return null;
     }
-    
-    // Decode JWT to get additional user data (simplified for demo)
-    const tokenPayload = parseJWT(accessToken);
-    
+
     return {
-      access_token: accessToken,
-      refresh_token: refreshToken,
-      user: {
-        id: userId,
-        email: userEmail || tokenPayload?.email || '',
-        name: decodeURIComponent(userName || tokenPayload?.name || ''),
-        roles: tokenPayload?.roles || ['user'],
-        permissions: tokenPayload?.permissions || ['read'],
-        metadata: tokenPayload?.metadata || {},
-        last_login: new Date().toISOString()
-      },
-      application: {
-        id: tokenPayload?.app_id || '',
-        name: tokenPayload?.app_name || '',
-        domain: tokenPayload?.aud || ''
-      },
-      expires_in: parseInt(expiresIn || '86400')
+      code,
+      application_id: applicationId,
+      state: params.get('state')
     };
   } catch (error) {
-    console.error('Error parsing callback params:', error);
+    console.error('Error parsing callback exchange params:', error);
     return null;
   }
 }
 
 /**
- * Simple JWT parser (for demo purposes - use proper JWT library in production)
+ * Legacy helper kept for backward compatibility.
+ * The secure callback flow now relies on code exchange rather than direct token parsing.
  */
-export function parseJWT(token: string): any {
-  try {
-    const base64Url = token.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-    }).join(''));
-    
-    return JSON.parse(jsonPayload);
-  } catch (error) {
-    console.error('Error parsing JWT:', error);
-    return null;
+export function parseCallbackParams(_url: string): AuthTokenData | null {
+  console.warn('parseCallbackParams is deprecated. Use extractCallbackExchangeParams + exchangeCallbackCode instead.');
+  return null;
+}
+
+function normalizePermissions(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === 'string' ? item : String(item)))
+      .filter(Boolean);
   }
+
+  if (value && typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>).flatMap(([menuSlug, actions]) => {
+      if (!Array.isArray(actions)) {
+        return [];
+      }
+
+      return actions
+        .map((action) => `${menuSlug}:${typeof action === 'string' ? action : String(action)}`)
+        .filter(Boolean);
+    });
+  }
+
+  return ['read'];
 }
 
 /**
- * Store authentication data in localStorage
+ * Exchange an authorization code for a full auth session using the backend.
+ */
+export async function exchangeCallbackCode(params: CallbackExchangeParams): Promise<AuthTokenData> {
+  const supabaseUrl = requireSupabaseUrl();
+  const anonKey = requireSupabaseAnonKey();
+
+  const response = await fetch(`${supabaseUrl}/functions/v1/auth-exchange-code`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${anonKey}`,
+      'apikey': anonKey
+    },
+    body: JSON.stringify(params)
+  });
+
+  const result = await response.json().catch(() => null);
+
+  if (!response.ok || !result?.success) {
+    throw new Error(result?.error?.message || 'No se pudo completar el intercambio de código');
+  }
+
+  const data = result.data || {};
+  const user = data.user || {};
+  const application = data.application || {};
+
+  return {
+    access_token: data.access_token,
+    refresh_token: data.refresh_token,
+    user: {
+      id: user.id || '',
+      email: user.email || '',
+      name: user.name || '',
+      roles: Array.isArray(user.roles)
+        ? user.roles
+        : user.role
+          ? [user.role]
+          : ['user'],
+      permissions: normalizePermissions(user.permissions),
+      metadata: user.metadata || {},
+      last_login: new Date().toISOString()
+    },
+    application: {
+      id: application.id || params.application_id,
+      name: application.name || '',
+      domain: application.domain || ''
+    },
+    expires_in: Number(data.expires_in || 86400)
+  };
+}
+
+function getAuthStorage(): Storage | null {
+  if (typeof window === 'undefined') return null;
+  return window.sessionStorage || window.localStorage || null;
+}
+
+function getFallbackStorage(): Storage | null {
+  if (typeof window === 'undefined') return null;
+  return window.localStorage || null;
+}
+
+/**
+ * Store authentication data in sessionStorage to reduce persistence risk.
  */
 export function storeAuthData(authData: AuthTokenData): void {
-  localStorage.setItem('auth_token', authData.access_token);
-  localStorage.setItem('refresh_token', authData.refresh_token);
-  localStorage.setItem('user_data', JSON.stringify(authData.user));
-  localStorage.setItem('application_data', JSON.stringify(authData.application));
-  localStorage.setItem('token_expires_at', new Date(Date.now() + authData.expires_in * 1000).toISOString());
+  const storage = getAuthStorage();
+  if (!storage) return;
+
+  storage.setItem('auth_token', authData.access_token);
+  storage.setItem('refresh_token', authData.refresh_token);
+  storage.setItem('user_data', JSON.stringify(authData.user));
+  storage.setItem('application_data', JSON.stringify(authData.application));
+  storage.setItem('token_expires_at', new Date(Date.now() + authData.expires_in * 1000).toISOString());
 }
 
 /**
@@ -101,23 +166,44 @@ export function storeAuthData(authData: AuthTokenData): void {
  */
 export function getStoredAuthData(): AuthTokenData | null {
   try {
-    const accessToken = localStorage.getItem('auth_token');
-    const refreshToken = localStorage.getItem('refresh_token');
-    const userData = localStorage.getItem('user_data');
-    const applicationData = localStorage.getItem('application_data');
-    const expiresAt = localStorage.getItem('token_expires_at');
-    
+    const sessionStorageRef = getAuthStorage();
+    const fallbackStorage = getFallbackStorage();
+
+    const readValue = (key: string) =>
+      sessionStorageRef?.getItem(key) || fallbackStorage?.getItem(key) || null;
+
+    const accessToken = readValue('auth_token');
+    const refreshToken = readValue('refresh_token');
+    const userData = readValue('user_data');
+    const applicationData = readValue('application_data');
+    const expiresAt = readValue('token_expires_at');
+
     if (!accessToken || !refreshToken || !userData) {
       return null;
     }
-    
+
     const expiresIn = expiresAt ? Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000)) : 0;
-    
+
+    const parsedUser = JSON.parse(userData);
+    const parsedApplication = JSON.parse(applicationData || '{}');
+
     return {
       access_token: accessToken,
       refresh_token: refreshToken,
-      user: JSON.parse(userData),
-      application: JSON.parse(applicationData || '{}'),
+      user: {
+        id: parsedUser?.id || '',
+        email: parsedUser?.email || '',
+        name: parsedUser?.name || '',
+        roles: Array.isArray(parsedUser?.roles) ? parsedUser.roles : ['user'],
+        permissions: Array.isArray(parsedUser?.permissions) ? parsedUser.permissions : [],
+        metadata: parsedUser?.metadata || {},
+        last_login: parsedUser?.last_login || new Date().toISOString()
+      },
+      application: {
+        id: parsedApplication?.id || '',
+        name: parsedApplication?.name || '',
+        domain: parsedApplication?.domain || ''
+      },
       expires_in: expiresIn
     };
   } catch (error) {
@@ -130,11 +216,14 @@ export function getStoredAuthData(): AuthTokenData | null {
  * Clear stored authentication data
  */
 export function clearAuthData(): void {
-  localStorage.removeItem('auth_token');
-  localStorage.removeItem('refresh_token');
-  localStorage.removeItem('user_data');
-  localStorage.removeItem('application_data');
-  localStorage.removeItem('token_expires_at');
+  const sessionStorageRef = typeof window !== 'undefined' ? window.sessionStorage : null;
+  const fallbackStorage = typeof window !== 'undefined' ? window.localStorage : null;
+
+  const keys = ['auth_token', 'refresh_token', 'user_data', 'application_data', 'token_expires_at'];
+  keys.forEach((key) => {
+    sessionStorageRef?.removeItem(key);
+    fallbackStorage?.removeItem(key);
+  });
 }
 
 /**
@@ -161,7 +250,7 @@ export async function verifyToken(token: string, applicationId: string, apiKey: 
         application_id: applicationId
       })
     });
-    
+
     const result = await response.json();
     return result.success && result.data?.valid;
   } catch (error) {

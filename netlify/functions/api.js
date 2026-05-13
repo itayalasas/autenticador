@@ -331,6 +331,53 @@ exports.handler = async (event, context) => {
       }
     }
 
+    // Application plans endpoint - Proxy to Edge Function
+    if (path.endsWith('/application/plans') && (method === 'GET' || method === 'POST')) {
+      console.log(`📦 Application plans endpoint called (${method}) - proxying to Edge Function`);
+
+      let requestBody = {};
+      try {
+        requestBody = method === 'GET'
+          ? (event.queryStringParameters || {})
+          : (event.body ? JSON.parse(event.body) : {});
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            success: false,
+            error: {
+              code: 'INVALID_JSON',
+              message: 'Request body must be valid JSON'
+            }
+          })
+        };
+      }
+
+      try {
+        const result = await callEdgeFunction('application-plans', requestBody);
+
+        return {
+          statusCode: result.statusCode,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify(result.body)
+        };
+      } catch (error) {
+        console.error('❌ Error proxying application plans request:', error);
+        return {
+          statusCode: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            success: false,
+            error: {
+              code: 'PROXY_ERROR',
+              message: 'Error connecting to plans service: ' + error.message
+            }
+          })
+        };
+      }
+    }
+
     // Application info endpoint - Proxy to Edge Function
     if (path.endsWith('/application/info') && method === 'GET') {
       console.log('📱 Application info endpoint called (GET) - proxying to Edge Function');

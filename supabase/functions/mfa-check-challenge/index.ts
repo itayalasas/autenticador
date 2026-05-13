@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
+import { buildRedirectUrl } from '../_shared/application-auth-url.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -135,8 +136,11 @@ Deno.serve(async (req) => {
         expires_at: expiresAt,
       });
 
-      const callbackParams = new URLSearchParams({ code: authCode, state: 'authenticated' });
-      callback_url = `${challenge.callback_url}?${callbackParams.toString()}`;
+      callback_url = buildRedirectUrl(challenge.callback_url, {
+        code: authCode,
+        application_id: application.application_id,
+        state: 'authenticated'
+      });
     }
 
     await supabase

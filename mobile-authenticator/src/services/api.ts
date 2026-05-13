@@ -3,7 +3,8 @@ type BaseCredentials = {
   application_id: string;
   api_key: string;
   email: string;
-  password: string;
+  password?: string;
+  device_token?: string;
   device_id?: string;
   device_name?: string;
   push_token?: string;
@@ -46,7 +47,8 @@ export async function generatePairingToken(credentials: BaseCredentials) {
 
 export async function registerDevice(input: {
   baseUrl: string;
-  pairing_token: string;
+  pairing_token?: string;
+  pairing_code?: string;
   device_id: string;
   device_name?: string;
   push_token?: string;
@@ -79,4 +81,55 @@ export async function checkChallenge(input: {
   application_id: string;
 }) {
   return post(`${normalizedBaseUrl(input.baseUrl)}/functions/v1/mfa-check-challenge`, input);
+}
+
+export async function sendEmail(input: {
+  baseUrl: string;
+  to: string;
+  subject: string;
+  html: string;
+  application_id?: string;
+  app_user_id?: string;
+}) {
+  return post(`${normalizedBaseUrl(input.baseUrl)}/functions/v1/send-email`, input);
+}
+
+export async function getAccountSecurityOverview(input: BaseCredentials & {
+  device_id?: string;
+  device_name?: string;
+  device_platform?: string;
+}) {
+  return post(`${normalizedBaseUrl(input.baseUrl)}/functions/v1/mfa-account-security`, {
+    ...input,
+    action: 'overview',
+  });
+}
+
+export async function revokeAccountDevice(input: BaseCredentials & {
+  target_device_id: string;
+  device_id?: string;
+  device_name?: string;
+  device_platform?: string;
+}) {
+  return post(`${normalizedBaseUrl(input.baseUrl)}/functions/v1/mfa-account-security`, {
+    ...input,
+    action: 'revoke_device',
+  });
+}
+
+export async function resetAccountSecurity(input: BaseCredentials & {
+  device_id?: string;
+  device_name?: string;
+  device_platform?: string;
+}) {
+  return post(`${normalizedBaseUrl(input.baseUrl)}/functions/v1/mfa-account-security`, {
+    ...input,
+    action: 'reset_security',
+  });
+}
+
+export async function createPasskeyInvite(input: BaseCredentials & {
+  device_name?: string;
+}) {
+  return post(`${normalizedBaseUrl(input.baseUrl)}/functions/v1/passkey-invite`, input);
 }

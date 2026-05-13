@@ -22,6 +22,7 @@ export interface Application {
   branding: BrandingConfig;
   users_count: number;
   metadata?: ApplicationMetadata;
+  billing_config?: ApplicationBillingConfig;
   created_at: string;
   updated_at: string;
 }
@@ -50,6 +51,36 @@ export interface ApplicationMetadata {
   [key: string]: any;
 }
 
+export interface ApplicationBillingConfig {
+  enabled?: boolean;
+  provider?: 'mercadopago';
+  mercado_pago_access_token?: string;
+  mercado_pago_public_key?: string;
+  mercado_pago_back_url?: string;
+  mercado_pago_webhook_secret?: string;
+  auto_sync_on_login?: boolean;
+  auto_assign_default_plan?: boolean;
+  require_plan_for_access?: boolean;
+}
+
+export type BillingFeatureValueType = 'boolean' | 'number' | 'text';
+
+export interface ApplicationBillingFeatureCatalogItem {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  value_type: BillingFeatureValueType;
+  default_value: string;
+  category: string;
+  unit?: string | null;
+  active: boolean;
+  is_system?: boolean;
+  created_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface Environment {
   id: string;
   name: 'development' | 'testing' | 'production';
@@ -66,6 +97,10 @@ export interface Environment {
       reset_password_confirm?: string;
       callback: string;
     };
+    branding_snapshot?: Partial<BrandingConfig>;
+    branding_published_at?: string;
+    branding_source_updated_at?: string;
+    branding_theme_label?: string;
     [key: string]: any;
   };
 }
@@ -280,4 +315,70 @@ export interface PaymentMethod {
   exp_year?: number;
   is_default: boolean;
   created_at: string;
+}
+
+export interface ApplicationBillingPlan {
+  id: string;
+  application_id: string;
+  name: string;
+  slug: string;
+  description: string;
+  price: number;
+  currency: string;
+  interval: 'day' | 'week' | 'month' | 'year';
+  interval_count: number;
+  repetitions?: number | null;
+  trial_days?: number;
+  billing_day?: number | null;
+  is_active: boolean;
+  is_default?: boolean;
+  sort_order?: number;
+  features: string[];
+  entitlements?: {
+    features?: Array<{
+      feature_id?: string;
+      code: string;
+      name?: string;
+      description?: string;
+      value: string | boolean | number;
+      value_type?: BillingFeatureValueType | string;
+      unit?: string | null;
+      category?: string | null;
+      label?: string;
+    }>;
+    [key: string]: any;
+  };
+  provider?: string;
+  provider_plan_id?: string | null;
+  provider_status?: string | null;
+  provider_init_point?: string | null;
+  provider_metadata?: Record<string, any>;
+  metadata?: Record<string, any>;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ApplicationPlanSubscription {
+  id: string;
+  application_id: string;
+  application_plan_id: string;
+  tenant_id?: string | null;
+  app_user_id?: string | null;
+  payer_email?: string | null;
+  external_reference?: string | null;
+  status: 'pending' | 'authorized' | 'active' | 'trialing' | 'paused' | 'cancelled' | 'expired' | 'payment_failed';
+  provider: string;
+  provider_subscription_id?: string | null;
+  provider_plan_id?: string | null;
+  next_payment_date?: string | null;
+  current_period_start?: string | null;
+  current_period_end?: string | null;
+  trial_end?: string | null;
+  provider_metadata?: Record<string, any>;
+  metadata?: Record<string, any>;
+  created_at?: string;
+  updated_at?: string;
+  application_billing_plans?: Pick<ApplicationBillingPlan, 'id' | 'name' | 'slug' | 'price' | 'currency' | 'interval' | 'interval_count'> | null;
+  tenants?: { id: string; name: string; slug?: string | null } | null;
+  app_users?: { id: string; name: string; email: string } | null;
 }

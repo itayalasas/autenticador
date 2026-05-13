@@ -1,6 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
 import bcrypt from "npm:bcryptjs@2.4.3";
+import { buildRedirectUrl, normalizeUrl, resolveApplicationAuthUrl } from '../_shared/application-auth-url.ts';
+import { resolveApplicationBillingAccess } from '../_shared/application-billing.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -376,6 +378,24 @@ Deno.serve(async (req) => {
 
     console.log('✅ API Key belongs to application');
 
+    const { baseUrl: authBaseUrl, callbackUrl: configuredCallbackUrl, environmentName: resolvedEnvironmentName } = await resolveApplicationAuthUrl(
+      supabase,
+      application.id,
+      (apiKeyData as any).environment || null
+    );
+
+    if (!authBaseUrl) {
+      console.warn('⚠️ No auth_url resolved for application; callback redirects will be disabled');
+    }
+
+    if (normalizeUrl(callback_url) && configuredCallbackUrl && normalizeUrl(callback_url) !== configuredCallbackUrl) {
+      console.warn('⚠️ Ignoring untrusted callback_url from request. Using configured callback URL instead.', {
+        requested: normalizeUrl(callback_url),
+        configured: configuredCallbackUrl,
+        environment: resolvedEnvironmentName || (apiKeyData as any).environment || null
+      });
+    }
+
     const { data: user, error: userError } = await supabase
       .from('app_users')
       .select('*')
@@ -639,61 +659,116 @@ Deno.serve(async (req) => {
     // Resolve tenant early so we can pass it to the validation API
     let tenantIdForValidation: string | null = null;
     let tenantNameForValidation: string | null = null;
+    let tenantRecordForValidation: Record<string, any> | null = null;
     if (application.auth_mode === 'tenant' && user.tenant_id) {
       tenantIdForValidation = user.tenant_id;
       const { data: tenantDataEarly } = await supabase
         .from('tenants')
-        .select('name, slug, domain')
+        .select('id, name, slug, domain, metadata')
         .eq('id', user.tenant_id)
         .maybeSingle();
       if (tenantDataEarly) {
         tenantNameForValidation = tenantDataEarly.name;
+        tenantRecordForValidation = tenantDataEarly;
       }
     }
 
     let validationData = null;
+    let validationSource: 'none' | 'internal' | 'external' = 'none';
 
     try {
-      console.log('🔍 Validating user license with external API...');
+      const internalValidation = await resolveApplicationBillingAccess({
+        supabase,
+        application,
+        appUser: user,
+        tenantId: tenantIdForValidation,
+      });
 
-      const validationPayload: Record<string, any> = {
-        external_app_id: application_id,
-        external_user_id: user.id
-      };
-      if (tenantIdForValidation) {
-        validationPayload.external_tenant_id = tenantIdForValidation;
-        validationPayload.tenant_id = tenantIdForValidation;
+      if (internalValidation?.enabled) {
+        validationData = internalValidation;
+        validationSource = 'internal';
+        console.log('✅ Internal application billing resolved:', {
+          has_access: internalValidation.has_access,
+          subscription_status: internalValidation.subscription?.status,
+          plan_name: internalValidation.subscription?.plan_name
+        });
       }
+    } catch (internalValidationError) {
+      console.warn('⚠️ Internal billing resolution failed, falling back to external validation:', internalValidationError);
+    }
 
-      console.log('📤 Sending validation request with payload:', validationPayload);
+    if (validationSource === 'none') {
+    const validationBaseUrl = (application?.metadata?.validation_api_url as string | undefined) || Deno.env.get('VALIDATION_API_URL') || '';
+    const normalizedValidationBaseUrl = validationBaseUrl.trim().replace(/\/$/, '');
+    const validationEndpoint = normalizedValidationBaseUrl
+      ? (normalizedValidationBaseUrl.endsWith('/validate-user')
+        ? normalizedValidationBaseUrl
+        : `${normalizedValidationBaseUrl}/validate-user`)
+      : '';
 
-      const validationResponse = await fetch(
-        'https://veymthufmfqhxxxzfmfi.supabase.co/functions/v1/validation-api/validate-user',
-        {
+    if (!validationEndpoint) {
+      console.warn('⚠️ Validation API not configured, skipping license check');
+    } else {
+      try {
+        console.log('🔍 Validating user license with external API...');
+
+        const validationPayload: Record<string, any> = {
+          external_app_id: application_id,
+          external_user_id: user.id
+        };
+        if (tenantIdForValidation) {
+          validationPayload.external_tenant_id = tenantIdForValidation;
+          validationPayload.tenant_id = tenantIdForValidation;
+        }
+
+        console.log('📤 Sending validation request with payload:', validationPayload);
+
+        const validationResponse = await fetch(validationEndpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(validationPayload)
-        }
-      );
-
-      console.log('📥 Validation API response status:', validationResponse.status);
-
-      if (validationResponse.ok) {
-        validationData = await validationResponse.json();
-        console.log('✅ License validation successful:', {
-          has_access: validationData.has_access,
-          subscription_status: validationData.subscription?.status,
-          plan_name: validationData.subscription?.plan_name
         });
-      } else {
-        console.warn('⚠️ License validation failed with status:', validationResponse.status);
-        const errorText = await validationResponse.text();
-        console.warn('⚠️ License validation error:', errorText);
+
+        console.log('📥 Validation API response status:', validationResponse.status);
+
+        if (validationResponse.ok) {
+          validationData = await validationResponse.json();
+          validationSource = 'external';
+          console.log('✅ License validation successful:', {
+            has_access: validationData.has_access,
+            subscription_status: validationData.subscription?.status,
+            plan_name: validationData.subscription?.plan_name
+          });
+        } else {
+          console.warn('⚠️ License validation failed with status:', validationResponse.status);
+          const errorText = await validationResponse.text();
+          console.warn('⚠️ License validation error:', errorText);
+        }
+      } catch (validationError) {
+        console.error('❌ Error validating license:', validationError);
       }
-    } catch (validationError) {
-      console.error('❌ Error validating license:', validationError);
+    }
+
+    }
+
+    if (validationSource === 'internal' && validationData?.success && tenantIdForValidation && tenantRecordForValidation) {
+      const { count: activeUsersCount } = await supabase
+        .from('app_users')
+        .select('id', { count: 'exact', head: true })
+        .eq('application_id', application.id)
+        .eq('tenant_id', tenantIdForValidation)
+        .eq('status', 'active');
+
+      validationData.tenant = {
+        id: tenantRecordForValidation.id,
+        name: tenantRecordForValidation.name,
+        slug: tenantRecordForValidation.slug || null,
+        domain: tenantRecordForValidation.domain || null,
+        metadata: tenantRecordForValidation.metadata || {},
+        active_users_count: activeUsersCount || 0
+      };
     }
 
     // Resolve tenant_id if application is in tenant mode (reuses early lookup)
@@ -817,7 +892,7 @@ Deno.serve(async (req) => {
             status: 'pending',
             access_token: accessToken,
             refresh_token: refreshToken,
-            callback_url: callback_url || null,
+            callback_url: configuredCallbackUrl || null,
             expires_at: challengeExpiresAt,
             metadata: {
               email,
@@ -912,14 +987,25 @@ Deno.serve(async (req) => {
       }
 
       const pairingExpiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      const pairingCode = (() => {
+        const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        const bytes = crypto.getRandomValues(new Uint8Array(12));
+        let raw = '';
+        for (let index = 0; index < bytes.length; index += 1) {
+          raw += alphabet[bytes[index] % alphabet.length];
+        }
+        return raw.match(/.{1,4}/g)?.join('-') || raw;
+      })();
+
       const { data: pairingRow, error: pairingError } = await supabase
         .from('mfa_pairing_tokens')
         .insert({
           application_id: application.id,
           app_user_id: user.id,
           expires_at: pairingExpiresAt,
+          pairing_code: pairingCode,
         })
-        .select('token, expires_at')
+        .select('token, pairing_code, expires_at')
         .single();
 
       if (pairingError || !pairingRow) {
@@ -942,11 +1028,11 @@ Deno.serve(async (req) => {
       const qrPayload = {
         type: 'authsystem-mfa-pair',
         pairing_token: pairingRow.token,
+        pairing_code: pairingRow.pairing_code,
         application_id: application.application_id,
         app_name: application.name,
         api_key,
         email,
-        password,
         base_url: Deno.env.get('SUPABASE_URL') ?? '',
         expires_at: pairingRow.expires_at,
       };
@@ -961,13 +1047,14 @@ Deno.serve(async (req) => {
           data: {
             state: 'mfa_setup_required',
             pairing_token: pairingRow.token,
+            pairing_code: pairingRow.pairing_code,
             expires_at: pairingRow.expires_at,
             qr_payload: qrPayload,
             qr_text: JSON.stringify(qrPayload),
             setup_endpoint: '/functions/v1/mfa-register-device',
             setup_steps: [
               'Abre la app Authenticator en tu móvil',
-              'Escanea el QR o pega el pairing token',
+              'Escanea el QR o escribe el código de vinculación',
               'Registra el dispositivo',
               'Vuelve a iniciar sesión'
             ],
@@ -1030,7 +1117,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (callback_url) {
+    if (configuredCallbackUrl) {
       // Generar un código temporal corto en lugar de pasar el token completo en la URL
       const authCode = crypto.randomUUID();
 
@@ -1046,11 +1133,11 @@ Deno.serve(async (req) => {
         expires_at: expiresAt
       });
 
-      const callbackParams = new URLSearchParams({
+      response.data.callback_url = buildRedirectUrl(configuredCallbackUrl, {
         code: authCode,
+        application_id: application_id,
         state: 'authenticated'
-      })
-      response.data.callback_url = `${callback_url}?${callbackParams.toString()}`
+      });
     }
 
     return new Response(

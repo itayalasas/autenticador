@@ -5,6 +5,17 @@ interface EnvConfig {
   updated_at: string;
 }
 
+declare global {
+  interface Window {
+    __ENV__?: Record<string, string>;
+  }
+}
+
+const DEFAULT_ENV_CONFIG_URL = 'https://ffihaeatoundrjzgtpzk.supabase.co/functions/v1/get-env';
+const DEFAULT_ENV_CONFIG_ACCESS_KEY =
+  '4a63305a316f04fe2acf33b2b63135925bd3a0523c1fd453a42fbf1fc49e6240';
+const ENV_PREFIX = 'VITE_';
+
 class EnvConfigService {
   private static instance: EnvConfigService;
   private config: EnvConfig | null = null;
@@ -41,40 +52,94 @@ class EnvConfigService {
     }
   }
 
+  private getBootstrapUrl(): string {
+    const override = import.meta.env.VITE_ENV_CONFIG_URL as string | undefined;
+    return (override || DEFAULT_ENV_CONFIG_URL).trim();
+  }
+
+  private getBootstrapAccessKey(): string {
+    const override = import.meta.env.VITE_ENV_CONFIG_ACCESS_KEY as string | undefined;
+    return (override || DEFAULT_ENV_CONFIG_ACCESS_KEY).trim();
+  }
+
+  private getBuildEnvVariables(): Record<string, string> {
+    return Object.entries(import.meta.env)
+      .filter(([key, value]) => key.startsWith(ENV_PREFIX) && typeof value === 'string' && value.trim().length > 0)
+      .reduce<Record<string, string>>((acc, [key, value]) => {
+        acc[key] = value.trim();
+        return acc;
+      }, {});
+  }
+
+  private applyConfigVariables(variables: Record<string, string>): void {
+    const mergedVariables = { ...this.getBuildEnvVariables(), ...variables };
+    window.__ENV__ = mergedVariables;
+    this.config = {
+      project_name: 'runtime-config',
+      description: 'Environment variables loaded from /get-env',
+      variables: mergedVariables,
+      updated_at: new Date().toISOString(),
+    };
+    this.loaded = true;
+  }
+
   private async fetchConfig(): Promise<void> {
     try {
       console.log('🔄 Fetching environment configuration from API...');
 
-      const response = await fetch(
-        'https://ffihaeatoundrjzgtpzk.supabase.co/functions/v1/get-env',
-        {
-          method: 'GET',
-          headers: {
-            'X-Access-Key': '4a63305a316f04fe2acf33b2b63135925bd3a0523c1fd453a42fbf1fc49e6240',
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      const response = await fetch(this.getBootstrapUrl(), {
+        method: 'GET',
+        headers: {
+          'X-Access-Key': this.getBootstrapAccessKey(),
+          'Content-Type': 'application/json',
+        },
+      });
 
       if (!response.ok) {
         throw new Error(`Failed to load config: ${response.status} ${response.statusText}`);
       }
 
-      this.config = await response.json();
-      this.loaded = true;
+      const payload = (await response.json()) as Partial<EnvConfig>;
+      const variables = payload?.variables && typeof payload.variables === 'object'
+        ? Object.entries(payload.variables).reduce<Record<string, string>>((acc, [key, value]) => {
+            if (typeof value === 'string') {
+              acc[key] = value;
+            }
+            return acc;
+          }, {})
+        : {};
 
-      if (this.config && this.config.variables) {
-        (window as any).__ENV__ = {};
-        Object.entries(this.config.variables).forEach(([key, value]) => {
-          (window as any).__ENV__[key] = value;
-        });
-
-        console.log('✅ Environment configuration loaded successfully');
-        console.log(`📦 Loaded ${Object.keys(this.config.variables).length} variables`);
-        console.log('🔑 Variables:', Object.keys(this.config.variables).join(', '));
+      if (!Object.keys(variables).length) {
+        throw new Error('Environment config response did not include any variables');
       }
+
+      this.applyConfigVariables(variables);
+      this.config = {
+        project_name: payload.project_name || 'runtime-config',
+        description: payload.description || 'Environment variables loaded from /get-env',
+        variables: window.__ENV__ || {},
+        updated_at: payload.updated_at || new Date().toISOString(),
+      };
+
+      console.log('✅ Environment configuration loaded successfully');
+      console.log(`📦 Loaded ${Object.keys(window.__ENV__ || {}).length} variables`);
+      console.log('🔑 Variables:', Object.keys(window.__ENV__ || {}).join(', '));
     } catch (error) {
       console.error('❌ Failed to load environment configuration:', error);
+      const fallbackVariables = this.getBuildEnvVariables();
+
+      if (Object.keys(fallbackVariables).length > 0) {
+        console.warn('⚠️ Falling back to build-time environment variables');
+        this.applyConfigVariables(fallbackVariables);
+        this.config = {
+          project_name: 'build-fallback',
+          description: 'Build-time environment fallback because /get-env was unavailable',
+          variables: fallbackVariables,
+          updated_at: new Date().toISOString(),
+        };
+        return;
+      }
+
       throw error;
     }
   }
@@ -82,19 +147,17 @@ class EnvConfigService {
   getVariable(key: string): string | undefined {
     if (!this.loaded) {
       console.warn(`⚠️ Attempted to access env variable "${key}" before config was loaded`);
-      return undefined;
     }
 
-    return (window as any).__ENV__?.[key] || import.meta.env[key];
+    return window.__ENV__?.[key] || (import.meta.env[key] as string | undefined);
   }
 
   getAllVariables(): Record<string, string> {
     if (!this.loaded) {
       console.warn('⚠️ Attempted to access all env variables before config was loaded');
-      return {};
     }
 
-    return (window as any).__ENV__ || {};
+    return window.__ENV__ || this.getBuildEnvVariables();
   }
 
   isLoaded(): boolean {

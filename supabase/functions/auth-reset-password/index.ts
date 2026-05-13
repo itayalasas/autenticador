@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
+import { normalizeUrl, resolveApplicationAuthUrl } from '../_shared/application-auth-url.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -32,23 +33,27 @@ async function sendResetPasswordEmailViaAPI(
   emailConfig: Record<string, any> = {}
 ): Promise<boolean> {
   try {
-    const DEFAULT_API_KEY = 'sk_4b762d5e0cbf7382c81daf86487cef7baf6581168b2c224592f9b125679b654e';
-    const DEFAULT_API_URL = 'https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email';
     const notificationCfg = emailConfig?.notifications?.password_reset || {};
     const EMAIL_API_URL =
       notificationCfg.api_url ||
       emailConfig?.external_email_api_url ||
       Deno.env.get('EMAIL_API_URL') ||
-      DEFAULT_API_URL;
+      Deno.env.get('EXTERNAL_EMAIL_API_URL') ||
+      '';
     const EMAIL_API_KEY =
       notificationCfg.api_key ||
       emailConfig?.external_email_api_key ||
       Deno.env.get('EMAIL_API_KEY') ||
-      DEFAULT_API_KEY;
+      Deno.env.get('EXTERNAL_EMAIL_API_KEY') ||
+      '';
     const TEMPLATE_NAME =
       notificationCfg.template_name ||
       emailConfig?.reset_password_template_name ||
       'reset-password-authsystem';
+
+    if (!EMAIL_API_URL.trim() || !EMAIL_API_KEY.trim()) {
+      throw new Error('Missing email API configuration');
+    }
 
     console.log('📧 Sending reset password email via external API...');
     console.log('📧 API URL:', EMAIL_API_URL);
@@ -56,11 +61,11 @@ async function sendResetPasswordEmailViaAPI(
     console.log('📧 Recipient:', email);
     console.log('📧 Using app-specific key:', !!emailConfig?.external_email_api_key);
 
-    const response = await fetch(EMAIL_API_URL, {
+    const response = await fetch(EMAIL_API_URL.trim().replace(/\/$/, ''), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': EMAIL_API_KEY
+        'x-api-key': EMAIL_API_KEY.trim()
       },
       body: JSON.stringify({
         template_name: TEMPLATE_NAME,
@@ -431,70 +436,38 @@ Deno.serve(async (req) => {
 
     console.log('✅ Reset password successful for user:', appUser.email);
     
-    // Build reset URL from the environment's auth_url (URL Base) matching the
-    // API key environment. The reset-password-confirm form is served at that
-    // URL Base, not at the application.domain (which is the client-facing site
-    // we do not control).
-    const normalizeUrl = (raw: string | null | undefined): string => {
-      const v = (raw || '').trim()
-      if (!v) return ''
-      const withScheme = (v.startsWith('http://') || v.startsWith('https://')) ? v : `https://${v}`
-      return withScheme.replace(/\/$/, '')
-    }
+    const { baseUrl, callbackUrl: configuredCallbackUrl, environmentName } = await resolveApplicationAuthUrl(
+      supabase,
+      application.id,
+      (apiKeyData as any).environment || null
+    );
 
-    const apiKeyEnv = (apiKeyData as any).environment || 'development'
-
-    // The reset-password-confirm form is served at the environment's auth_url
-    // (URL Base). The application.domain points to the client-facing site we
-    // do not control, so we must NEVER use it for the reset link.
-    let baseUrl = ''
-    let selectedEnvName = ''
-
-    // 1. Exact match: api_key.environment -> environments.name
-    const { data: exactEnv, error: exactEnvError } = await supabase
-      .from('environments')
-      .select('auth_url, name, is_active')
-      .eq('application_id', application.id)
-      .eq('name', apiKeyEnv)
-      .eq('is_active', true)
-      .maybeSingle()
-
-    if (exactEnvError) {
-      console.error('⚠️ Error looking up exact environment for reset URL:', exactEnvError)
-    }
-
-    if (exactEnv) {
-      baseUrl = normalizeUrl(exactEnv.auth_url)
-      selectedEnvName = exactEnv.name
-    }
-
-    // 2. Fallback: any active environment of this application with a usable auth_url
     if (!baseUrl) {
-      const { data: anyEnvs, error: anyEnvError } = await supabase
-        .from('environments')
-        .select('auth_url, name')
-        .eq('application_id', application.id)
-        .eq('is_active', true)
-
-      if (anyEnvError) {
-        console.error('⚠️ Error looking up fallback environments for reset URL:', anyEnvError)
-      }
-
-      const firstWithAuth = (anyEnvs || []).find((e: any) => normalizeUrl(e.auth_url))
-      if (firstWithAuth) {
-        baseUrl = normalizeUrl(firstWithAuth.auth_url)
-        selectedEnvName = firstWithAuth.name
-        console.log(`⚠️ No environment matched "${apiKeyEnv}", using env "${selectedEnvName}" auth_url as fallback`)
-      }
+      console.error('❌ No auth_url configured for application environment; cannot build reset URL safely.');
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'AUTH_URL_NOT_FOUND',
+            message: 'No se encontró una URL de autenticación configurada para esta aplicación'
+          }
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
     }
 
-    if (baseUrl) {
-      console.log(`🌐 Using environment "${selectedEnvName}" auth_url for reset URL base:`, baseUrl)
-    } else {
-      console.error('❌ No environment with auth_url available for this application; cannot build reset URL. Refusing to fall back to application.domain.')
+    if (normalizeUrl(callback_url) && configuredCallbackUrl && normalizeUrl(callback_url) !== configuredCallbackUrl) {
+      console.warn('⚠️ Ignoring untrusted callback_url for reset password flow. Using configured callback URL instead.', {
+        requested: normalizeUrl(callback_url),
+        configured: configuredCallbackUrl,
+        environment: environmentName || (apiKeyData as any).environment || null
+      });
     }
 
-    const resetUrl = `${baseUrl}/reset-password-confirm?token=${resetToken}&email=${encodeURIComponent(email)}&api_key=${encodeURIComponent(api_key)}&app_id=${encodeURIComponent(application_id)}`
+    const resetUrl = `${baseUrl}/reset-password-confirm?token=${resetToken}&email=${encodeURIComponent(email)}&api_key=${encodeURIComponent(api_key)}&app_id=${encodeURIComponent(application_id)}`;
 
     console.log('🔗 Reset URL generated:', resetUrl);
 
@@ -550,8 +523,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (callback_url) {
-      response.data.callback_url = callback_url
+    if (configuredCallbackUrl) {
+      response.data.callback_url = configuredCallbackUrl;
     }
 
     return new Response(

@@ -160,6 +160,12 @@ export default function ResetPasswordForm() {
       if (!res.ok || !data.success) throw new Error(data.error?.message || 'Error al restablecer la contraseña');
       setSuccess(true);
       setTimeout(() => {
+        const redirectTarget = data.data?.callback_url || callbackUrl;
+        if (redirectTarget) {
+          window.location.href = redirectTarget;
+          return;
+        }
+
         const params = new URLSearchParams();
         if (appId) params.set('app_id', appId);
         if (apiKey) params.set('api_key', apiKey);

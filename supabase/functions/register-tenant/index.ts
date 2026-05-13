@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
+import { ensureSelectedPlanSubscription } from '../_shared/application-billing.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -82,7 +83,7 @@ Deno.serve(async (req: Request) => {
     // Load application
     const { data: application, error: appError } = await supabase
       .from('applications')
-      .select('id, name, domain, auth_mode, application_id, metadata')
+      .select('id, name, domain, auth_mode, application_id, metadata, billing_config')
       .eq('application_id', application_id)
       .single();
 
@@ -163,23 +164,51 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Trigger subscription auto-sync (activate-trial) if enabled for this application
+    // Provision internal billing when enabled, otherwise keep legacy activate-trial sync
     let subscriptionSync: { attempted: boolean; success: boolean; error?: string } = {
       attempted: false,
       success: false,
     };
 
     const appMeta = (application.metadata || {}) as Record<string, any>;
-    const syncEnabled = appMeta.subscription_sync_enabled === true;
-    const syncApiKey = appMeta.subscription_sync_api_key as string | undefined;
+    const internalBillingEnabled = application?.billing_config?.enabled === true;
     const syncPlanId = (plan_id as string | undefined) || (appMeta.subscription_sync_plan_id as string | undefined);
 
-    if (syncEnabled && syncApiKey && syncPlanId) {
-      subscriptionSync.attempted = true;
+    if (internalBillingEnabled) {
       try {
-        const trialRes = await fetch(
-          'https://veymthufmfqhxxxzfmfi.supabase.co/functions/v1/admin-api/activate-trial',
-          {
+        const provisioned = await ensureSelectedPlanSubscription({
+          supabase,
+          application,
+          selectedPlanId: syncPlanId || null,
+          tenantId: tenant.id,
+          payerEmail: null,
+        });
+
+        subscriptionSync.attempted = !!syncPlanId;
+        subscriptionSync.success = !!provisioned;
+        if (syncPlanId && !provisioned) {
+          subscriptionSync.error = 'No se pudo provisionar automaticamente el plan seleccionado';
+        }
+      } catch (syncError: any) {
+        subscriptionSync.attempted = true;
+        subscriptionSync.error = syncError?.message || 'Unknown error';
+        console.error('internal billing provisioning failed:', syncError);
+      }
+    } else {
+      const syncEnabled = appMeta.subscription_sync_enabled === true;
+      const syncApiKey = appMeta.subscription_sync_api_key as string | undefined;
+      const syncBaseUrl = (appMeta.subscription_sync_api_url as string | undefined) || Deno.env.get('SUBSCRIPTION_SYNC_API_URL') || '';
+      const normalizedSyncBaseUrl = syncBaseUrl.trim().replace(/\/$/, '');
+      const syncEndpoint = normalizedSyncBaseUrl
+        ? (normalizedSyncBaseUrl.endsWith('/activate-trial')
+          ? normalizedSyncBaseUrl
+          : `${normalizedSyncBaseUrl}/activate-trial`)
+        : '';
+
+      if (syncEnabled && syncApiKey && syncPlanId && syncEndpoint) {
+        subscriptionSync.attempted = true;
+        try {
+          const trialRes = await fetch(syncEndpoint, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -190,19 +219,19 @@ Deno.serve(async (req: Request) => {
               plan_id: syncPlanId,
               tenant_id: tenant.id,
             }),
-          }
-        );
+          });
 
-        if (trialRes.ok) {
-          subscriptionSync.success = true;
-        } else {
-          const errText = await trialRes.text();
-          subscriptionSync.error = `HTTP ${trialRes.status}: ${errText}`;
-          console.error('activate-trial failed:', subscriptionSync.error);
+          if (trialRes.ok) {
+            subscriptionSync.success = true;
+          } else {
+            const errText = await trialRes.text();
+            subscriptionSync.error = `HTTP ${trialRes.status}: ${errText}`;
+            console.error('activate-trial failed:', subscriptionSync.error);
+          }
+        } catch (syncError: any) {
+          subscriptionSync.error = syncError?.message || 'Unknown error';
+          console.error('activate-trial exception:', syncError);
         }
-      } catch (syncError: any) {
-        subscriptionSync.error = syncError?.message || 'Unknown error';
-        console.error('activate-trial exception:', syncError);
       }
     }
 

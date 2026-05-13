@@ -2,6 +2,8 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
 import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 import bcrypt from "npm:bcryptjs@2.4.3";
+import { buildRedirectUrl, normalizeUrl, resolveApplicationAuthUrl } from '../_shared/application-auth-url.ts';
+import { ensureSelectedPlanSubscription } from '../_shared/application-billing.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -29,18 +31,27 @@ function generateVerificationToken(): string {
   return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-const EXTERNAL_EMAIL_API_URL = 'https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email';
-const EXTERNAL_EMAIL_API_KEY = 'sk_4b762d5e0cbf7382c81daf86487cef7baf6581168b2c224592f9b125679b654e';
-
 async function sendExternalConfirmationEmail(params: {
   recipientEmail: string;
   userName: string;
   applicationName: string;
   confirmUrl: string;
   requestIp: string;
-}) {
+}, emailConfig: Record<string, any> = {}) {
   const now = new Date();
   const requestDate = `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()}`;
+  const notificationCfg =
+    emailConfig?.notifications?.registration ||
+    emailConfig?.notifications?.email_verification ||
+    emailConfig?.notifications?.confirmation ||
+    {};
+  const apiUrl = notificationCfg.api_url || emailConfig?.external_email_api_url || Deno.env.get('EMAIL_API_URL') || '';
+  const apiKey = notificationCfg.api_key || emailConfig?.external_email_api_key || Deno.env.get('EMAIL_API_KEY') || '';
+  const normalizedApiUrl = apiUrl.trim().replace(/\/$/, '');
+
+  if (!normalizedApiUrl || !apiKey.trim()) {
+    throw new Error('Missing external email API configuration');
+  }
 
   const payload = {
     template_name: 'confirmacion_registro',
@@ -55,11 +66,11 @@ async function sendExternalConfirmationEmail(params: {
     }
   };
 
-  const response = await fetch(EXTERNAL_EMAIL_API_URL, {
+  const response = await fetch(normalizedApiUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': EXTERNAL_EMAIL_API_KEY
+      'x-api-key': apiKey.trim()
     },
     body: JSON.stringify(payload)
   });
@@ -989,45 +1000,101 @@ Deno.serve(async (req) => {
 
     console.log('✅ Registration successful for user:', newUser.email);
 
-    // Trigger subscription auto-sync (activate-trial) if enabled for this application
+    // Provision internal billing when enabled, otherwise keep legacy external sync
     try {
-      const syncEnabled = appMetadata.subscription_sync_enabled === true;
-      const syncApiKey = appMetadata.subscription_sync_api_key as string | undefined;
-      const syncPlanId = (metadata?.plan_id as string | undefined) || (appMetadata.subscription_sync_plan_id as string | undefined);
+      const internalBillingEnabled = application?.billing_config?.enabled === true;
+      let selectedPlanId = (metadata?.plan_id as string | undefined) || null;
 
-      if (syncEnabled && syncApiKey && syncPlanId && tenantId) {
-        console.log('Triggering activate-trial for tenant:', tenantId);
-        const trialRes = await fetch(
-          'https://veymthufmfqhxxxzfmfi.supabase.co/functions/v1/admin-api/activate-trial',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Api-Key': syncApiKey,
-            },
-            body: JSON.stringify({
-              application_id: application_id,
-              plan_id: syncPlanId,
-              tenant_id: tenantId,
-            }),
-          }
-        );
-        if (!trialRes.ok) {
-          const errText = await trialRes.text();
-          console.error('activate-trial failed in auth-register:', trialRes.status, errText);
-        } else {
-          console.log('activate-trial succeeded in auth-register');
+      if (tenantId) {
+        const { data: currentTenant } = await supabase
+          .from('tenants')
+          .select('metadata')
+          .eq('id', tenantId)
+          .maybeSingle();
+
+        const tenantMetadata = {
+          ...(currentTenant?.metadata || {}),
+          billing_email: (currentTenant?.metadata?.billing_email as string | undefined) || email,
+        };
+
+        if (!selectedPlanId && currentTenant?.metadata?.plan_id) {
+          selectedPlanId = String(currentTenant.metadata.plan_id);
         }
-      } else {
-        console.log('activate-trial skipped:', {
-          syncEnabled,
-          hasApiKey: !!syncApiKey,
-          hasPlanId: !!syncPlanId,
-          hasTenantId: !!tenantId,
+
+        if (selectedPlanId) {
+          tenantMetadata.plan_id = selectedPlanId;
+        }
+
+        await supabase
+          .from('tenants')
+          .update({ metadata: tenantMetadata })
+          .eq('id', tenantId);
+      }
+
+      if (internalBillingEnabled) {
+        const provisioned = await ensureSelectedPlanSubscription({
+          supabase,
+          application,
+          selectedPlanId,
+          tenantId,
+          appUserId: newUser.id,
+          payerEmail: email,
         });
+
+        console.log('internal billing provisioning result:', {
+          enabled: internalBillingEnabled,
+          selectedPlanId,
+          tenantId,
+          subscriptionId: provisioned?.id || null,
+          status: provisioned?.status || null,
+        });
+      } else {
+        const syncEnabled = appMetadata.subscription_sync_enabled === true;
+        const syncApiKey = appMetadata.subscription_sync_api_key as string | undefined;
+        const syncPlanId = selectedPlanId || (appMetadata.subscription_sync_plan_id as string | undefined);
+        const syncBaseUrl = (appMetadata.subscription_sync_api_url as string | undefined) || Deno.env.get('SUBSCRIPTION_SYNC_API_URL') || '';
+        const normalizedSyncBaseUrl = syncBaseUrl.trim().replace(/\/$/, '');
+        const syncEndpoint = normalizedSyncBaseUrl
+          ? (normalizedSyncBaseUrl.endsWith('/activate-trial')
+            ? normalizedSyncBaseUrl
+            : `${normalizedSyncBaseUrl}/activate-trial`)
+          : '';
+
+        if (syncEnabled && syncApiKey && syncPlanId && tenantId && syncEndpoint) {
+          console.log('Triggering activate-trial for tenant:', tenantId);
+          const trialRes = await fetch(
+            syncEndpoint,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Api-Key': syncApiKey,
+              },
+              body: JSON.stringify({
+                application_id: application_id,
+                plan_id: syncPlanId,
+                tenant_id: tenantId,
+              }),
+            }
+          );
+          if (!trialRes.ok) {
+            const errText = await trialRes.text();
+            console.error('activate-trial failed in auth-register:', trialRes.status, errText);
+          } else {
+            console.log('activate-trial succeeded in auth-register');
+          }
+        } else {
+          console.log('activate-trial skipped:', {
+            syncEnabled,
+            hasApiKey: !!syncApiKey,
+            hasPlanId: !!syncPlanId,
+            hasTenantId: !!tenantId,
+            hasSyncEndpoint: !!syncEndpoint,
+          });
+        }
       }
     } catch (syncError: any) {
-      console.error('activate-trial exception in auth-register:', syncError?.message || syncError);
+      console.error('billing provisioning exception in auth-register:', syncError?.message || syncError);
     }
 
     try {
@@ -1067,44 +1134,38 @@ Deno.serve(async (req) => {
         console.error('Error creating verification token:', tokenError);
         // Continue without email verification if token creation fails
       } else {
-      let baseUrl: string | null = null;
+        const { baseUrl, callbackUrl: configuredCallbackUrl, environmentName } = await resolveApplicationAuthUrl(
+          supabase,
+          application.id,
+          (apiKeyData as any).environment || null
+        );
 
-      const apiKeyEnv = (apiKeyData as any).environment as string | undefined;
-      if (apiKeyEnv) {
-        const { data: envRow } = await supabase
-          .from('environments')
-          .select('auth_url')
-          .eq('application_id', application.id)
-          .eq('name', apiKeyEnv)
-          .maybeSingle();
-        if (envRow?.auth_url) {
-          baseUrl = envRow.auth_url.replace(/\/$/, '');
+        if (!baseUrl) {
+          console.error('❌ No auth_url configured for application environment; cannot build verification URL safely.');
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: {
+                code: 'AUTH_URL_NOT_FOUND',
+                message: 'No se encontró una URL de autenticación configurada para esta aplicación'
+              }
+            }),
+            {
+              status: 500,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            }
+          );
         }
-      }
 
-      if (!baseUrl) {
-        const { data: envFallback } = await supabase
-          .from('environments')
-          .select('auth_url')
-          .eq('application_id', application.id)
-          .eq('is_active', true)
-          .order('created_at', { ascending: true })
-          .limit(1)
-          .maybeSingle();
-        if (envFallback?.auth_url) {
-          baseUrl = envFallback.auth_url.replace(/\/$/, '');
+        if (normalizeUrl(callback_url) && configuredCallbackUrl && normalizeUrl(callback_url) !== configuredCallbackUrl) {
+          console.warn('⚠️ Ignoring untrusted callback_url during registration. Using configured callback URL instead.', {
+            requested: normalizeUrl(callback_url),
+            configured: configuredCallbackUrl,
+            environment: environmentName || (apiKeyData as any).environment || null
+          });
         }
-      }
 
-      if (!baseUrl && callback_url) {
-        baseUrl = callback_url.split('/callback')[0].replace(/\/$/, '');
-      }
-
-      if (!baseUrl) {
-        baseUrl = 'https://yourdomain.com';
-      }
-
-      const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}&email=${encodeURIComponent(email)}`;
+        const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}&email=${encodeURIComponent(email)}`;
 
         try {
           await sendExternalConfirmationEmail({
@@ -1113,7 +1174,7 @@ Deno.serve(async (req) => {
             applicationName: application.name,
             confirmUrl: verificationUrl,
             requestIp: ipAddress
-          });
+          }, emailConfig);
 
           await supabase.from('email_logs').insert({
             to_email: email,
@@ -1152,7 +1213,7 @@ Deno.serve(async (req) => {
         }
       };
       
-      if (callback_url) {
+      if (configuredCallbackUrl) {
         const verifyParams = new URLSearchParams({
           user_id: newUser.id,
           email: newUser.email,
@@ -1160,7 +1221,10 @@ Deno.serve(async (req) => {
           message: 'Por favor verifica tu email para continuar'
         });
         
-        response.data.callback_url = `${callback_url.replace('/callback', '/verify-email')}?${verifyParams.toString()}`;
+        response.data.callback_url = buildRedirectUrl(
+          configuredCallbackUrl.replace(/\/callback\/?$/, '/verify-email'),
+          Object.fromEntries(verifyParams.entries())
+        );
       }
       
       return new Response(
@@ -1239,14 +1303,42 @@ Deno.serve(async (req) => {
       }
     };
 
-    if (callback_url) {
-      const callbackParams = new URLSearchParams({
-        token: accessToken,
+    const { callbackUrl: finalCallbackUrl, environmentName: finalEnvironmentName } = await resolveApplicationAuthUrl(
+      supabase,
+      application.id,
+      (apiKeyData as any).environment || null
+    );
+
+    if (normalizeUrl(callback_url) && finalCallbackUrl && normalizeUrl(callback_url) !== finalCallbackUrl) {
+      console.warn('⚠️ Ignoring untrusted callback_url for final registration redirect. Using configured callback URL instead.', {
+        requested: normalizeUrl(callback_url),
+        configured: finalCallbackUrl,
+        environment: finalEnvironmentName || (apiKeyData as any).environment || null
+      });
+    }
+
+    if (finalCallbackUrl) {
+      const authCode = crypto.randomUUID();
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+
+      const { error: authCodeError } = await supabase.from('auth_codes').insert({
+        code: authCode,
+        access_token: accessToken,
         refresh_token: refreshToken,
         user_id: newUser.id,
-        state: 'registered_and_logged_in'
+        application_id: application.id,
+        expires_at: expiresAt
       });
-      response.data.callback_url = `${callback_url}?${callbackParams.toString()}`;
+
+      if (authCodeError) {
+        console.error('⚠️ Error saving auth code for registration callback:', authCodeError);
+      } else {
+        response.data.callback_url = buildRedirectUrl(finalCallbackUrl, {
+          code: authCode,
+          application_id,
+          state: 'registered_and_logged_in'
+        });
+      }
     }
 
     return new Response(

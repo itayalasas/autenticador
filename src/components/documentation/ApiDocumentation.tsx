@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Copy, CheckCircle, AlertCircle, Globe, Key, Shield } from 'lucide-react';
+import ArchitectureOverview from './ArchitectureOverview';
 
 export default function ApiDocumentation() {
   const [activeEndpoint, setActiveEndpoint] = useState('auth-login');
@@ -1547,6 +1548,8 @@ public class UserSearch {
         </p>
       </div>
 
+      <ArchitectureOverview />
+
       {/* Web Integration Flow - RECOMMENDED */}
       <div className="bg-gradient-to-r from-green-50 to-blue-50 border-2 border-green-300 rounded-lg p-6">
         <div className="flex items-start space-x-3 mb-4">
@@ -1555,7 +1558,7 @@ public class UserSearch {
             <h3 className="text-xl font-bold text-gray-900 mb-2">Integración Web Recomendada (Flujo de Redirección)</h3>
             <p className="text-gray-700 mb-4">
               <strong>Este es el método recomendado para la mayoría de aplicaciones web.</strong> Tu aplicación redirige al usuario a AuthSystem,
-              el usuario se autentica, y AuthSystem lo redirige de vuelta con los tokens.
+              el usuario se autentica, y AuthSystem lo redirige de vuelta con un <code>code</code> temporal que luego se intercambia por tokens.
             </p>
           </div>
         </div>

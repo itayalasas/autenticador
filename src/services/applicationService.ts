@@ -1,6 +1,98 @@
 import { supabase } from '../lib/supabase';
 import { Application, Environment, BrandingConfig } from '../types';
 
+type BrandingReadMode = 'draft' | 'published';
+
+interface BrandingReadOptions {
+  mode?: BrandingReadMode;
+  environmentId?: string;
+  environmentName?: string;
+  host?: string;
+}
+
+const BRANDING_META_FIELDS = new Set([
+  'id',
+  'application_id',
+  'created_at',
+  'updated_at'
+]);
+
+function extractBrandingConfig(record: Record<string, any> | null | undefined): BrandingConfig | null {
+  if (!record) return null;
+
+  const config = Object.entries(record).reduce<Record<string, any>>((acc, [key, value]) => {
+    if (!BRANDING_META_FIELDS.has(key) && value !== undefined) {
+      acc[key] = value;
+    }
+    return acc;
+  }, {});
+
+  return Object.keys(config).length > 0 ? (config as BrandingConfig) : null;
+}
+
+function normalizeHost(host?: string | null): string | null {
+  if (!host) return null;
+  return host.toLowerCase().replace(/^www\./, '').trim();
+}
+
+function matchesEnvironmentHost(environment: Environment, host?: string | null): boolean {
+  const normalizedHost = normalizeHost(host);
+  if (!normalizedHost) return false;
+
+  const domainMatch = normalizeHost(environment.domain) === normalizedHost;
+  if (domainMatch) return true;
+
+  const authHost = environment.auth_url ? normalizeHost(new URL(environment.auth_url).hostname) : null;
+  return authHost === normalizedHost;
+}
+
+function getBrandingSnapshot(environment: Environment | null | undefined): Partial<BrandingConfig> | null {
+  const snapshot = environment?.metadata?.branding_snapshot;
+  return snapshot && typeof snapshot === 'object' ? snapshot : null;
+}
+
+async function resolveBrandingEnvironment(
+  applicationId: string,
+  options: BrandingReadOptions = {}
+): Promise<Environment | null> {
+  const { data: environments, error } = await supabase
+    .from('environments')
+    .select('*')
+    .eq('application_id', applicationId);
+
+  if (error) throw error;
+
+  const list = (environments || []) as Environment[];
+  if (list.length === 0) return null;
+
+  if (options.environmentId) {
+    const directMatch = list.find((environment) => environment.id === options.environmentId);
+    if (directMatch) return directMatch;
+  }
+
+  const byHost = list.find((environment) => matchesEnvironmentHost(environment, options.host));
+  if (byHost) return byHost;
+
+  if (options.environmentName) {
+    const byName = list.find(
+      (environment) => environment.name.toLowerCase() === options.environmentName?.toLowerCase()
+    );
+    if (byName) return byName;
+  }
+
+  const productionSnapshot = list.find(
+    (environment) => environment.name === 'production' && !!getBrandingSnapshot(environment)
+  );
+  if (productionSnapshot) return productionSnapshot;
+
+  const anyPublished = list.find((environment) => !!getBrandingSnapshot(environment));
+  if (anyPublished) return anyPublished;
+
+  return list.find((environment) => environment.name === 'production')
+    || list.find((environment) => environment.name === 'testing')
+    || list[0];
+}
+
 export const applicationService = {
   // Get all applications for current user
   async getApplications(): Promise<Application[]> {
@@ -522,7 +614,7 @@ export const applicationService = {
       deployed_at: new Date().toISOString()
     };
   },
-  // Update branding
+  // Update branding draft
   async updateBranding(applicationId: string, branding: Partial<BrandingConfig>) {
     const { data, error } = await supabase
       .from('branding_configs')
@@ -539,8 +631,50 @@ export const applicationService = {
     return data;
   },
 
+  async publishBrandingToEnvironment(applicationId: string, environmentId: string) {
+    const { data: brandingRow, error: brandingError } = await supabase
+      .from('branding_configs')
+      .select('*')
+      .eq('application_id', applicationId)
+      .maybeSingle();
+
+    if (brandingError) throw brandingError;
+
+    const snapshot = extractBrandingConfig(brandingRow) || {};
+
+    const { data: environment, error: environmentError } = await supabase
+      .from('environments')
+      .select('*')
+      .eq('id', environmentId)
+      .single();
+
+    if (environmentError) throw environmentError;
+
+    const metadata = {
+      ...(environment.metadata || {}),
+      branding_snapshot: snapshot,
+      branding_published_at: new Date().toISOString(),
+      branding_source_updated_at: brandingRow?.updated_at || new Date().toISOString(),
+      branding_theme_label: snapshot.theme_style || 'custom'
+    };
+
+    const { data: updatedEnvironment, error: updateError } = await supabase
+      .from('environments')
+      .update({ metadata })
+      .eq('id', environmentId)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
+
+    return {
+      snapshot,
+      environment: updatedEnvironment as Environment
+    };
+  },
+
   // Get branding
-  async getBranding(applicationId: string): Promise<BrandingConfig | null> {
+  async getBranding(applicationId: string, options: BrandingReadOptions = {}): Promise<BrandingConfig | null> {
     const { data, error } = await supabase
       .from('branding_configs')
       .select('*')
@@ -548,6 +682,31 @@ export const applicationService = {
       .maybeSingle();
 
     if (error) throw error;
-    return data;
+
+    const draftConfig = extractBrandingConfig(data);
+
+    if (options.mode !== 'published') {
+      return draftConfig;
+    }
+
+    const environment = await resolveBrandingEnvironment(applicationId, options);
+    const publishedSnapshot = getBrandingSnapshot(environment);
+
+    if (!publishedSnapshot) {
+      return draftConfig;
+    }
+
+    return {
+      ...(draftConfig || {}),
+      ...publishedSnapshot,
+      custom_texts: publishedSnapshot.custom_texts || draftConfig?.custom_texts
+    } as BrandingConfig;
+  },
+
+  async getPublicBranding(applicationId: string, options: Omit<BrandingReadOptions, 'mode'> = {}) {
+    return this.getBranding(applicationId, {
+      ...options,
+      mode: 'published'
+    });
   }
 };

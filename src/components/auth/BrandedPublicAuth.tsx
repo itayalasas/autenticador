@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Mail, Lock, User, ArrowRight, Shield, X, Smartphone, QrCode, CheckCircle2, Copy, Apple } from 'lucide-react';
 import {
+  AuthSystemBadge,
   BrandedContainer,
   BrandedCard,
   BrandedInput,
@@ -10,6 +11,7 @@ import {
 } from '../ui/BrandedComponents';
 import { BrandingConfig } from '../../types';
 import { getDefaultBrandingConfig } from '../../utils/themePresets';
+import { getSupabaseAnonKey, getSupabaseUrl } from '../../lib/supabaseRuntime';
 import { applyFaviconToDocument } from '../../utils/favicon';
 
 interface BrandedPublicAuthProps {
@@ -50,8 +52,8 @@ export default function BrandedPublicAuth({
 
   const activeSetupPollRunRef = React.useRef(0);
   const activeChallengePollRunRef = React.useRef(0);
-  const SUPABASE_URL = 'https://sfqtmnncgiqkveaoqckt.supabase.co';
-  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNmcXRtbm5jZ2lxa3ZlYW9xY2t0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4MDEyNDMsImV4cCI6MjA3NTM3NzI0M30.n2yaYrfHDLAFePP1tA3-250P6bgKmf696fYJFHfRZaQ';
+  const SUPABASE_URL = getSupabaseUrl();
+  const SUPABASE_ANON_KEY = getSupabaseAnonKey();
   const API_BASE_URL = `${SUPABASE_URL}/functions/v1`;
 
   const [formData, setFormData] = useState({
@@ -925,17 +927,16 @@ export default function BrandedPublicAuth({
               </p>
             </div>
 
-            <div className="border-t border-slate-100 bg-slate-50 px-6 py-4 flex items-center justify-center gap-2 text-slate-600">
-              <Shield className="w-5 h-5 text-indigo-500" />
-              <p className="text-[1.05rem]">Protected by <span className="font-semibold text-slate-800">AuthSystem</span></p>
+            <div className="border-t border-slate-100 bg-slate-50 px-6 py-4 text-center">
+              <AuthSystemBadge branding={branding} text={getText('security_badge_text', 'AuthSystem')} compact />
             </div>
           </div>
         </div>
       )}
 
       {/* Footer */}
-      <div className="mt-6 text-center text-sm" style={{ color: branding.text_color, opacity: 0.6 }}>
-        Protected by AuthSystem
+      <div className="mt-6 text-center">
+        <AuthSystemBadge branding={branding} text={getText('security_badge_text', 'AuthSystem')} compact />
       </div>
 
       {/* Custom Styles */}

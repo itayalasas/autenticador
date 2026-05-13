@@ -3,6 +3,8 @@ import PublicAuthForms from './PublicAuthForms';
 import { applicationService } from '../../services/applicationService';
 import { supabase } from '../../lib/supabase';
 import { getSupabaseAnonKey, getSupabaseUrl } from '../../lib/supabaseRuntime';
+import { getEnvVariable } from '../../services/envConfigService';
+import { config as publicConfig } from '../../lib/config';
 import { useSearchParams } from 'react-router-dom';
 import { applyFaviconToDocument } from '../../utils/favicon';
 
@@ -21,6 +23,10 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
   const validFormType = ['login', 'register', 'reset-password', 'reset-password-confirm'].includes(formType)
     ? formType as 'login' | 'register' | 'reset-password' | 'reset-password-confirm'
     : 'login';
+  const fallbackApiKey = getEnvVariable('VITE_PUBLIC_API_KEY') || (publicConfig.apiKey && publicConfig.apiKey !== 'PLACEHOLDER_API_KEY'
+    ? publicConfig.apiKey
+    : null);
+  const developmentCallbackUrl = `${window.location.origin}/auth/callback`;
 
   useEffect(() => {
     applyFaviconToDocument('/images/icon.svg');
@@ -53,14 +59,14 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
             environment_urls: {
               development: {
                 base_url: 'http://localhost:5173',
-                callback_url: 'http://localhost:5173/auth/callback'
+                callback_url: developmentCallbackUrl
               }
             }
           }
         };
         
         // Mock API key
-        setApiKey('ak_development_cd9bac61b17b0a09f307afe54e93d40f');
+        setApiKey(fallbackApiKey);
         
         // Mock branding
         const mockBranding = {
@@ -108,13 +114,13 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
               environment_urls: {
                 development: {
                   base_url: 'http://localhost:5173',
-                  callback_url: 'http://localhost:5173/auth/callback'
+                  callback_url: developmentCallbackUrl
                 }
               }
             }
           };
           
-          setApiKey('ak_development_cd9bac61b17b0a09f307afe54e93d40f');
+          setApiKey(fallbackApiKey);
           
           const mockBranding = {
             primary_color: '#3B82F6',
@@ -135,7 +141,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
           return;
         }
 
-        // Get environment from URL parameters or default to development
         const environment = searchParams.get('env') || 'development';
         
         // Load API key for the environment
@@ -150,16 +155,19 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
         if (apiKeyError) {
           console.error('Error loading API keys:', apiKeyError);
           // Use mock API key if database query fails
-          setApiKey('ak_development_cd9bac61b17b0a09f307afe54e93d40f');
+          setApiKey(fallbackApiKey);
         } else if (!apiKeys || apiKeys.length === 0) {
           console.warn('No active API keys found for application, using mock key');
-          setApiKey('ak_development_cd9bac61b17b0a09f307afe54e93d40f');
+          setApiKey(fallbackApiKey);
         } else {
           setApiKey(apiKeys[0].key_hash);
         }
 
         try {
-          const branding = await applicationService.getBranding(app.id);
+          const branding = await applicationService.getPublicBranding(app.id, {
+            environmentName: environment,
+            host: window.location.hostname
+          });
           const finalAppData = {
             ...app,
             branding: branding || {}
@@ -201,7 +209,7 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
     };
 
     loadApplicationData();
-  }, [appId]);
+  }, [appId, searchParams]);
 
   useEffect(() => {
     if (appData?.branding?.favicon_url) {
@@ -211,18 +219,35 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 px-4 flex items-center justify-center">
+        <div className="w-full max-w-md rounded-3xl border border-white/10 bg-white/95 p-8 shadow-2xl">
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 via-cyan-400 to-fuchsia-500 shadow-lg shadow-blue-500/20">
+            <div className="h-7 w-7 rounded-full border-2 border-white/90 border-t-transparent animate-spin" />
+          </div>
+          <h1 className="text-center text-2xl font-bold text-slate-900">Preparando autenticación</h1>
+          <p className="mt-2 text-center text-sm text-slate-600">
+            Cargando configuración de la aplicación, branding y variables de runtime desde <code>/get-env</code>.
+          </p>
+          <div className="mt-6 h-2 overflow-hidden rounded-full bg-slate-100">
+            <div className="h-full w-1/2 animate-pulse rounded-full bg-gradient-to-r from-blue-500 via-cyan-400 to-fuchsia-500" />
+          </div>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Error</h1>
-          <p className="text-gray-600">{error}</p>
+      <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-slate-100 px-4 flex items-center justify-center">
+        <div className="w-full max-w-lg rounded-3xl border border-rose-200 bg-white p-8 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+          <div className="inline-flex rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-rose-700">
+            Error de carga
+          </div>
+          <h1 className="mt-4 text-3xl font-bold text-slate-900">No pudimos cargar la aplicación</h1>
+          <p className="mt-3 text-slate-600">{error}</p>
+          <div className="mt-6 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
+            Revisa la configuración de Supabase, las variables runtime y que la aplicación exista en el panel.
+          </div>
         </div>
       </div>
     );

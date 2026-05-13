@@ -1,95 +1,263 @@
-import React from 'react';
-import { Eye, EyeOff, Mail, Lock, User, Loader2, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Eye, EyeOff, Loader2, CheckCircle, XCircle } from 'lucide-react';
 import { BrandingConfig } from '../../types';
-
-// ============================================================================
-// UTILITY FUNCTIONS
-// ============================================================================
 
 function getFormWidthClass(width?: string): string {
   switch (width) {
-    case 'narrow': return 'max-w-sm';
-    case 'wide': return 'max-w-2xl';
-    default: return 'max-w-md';
+    case 'narrow':
+      return 'max-w-sm';
+    case 'wide':
+      return 'max-w-2xl';
+    default:
+      return 'max-w-md';
   }
 }
 
 function getSpacingClass(spacing?: string): string {
   switch (spacing) {
-    case 'compact': return 'space-y-4';
-    case 'relaxed': return 'space-y-8';
-    default: return 'space-y-6';
-  }
-}
-
-function getShadowClass(intensity?: string, style?: string): string {
-  if (style === 'neumorphic') {
-    return 'shadow-neumorphic';
-  }
-
-  switch (intensity) {
-    case 'none': return '';
-    case 'light': return 'shadow-md';
-    case 'strong': return 'shadow-2xl';
-    default: return 'shadow-xl';
+    case 'compact':
+      return 'space-y-4';
+    case 'relaxed':
+      return 'space-y-8';
+    default:
+      return 'space-y-6';
   }
 }
 
 function getAnimationDuration(speed?: string): string {
   switch (speed) {
-    case 'slow': return 'duration-500';
-    case 'fast': return 'duration-150';
-    default: return 'duration-300';
+    case 'slow':
+      return 'duration-500';
+    case 'fast':
+      return 'duration-150';
+    default:
+      return 'duration-300';
   }
 }
 
-// ============================================================================
-// BRANDED CONTAINER
-// ============================================================================
+function isGradientValue(value?: string | null): boolean {
+  return !!value && value.includes('gradient');
+}
+
+function hexToRgb(color?: string | null): { r: number; g: number; b: number } | null {
+  if (!color) return null;
+  const normalized = color.trim();
+
+  if (normalized.startsWith('#')) {
+    let hex = normalized.slice(1);
+    if (hex.length === 3) {
+      hex = hex.split('').map((char) => `${char}${char}`).join('');
+    }
+    if (hex.length !== 6) return null;
+    const numeric = Number.parseInt(hex, 16);
+    if (Number.isNaN(numeric)) return null;
+    return {
+      r: (numeric >> 16) & 255,
+      g: (numeric >> 8) & 255,
+      b: numeric & 255
+    };
+  }
+
+  const rgbMatch = normalized.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+  if (!rgbMatch) return null;
+
+  return {
+    r: Number(rgbMatch[1]),
+    g: Number(rgbMatch[2]),
+    b: Number(rgbMatch[3])
+  };
+}
+
+function withAlpha(color: string | undefined, alpha: number, fallback = `rgba(15, 23, 42, ${alpha})`) {
+  const rgb = hexToRgb(color);
+  if (!rgb) return fallback;
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+}
+
+function luminance(color?: string | null): number {
+  const rgb = hexToRgb(color);
+  if (!rgb) return 255;
+  return (0.299 * rgb.r) + (0.587 * rgb.g) + (0.114 * rgb.b);
+}
+
+function readableForeground(background?: string | null, fallbackDark = '#0F172A', fallbackLight = '#FFFFFF') {
+  return luminance(background) > 165 ? fallbackDark : fallbackLight;
+}
+
+function getCardShadow(branding: BrandingConfig) {
+  const primaryGlow = withAlpha(branding.primary_color, 0.22, 'rgba(14, 165, 233, 0.22)');
+  switch (branding.shadow_intensity) {
+    case 'none':
+      return 'none';
+    case 'light':
+      return `0 18px 40px -34px ${primaryGlow}`;
+    case 'strong':
+      return `0 40px 90px -42px ${primaryGlow}, 0 18px 42px -30px rgba(15, 23, 42, 0.45)`;
+    default:
+      return `0 28px 70px -38px ${primaryGlow}, 0 16px 34px -28px rgba(15, 23, 42, 0.35)`;
+  }
+}
+
+function getPatternStyle(branding: BrandingConfig): React.CSSProperties {
+  const primarySoft = withAlpha(branding.primary_color, 0.08, 'rgba(59, 130, 246, 0.08)');
+  const accentSoft = withAlpha(branding.accent_color || branding.secondary_color, 0.09, 'rgba(236, 72, 153, 0.09)');
+
+  switch (branding.background_pattern) {
+    case 'dot-grid':
+      return {
+        backgroundImage: `radial-gradient(${primarySoft} 1px, transparent 1px)`,
+        backgroundSize: '22px 22px'
+      };
+    case 'mesh':
+      return {
+        backgroundImage: `
+          radial-gradient(circle at 20% 20%, ${primarySoft}, transparent 32%),
+          radial-gradient(circle at 80% 0%, ${accentSoft}, transparent 28%),
+          radial-gradient(circle at 100% 80%, ${withAlpha(branding.secondary_color, 0.08)}, transparent 34%)
+        `
+      };
+    case 'diagonal-lines':
+      return {
+        backgroundImage: `repeating-linear-gradient(135deg, ${primarySoft} 0, ${primarySoft} 1px, transparent 1px, transparent 15px)`
+      };
+    case 'radial-burst':
+      return {
+        backgroundImage: `radial-gradient(circle at top, ${accentSoft}, transparent 36%), radial-gradient(circle at bottom right, ${primarySoft}, transparent 30%)`
+      };
+    default:
+      return {};
+  }
+}
+
+function getScaleClasses(scale?: string) {
+  switch (scale) {
+    case 'small':
+      return {
+        title: 'text-2xl',
+        subtitle: 'text-sm',
+        body: 'text-sm'
+      };
+    case 'large':
+      return {
+        title: 'text-4xl',
+        subtitle: 'text-lg',
+        body: 'text-base'
+      };
+    default:
+      return {
+        title: 'text-3xl',
+        subtitle: 'text-base',
+        body: 'text-sm'
+      };
+  }
+}
+
+type MessageStatus = 'idle' | 'loading' | 'success' | 'error';
 
 interface BrandedContainerProps {
   branding: BrandingConfig;
   children: React.ReactNode;
+  viewport?: 'screen' | 'full' | 'auto';
 }
 
-export function BrandedContainer({ branding, children }: BrandedContainerProps) {
-  const getBackgroundStyle = () => {
-    if (branding.use_gradient && branding.gradient_start && branding.gradient_end) {
-      return {
-        background: `linear-gradient(135deg, ${branding.gradient_start}, ${branding.gradient_end})`
-      };
-    }
-    return {
-      background: branding.background_color || '#F9FAFB'
-    };
+export function BrandedContainer({ branding, children, viewport = 'screen' }: BrandedContainerProps) {
+  const patternStyle = getPatternStyle(branding);
+  const backgroundStyle: React.CSSProperties = {
+    backgroundColor: branding.background_color || '#F8FAFC',
+    color: branding.text_color || '#0F172A',
+    fontFamily: branding.font_family || 'Inter, sans-serif'
   };
 
-  const containerClass = `min-h-screen flex items-center justify-center p-8 ${
-    branding.blur_background ? 'relative overflow-hidden' : ''
-  }`;
+  const viewportClass = viewport === 'full'
+    ? 'min-h-full'
+    : viewport === 'auto'
+      ? ''
+      : 'min-h-screen';
+
+  if (branding.use_gradient && branding.gradient_start && branding.gradient_end) {
+    backgroundStyle.background = `linear-gradient(135deg, ${branding.gradient_start}, ${branding.gradient_end})`;
+  }
+
+  if (branding.background_image_url) {
+    backgroundStyle.backgroundImage = `${backgroundStyle.background ? `${backgroundStyle.background}, ` : ''}url(${branding.background_image_url})`;
+    backgroundStyle.backgroundSize = 'cover';
+    backgroundStyle.backgroundPosition = 'center';
+  }
+
+  const overlayStyle = getPatternStyle(branding);
 
   return (
-    <div className={containerClass} style={getBackgroundStyle()}>
-      {/* Animated Background Blobs for glass/gradient themes */}
+    <div
+      className={`relative ${viewportClass} overflow-hidden px-4 py-10 sm:px-8 ${branding.blur_background ? 'isolate' : ''}`}
+      style={backgroundStyle}
+    >
+      <div
+        className="absolute inset-0 opacity-90"
+        style={{
+          ...overlayStyle,
+          backgroundColor: branding.background_image_url ? withAlpha(branding.background_color, 0.72, 'rgba(248,250,252,0.72)') : undefined
+        }}
+      />
+
       {branding.blur_background && (
         <>
-          <div className="absolute top-20 left-20 w-72 h-72 rounded-full mix-blend-multiply filter blur-3xl opacity-70 animate-pulse"
-            style={{ backgroundColor: branding.primary_color }}></div>
-          <div className="absolute bottom-20 right-20 w-72 h-72 rounded-full mix-blend-multiply filter blur-3xl opacity-70 animate-pulse"
-            style={{ backgroundColor: branding.secondary_color, animationDelay: '1000ms' }}></div>
+          <div
+            className="pointer-events-none absolute -left-24 top-10 h-72 w-72 rounded-full blur-3xl"
+            style={{ background: withAlpha(branding.primary_color, 0.24) }}
+          />
+          <div
+            className="pointer-events-none absolute right-0 top-1/3 h-80 w-80 rounded-full blur-3xl"
+            style={{ background: withAlpha(branding.secondary_color, 0.18) }}
+          />
+          <div
+            className="pointer-events-none absolute bottom-0 left-1/3 h-72 w-72 rounded-full blur-3xl"
+            style={{ background: withAlpha(branding.accent_color || branding.primary_color, 0.16) }}
+          />
         </>
       )}
 
-      <div className={`relative w-full ${getFormWidthClass(branding.form_width)}`}>
-        {children}
+      <div className={`relative mx-auto w-full ${getFormWidthClass(branding.form_width)}`}>
+        <div className={getSpacingClass(branding.spacing)} style={patternStyle}>
+          {children}
+        </div>
       </div>
     </div>
   );
 }
 
-// ============================================================================
-// BRANDED CARD
-// ============================================================================
+interface AuthSystemBadgeProps {
+  branding?: Partial<BrandingConfig>;
+  text?: string;
+  compact?: boolean;
+}
+
+export function AuthSystemBadge({
+  branding,
+  text = 'AuthSystem',
+  compact = false
+}: AuthSystemBadgeProps) {
+  const borderRadius = compact ? 16 : 9999;
+  const color = withAlpha(branding?.text_color || '#0F172A', 0.74, 'rgba(15,23,42,0.74)');
+  const background = withAlpha(branding?.card_background || '#FFFFFF', compact ? 0.86 : 0.72, compact ? 'rgba(255,255,255,0.86)' : 'rgba(255,255,255,0.72)');
+
+  return (
+    <div
+      className={`inline-flex max-w-full items-center gap-2.5 border border-white/60 shadow-sm backdrop-blur ${compact ? 'px-3 py-2 text-sm' : 'px-3.5 py-1.5 text-xs tracking-[0.24em]'}`}
+      style={{
+        borderRadius,
+        background,
+        color
+      }}
+    >
+      <img
+        src="/images/icon.svg"
+        alt="AuthSystem"
+        className={compact ? 'h-5 w-5 rounded-lg' : 'h-5 w-5 rounded-lg'}
+      />
+      <span className={`truncate font-semibold ${compact ? 'normal-case tracking-normal' : ''}`}>{text}</span>
+    </div>
+  );
+}
 
 interface BrandedCardProps {
   branding: BrandingConfig;
@@ -97,58 +265,46 @@ interface BrandedCardProps {
 }
 
 export function BrandedCard({ branding, children }: BrandedCardProps) {
-  const getCardClass = () => {
-    const baseClass = `p-8 ${branding.button_style === 'rounded' ? `rounded-${branding.border_radius || 16}px` : ''}`;
-    const shadowClass = getShadowClass(branding.shadow_intensity, branding.card_style);
-
-    let styleClass = '';
-    switch (branding.card_style) {
-      case 'glass':
-        styleClass = 'backdrop-blur-2xl border';
-        break;
-      case 'flat':
-        styleClass = 'border';
-        break;
-      case 'neumorphic':
-        styleClass = 'shadow-neumorphic';
-        break;
-      case 'elevated':
-      default:
-        styleClass = shadowClass;
-        break;
-    }
-
-    return `${baseClass} ${styleClass}`;
-  };
-
-  const getCardStyle = () => {
+  const cardStyle: React.CSSProperties = useMemo(() => {
+    const borderRadius = branding.border_radius || 18;
+    const defaultBackground = branding.card_background || '#FFFFFF';
     const style: React.CSSProperties = {
-      borderRadius: `${branding.border_radius || 16}px`
+      borderRadius,
+      border: `1px solid ${withAlpha(branding.primary_color, branding.card_style === 'glass' ? 0.18 : 0.08, 'rgba(148, 163, 184, 0.18)')}`,
+      boxShadow: branding.card_style === 'neumorphic'
+        ? `18px 18px 40px ${withAlpha('#94A3B8', 0.2)}, -18px -18px 40px ${withAlpha('#FFFFFF', 0.85)}`
+        : getCardShadow(branding),
+      background: defaultBackground
     };
 
-    if (branding.card_style === 'glass') {
-      style.background = branding.card_background || 'rgba(255, 255, 255, 0.1)';
-      style.borderColor = 'rgba(255, 255, 255, 0.2)';
-      if (branding.card_blur) {
-        style.backdropFilter = `blur(${branding.card_blur}px)`;
-      }
-    } else {
-      style.background = branding.card_background || '#FFFFFF';
+    if (branding.card_style === 'glass' || branding.glass_effect) {
+      style.background = isGradientValue(defaultBackground)
+        ? defaultBackground
+        : `linear-gradient(180deg, ${withAlpha(defaultBackground, 0.82, 'rgba(255,255,255,0.82)')}, ${withAlpha(defaultBackground, 0.68, 'rgba(255,255,255,0.68)')})`;
+      style.backdropFilter = `blur(${Math.max(branding.card_blur || 18, branding.glass_effect ? 18 : 0)}px)`;
+      style.WebkitBackdropFilter = style.backdropFilter;
+    }
+
+    if (branding.card_style === 'flat') {
+      style.boxShadow = 'none';
+      style.border = `1px solid ${withAlpha(branding.primary_color, 0.12, 'rgba(148,163,184,0.18)')}`;
     }
 
     return style;
-  };
+  }, [branding]);
 
   return (
-    <div className={getCardClass()} style={getCardStyle()}>
+    <div className="relative overflow-hidden p-6 sm:p-8" style={cardStyle}>
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-px"
+        style={{
+          background: `linear-gradient(90deg, transparent, ${withAlpha(branding.primary_color, 0.65)}, transparent)`
+        }}
+      />
       {children}
     </div>
   );
 }
-
-// ============================================================================
-// BRANDED INPUT
-// ============================================================================
 
 interface BrandedInputProps {
   type: string;
@@ -177,93 +333,78 @@ export function BrandedInput({
   onPasswordToggle,
   showPassword
 }: BrandedInputProps) {
-  const getInputClass = () => {
-    const baseClass = `w-full transition-all ${getAnimationDuration(branding.animation_speed)}`;
-    const iconClass = icon ? 'pl-12' : 'pl-4';
-    const rightIconClass = showPasswordToggle ? 'pr-12' : 'pr-4';
+  const [isFocused, setIsFocused] = useState(false);
+  const radius = branding.button_style === 'rounded' ? `${branding.border_radius || 14}px` : '12px';
+  const transition = branding.enable_animations === false ? '' : getAnimationDuration(branding.animation_speed);
 
-    switch (branding.input_style) {
-      case 'underlined':
-        return `${baseClass} px-0 py-3 bg-transparent border-0 border-b-2 focus:outline-none peer`;
-      case 'filled':
-        return `${baseClass} ${iconClass} ${rightIconClass} py-4 border-2 focus:outline-none`;
-      case 'outlined':
-      default:
-        return `${baseClass} ${iconClass} ${rightIconClass} py-3.5 border focus:outline-none focus:ring-2`;
-    }
+  const wrapperStyle: React.CSSProperties = {
+    borderRadius: radius,
+    border: branding.input_style === 'underlined'
+      ? 'none'
+      : `1px solid ${isFocused ? (branding.input_focus_color || branding.primary_color) : (branding.input_border_color || 'rgba(148, 163, 184, 0.4)')}`,
+    background: branding.input_style === 'underlined'
+      ? 'transparent'
+      : (branding.input_background || '#FFFFFF'),
+    boxShadow: isFocused
+      ? `0 0 0 4px ${withAlpha(branding.input_focus_color || branding.primary_color, 0.14)}`
+      : 'none'
   };
 
-  const getInputStyle = () => {
-    const style: React.CSSProperties = {
-      color: branding.text_color || '#1F2937'
-    };
-
-    if (branding.input_style === 'underlined') {
-      style.borderColor = branding.input_border_color || '#D1D5DB';
-    } else {
-      style.background = branding.input_background || '#F9FAFB';
-      style.borderColor = branding.input_border_color || 'transparent';
-      if (branding.button_style === 'rounded') {
-        style.borderRadius = `${branding.border_radius || 12}px`;
-      }
-    }
-
-    return style;
+  const inputStyle: React.CSSProperties = {
+    color: branding.text_color || '#0F172A',
+    borderRadius: branding.input_style === 'underlined' ? 0 : radius,
+    borderBottom: branding.input_style === 'underlined'
+      ? `2px solid ${isFocused ? (branding.input_focus_color || branding.primary_color) : (branding.input_border_color || '#CBD5E1')}`
+      : undefined,
+    background: 'transparent',
+    outline: 'none'
   };
-
-  const labelClass = branding.input_style === 'underlined'
-    ? 'absolute left-0 -top-6 text-sm transition-all peer-placeholder-shown:text-base peer-placeholder-shown:top-3 peer-focus:-top-6 peer-focus:text-sm'
-    : 'block text-sm font-medium mb-2';
 
   return (
     <div className="space-y-2">
-      {label && branding.input_style !== 'underlined' && (
-        <label htmlFor={id} className={labelClass} style={{ color: branding.text_color }}>
+      {label && (
+        <label
+          htmlFor={id}
+          className="block text-sm font-medium tracking-wide text-slate-700"
+          style={{ color: withAlpha(branding.text_color, 0.84, 'rgba(15,23,42,0.84)') }}
+        >
           {label}
         </label>
       )}
 
-      <div className="relative group">
+      <div className={`relative ${branding.input_style === 'underlined' ? '' : `transition-all ${transition}`}`} style={wrapperStyle}>
         {icon && (
-          <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-            <div style={{ color: branding.input_border_color }}>{icon}</div>
+          <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4" style={{ color: withAlpha(branding.primary_color, 0.72) }}>
+            {icon}
           </div>
         )}
 
         <input
           type={type}
           id={id}
-          className={getInputClass()}
-          style={getInputStyle()}
-          placeholder={branding.input_style === 'underlined' ? ' ' : placeholder}
           value={value}
           onChange={onChange}
+          placeholder={placeholder}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
+          className={`w-full ${branding.input_style === 'underlined' ? 'px-0 py-3.5' : 'py-3.5'} ${icon ? 'pl-12' : 'pl-4'} ${showPasswordToggle ? 'pr-12' : 'pr-4'} text-[15px] transition-all ${transition} placeholder:text-slate-400`}
+          style={inputStyle}
         />
-
-        {branding.input_style === 'underlined' && label && (
-          <label htmlFor={id} className={labelClass} style={{ color: branding.text_color }}>
-            {label}
-          </label>
-        )}
 
         {showPasswordToggle && (
           <button
             type="button"
             onClick={onPasswordToggle}
-            className="absolute inset-y-0 right-0 pr-4 flex items-center transition-colors"
-            style={{ color: branding.input_border_color }}
+            className="absolute inset-y-0 right-0 flex items-center pr-4 transition-opacity hover:opacity-80"
+            style={{ color: withAlpha(branding.primary_color, 0.72) }}
           >
-            {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+            {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
           </button>
         )}
       </div>
     </div>
   );
 }
-
-// ============================================================================
-// BRANDED BUTTON
-// ============================================================================
 
 interface BrandedButtonProps {
   type?: 'button' | 'submit';
@@ -286,75 +427,72 @@ export function BrandedButton({
   loading,
   loadingText
 }: BrandedButtonProps) {
-  const getButtonClass = () => {
-    const baseClass = `w-full font-semibold transition-all ${getAnimationDuration(branding.animation_speed)}`;
-    const transformClass = branding.button_hover_transform && branding.enable_animations
-      ? 'transform hover:scale-[1.02] active:scale-[0.98]'
-      : '';
-    const disabledClass = disabled ? 'opacity-50 cursor-not-allowed' : '';
+  const transformClass = branding.button_hover_transform && branding.enable_animations !== false
+    ? 'hover:-translate-y-0.5 active:translate-y-0'
+    : '';
 
-    let sizeClass = '';
-    switch (branding.button_size) {
-      case 'small': sizeClass = 'py-2 text-sm'; break;
-      case 'large': sizeClass = 'py-5 text-lg'; break;
-      default: sizeClass = 'py-4'; break;
-    }
+  const sizeClass = branding.button_size === 'small'
+    ? 'min-h-[44px] px-4 text-sm'
+    : branding.button_size === 'large'
+      ? 'min-h-[58px] px-6 text-base'
+      : 'min-h-[52px] px-5 text-sm';
 
-    return `${baseClass} ${sizeClass} ${transformClass} ${disabledClass}`;
+  const borderRadius = branding.button_style === 'rounded'
+    ? `${branding.border_radius || 14}px`
+    : '12px';
+
+  const style: React.CSSProperties = {
+    borderRadius,
+    border: '1px solid transparent',
+    color: '#FFFFFF',
+    boxShadow: getCardShadow({
+      ...branding,
+      shadow_intensity: branding.shadow_intensity === 'none' ? 'light' : branding.shadow_intensity
+    })
   };
 
-  const getButtonStyle = () => {
-    const style: React.CSSProperties = {};
+  const primaryColor = branding.primary_color || '#2563EB';
+  const secondaryColor = branding.secondary_color || '#1D4ED8';
 
-    if (branding.button_style === 'rounded') {
-      style.borderRadius = `${branding.border_radius || 12}px`;
-    }
-
-    if (variant === 'primary') {
-      if (branding.button_variant === 'gradient' && branding.gradient_start && branding.gradient_end) {
-        style.background = `linear-gradient(135deg, ${branding.gradient_start}, ${branding.gradient_end})`;
-        style.color = '#FFFFFF';
-      } else {
-        style.background = branding.primary_color || '#3B82F6';
-        style.color = '#FFFFFF';
-      }
-    } else {
-      style.background = branding.secondary_color || '#6B7280';
-      style.color = '#FFFFFF';
-    }
-
-    if (branding.shadow_intensity && branding.shadow_intensity !== 'none') {
-      style.boxShadow = `0 4px 14px 0 ${branding.primary_color}30`;
-    }
-
-    return style;
-  };
+  if (variant === 'secondary') {
+    style.background = withAlpha(primaryColor, 0.08);
+    style.color = primaryColor;
+    style.border = `1px solid ${withAlpha(primaryColor, 0.18)}`;
+    style.boxShadow = 'none';
+  } else if (branding.button_variant === 'outline') {
+    style.background = 'transparent';
+    style.color = primaryColor;
+    style.border = `1px solid ${withAlpha(primaryColor, 0.22)}`;
+    style.boxShadow = 'none';
+  } else if (branding.button_variant === 'ghost') {
+    style.background = withAlpha(primaryColor, 0.08);
+    style.color = primaryColor;
+    style.boxShadow = 'none';
+  } else if (branding.button_variant === 'gradient' && branding.gradient_start && branding.gradient_end) {
+    style.background = `linear-gradient(135deg, ${branding.gradient_start}, ${branding.gradient_end})`;
+  } else {
+    style.background = `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})`;
+  }
 
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled || loading}
-      className={getButtonClass()}
-      style={getButtonStyle()}
+      className={`flex w-full items-center justify-center gap-2 font-semibold tracking-[0.01em] transition-all ${getAnimationDuration(branding.animation_speed)} ${transformClass} ${sizeClass} ${disabled || loading ? 'cursor-not-allowed opacity-60' : ''}`}
+      style={style}
     >
       {loading ? (
-        <span className="flex items-center justify-center gap-2">
-          <Loader2 className="w-5 h-5 animate-spin" />
-          {loadingText || branding.message_loading_text || 'Procesando...'}
-        </span>
+        <>
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span>{loadingText || branding.message_loading_text || 'Procesando...'}</span>
+        </>
       ) : (
         children
       )}
     </button>
   );
 }
-
-// ============================================================================
-// BRANDED MESSAGE
-// ============================================================================
-
-type MessageStatus = 'idle' | 'loading' | 'success' | 'error';
 
 interface BrandedMessageProps {
   status: MessageStatus;
@@ -375,104 +513,55 @@ export function BrandedMessage({
 }: BrandedMessageProps) {
   if (status === 'idle') return null;
 
-  const getMessage = () => {
-    switch (status) {
-      case 'loading':
-        return loadingText || branding.message_loading_text || 'Processing...';
-      case 'success':
-        return successText || branding.message_success_text || 'Success!';
-      case 'error':
-        return errorText || branding.message_error_text || 'An error occurred';
-      default:
-        return '';
-    }
-  };
+  const baseBackground = status === 'loading'
+    ? branding.message_loading_bg || withAlpha(branding.primary_color, 0.12)
+    : status === 'success'
+      ? branding.message_success_bg || withAlpha(branding.success_color || '#10B981', 0.16)
+      : branding.message_error_bg || withAlpha(branding.error_color || '#EF4444', 0.14);
 
-  const getHelpText = () => {
-    if (status === 'error') {
-      return errorHelpText || branding.message_error_help_text;
-    }
-    return null;
-  };
+  const accentColor = status === 'loading'
+    ? branding.primary_color || '#2563EB'
+    : status === 'success'
+      ? branding.success_color || '#10B981'
+      : branding.error_color || '#EF4444';
 
-  const getMessageClass = () => {
-    let baseClass = `mb-6 p-4 transition-all duration-500 ${
-      branding.button_style === 'rounded' ? `rounded-${branding.border_radius || 16}px` : 'rounded-lg'
-    }`;
+  const foreground = readableForeground(baseBackground, '#0F172A', '#FFFFFF');
 
-    if (branding.card_style === 'glass') {
-      baseClass += ' backdrop-blur-xl border';
-    }
+  const message = status === 'loading'
+    ? (loadingText || branding.message_loading_text || 'Procesando...')
+    : status === 'success'
+      ? (successText || branding.message_success_text || 'Operación exitosa')
+      : (errorText || branding.message_error_text || 'No pudimos completar la operación');
 
-    const animClass = status === 'loading' ? 'animate-pulse'
-      : status === 'success' ? 'animate-slideIn'
-      : 'animate-shake';
+  const icon = status === 'loading'
+    ? <Loader2 className="h-5 w-5 animate-spin" style={{ color: accentColor }} />
+    : status === 'success'
+      ? <CheckCircle className="h-5 w-5" style={{ color: accentColor }} />
+      : <XCircle className="h-5 w-5" style={{ color: accentColor }} />;
 
-    return `${baseClass} ${animClass}`;
-  };
-
-  const getMessageStyle = (): React.CSSProperties => {
-    let backgroundColor = '';
-    let borderColor = '';
-
-    switch (status) {
-      case 'loading':
-        backgroundColor = branding.message_loading_bg || '#DBEAFE';
-        borderColor = 'rgba(59, 130, 246, 0.3)';
-        break;
-      case 'success':
-        backgroundColor = branding.message_success_bg || '#D1FAE5';
-        borderColor = 'rgba(16, 185, 129, 0.3)';
-        break;
-      case 'error':
-        backgroundColor = branding.message_error_bg || '#FEE2E2';
-        borderColor = 'rgba(239, 68, 68, 0.3)';
-        break;
-    }
-
-    return {
-      backgroundColor,
-      borderColor,
-      color: branding.text_color
-    };
-  };
-
-  const getIcon = () => {
-    const iconClass = "w-6 h-6";
-    const iconStyle = { color: branding.text_color };
-
-    switch (status) {
-      case 'loading':
-        return <Loader2 className={`${iconClass} animate-spin`} style={iconStyle} />;
-      case 'success':
-        return <CheckCircle className={iconClass} style={iconStyle} />;
-      case 'error':
-        return <XCircle className={iconClass} style={iconStyle} />;
-      default:
-        return null;
-    }
+  const messageStyle: React.CSSProperties = {
+    borderRadius: `${branding.border_radius || 16}px`,
+    background: isGradientValue(baseBackground) ? baseBackground : baseBackground,
+    border: `1px solid ${withAlpha(accentColor, 0.24)}`,
+    color: foreground
   };
 
   return (
-    <div className={getMessageClass()} style={getMessageStyle()}>
-      <div className="flex items-start gap-3">
-        <div className="flex-shrink-0 mt-0.5">
-          {getIcon()}
+    <div className={`mb-6 transition-all ${status === 'error' ? 'animate-shake' : status === 'success' ? 'animate-slideIn' : 'animate-pulse'}`} style={messageStyle}>
+      <div className="flex items-start gap-3 px-4 py-4">
+        <div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-2xl bg-white/70">
+          {icon}
         </div>
         <div className="flex-1">
-          <p className="font-medium">{getMessage()}</p>
-          {getHelpText() && (
-            <p className="text-sm mt-1 opacity-80">{getHelpText()}</p>
+          <p className="text-sm font-semibold">{message}</p>
+          {status === 'error' && errorHelpText && (
+            <p className="mt-1 text-sm opacity-80">{errorHelpText}</p>
           )}
         </div>
       </div>
     </div>
   );
 }
-
-// ============================================================================
-// BRANDED HEADER
-// ============================================================================
 
 interface BrandedHeaderProps {
   branding: BrandingConfig;
@@ -482,24 +571,41 @@ interface BrandedHeaderProps {
 }
 
 export function BrandedHeader({ branding, logoUrl, title, subtitle }: BrandedHeaderProps) {
+  const scale = getScaleClasses(branding.font_size_scale);
+  const titleColor = branding.text_color || '#0F172A';
+  const supportingColor = withAlpha(titleColor, 0.76, 'rgba(15,23,42,0.76)');
+  const badgeText = branding.custom_texts?.security_badge_text || 'AuthSystem';
+
   return (
-    <div className="text-center mb-8">
+    <div className="text-center">
+      <div className="mb-4">
+        <AuthSystemBadge branding={branding} text={badgeText} />
+      </div>
+
       {logoUrl && (
-        <div className="inline-flex items-center justify-center w-20 h-20 mb-6"
-          style={{
-            borderRadius: branding.button_style === 'rounded' ? `${branding.border_radius || 16}px` : '4px'
-          }}>
-          <img src={logoUrl} alt="Logo" className="w-full h-full object-contain" />
+        <div
+          className="mx-auto mb-6 flex h-20 w-20 items-center justify-center overflow-hidden border border-white/60 bg-white/70 p-3 shadow-[0_20px_50px_-34px_rgba(15,23,42,0.35)] backdrop-blur"
+          style={{ borderRadius: `${branding.border_radius || 20}px` }}
+        >
+          <img src={logoUrl} alt="Logo" className="h-full w-full object-contain" />
         </div>
       )}
-      <h1 className="text-3xl font-bold mb-2" style={{
-        color: branding.text_color,
-        fontFamily: branding.heading_font_family || branding.font_family
-      }}>
+
+      <h1
+        className={`${scale.title} font-semibold tracking-[-0.04em]`}
+        style={{
+          color: titleColor,
+          fontFamily: branding.heading_font_family || branding.font_family
+        }}
+      >
         {title}
       </h1>
+
       {subtitle && (
-        <p className="text-lg opacity-80" style={{ color: branding.text_color }}>
+        <p
+          className={`mx-auto mt-3 max-w-xl ${scale.subtitle}`}
+          style={{ color: supportingColor }}
+        >
           {subtitle}
         </p>
       )}

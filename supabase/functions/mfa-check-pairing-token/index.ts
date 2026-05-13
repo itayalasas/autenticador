@@ -10,6 +10,7 @@ const corsHeaders = {
 
 interface CheckPairingRequest {
   pairing_token: string;
+  pairing_code?: string;
   application_id?: string;
 }
 
@@ -25,10 +26,10 @@ Deno.serve(async (req) => {
     }
 
     const body: CheckPairingRequest = await req.json();
-    const { pairing_token, application_id } = body;
+    const { pairing_token, pairing_code, application_id } = body;
 
-    if (!pairing_token) {
-      return new Response(JSON.stringify({ success: false, error: { code: 'MISSING_FIELDS', message: 'pairing_token is required' } }), {
+    if (!pairing_token && !pairing_code) {
+      return new Response(JSON.stringify({ success: false, error: { code: 'MISSING_FIELDS', message: 'pairing_code or pairing_token is required' } }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
@@ -39,11 +40,13 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { data: pairing } = await supabase
+    const pairingQuery = supabase
       .from('mfa_pairing_tokens')
-      .select('id, token, application_id, expires_at, used_at, app_user_id')
-      .eq('token', pairing_token)
-      .maybeSingle();
+      .select('id, token, pairing_code, application_id, expires_at, used_at, app_user_id');
+
+    const { data: pairing } = pairing_code
+      ? await pairingQuery.eq('pairing_code', pairing_code.trim().toUpperCase()).maybeSingle()
+      : await pairingQuery.eq('token', pairing_token).maybeSingle();
 
     if (!pairing) {
       return new Response(JSON.stringify({ success: true, data: { status: 'invalid' } }), {

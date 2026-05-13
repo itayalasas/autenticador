@@ -2,7 +2,6 @@ import React from 'react';
 import {
   Home,
   Zap,
-  Crown,
   Shield,
   Users,
   Settings,
@@ -11,11 +10,10 @@ import {
   Database,
   Key,
   Activity,
-  HelpCircle,
-  LogOut,
   X,
   Link as LinkIcon,
-  Rocket
+  Rocket,
+  CreditCard,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -31,6 +29,7 @@ const sidebarItems = [
   { id: 'users', label: 'Usuarios', icon: Users },
   { id: 'roles', label: 'Roles y Permisos', icon: Shield },
   { id: 'authentication', label: 'Autenticación', icon: Shield },
+  { id: 'plans-subscriptions', label: 'Planes y Suscripciones', icon: CreditCard },
   { id: 'branding', label: 'Branding', icon: Palette },
   { id: 'environments', label: 'Ambientes', icon: Database },
   { id: 'connectors', label: 'Conectores', icon: LinkIcon },

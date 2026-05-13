@@ -4,7 +4,10 @@ import { useSearchParams } from 'react-router-dom';
 import { rolesService } from '../../services/rolesService';
 import { applicationService } from '../../services/applicationService';
 import { ipService } from '../../services/ipService';
+import { getSupabaseAnonKey, getSupabaseUrl } from '../../lib/supabaseRuntime';
 import { applyFaviconToDocument } from '../../utils/favicon';
+import { getTrustedCallbackUrl } from '../../utils/publicCallbackUrl';
+import { AuthSystemBadge } from '../ui/BrandedComponents';
 
 interface PublicAuthFormsProps {
   applicationId: string;
@@ -89,6 +92,13 @@ function PublicAuthForms({
   const [selectedRole, setSelectedRole] = useState('');
   const [customTexts, setCustomTexts] = useState<any>({});
   const [searchParams] = useSearchParams();
+  const preferredEnvironment = (searchParams.get('env') || 'development').toLowerCase();
+  const requestedCallbackUrl = searchParams.get('callback_url') || searchParams.get('redirect_uri');
+  const trustedCallbackUrl = getTrustedCallbackUrl(
+    appInfo?.metadata?.environment_urls || null,
+    requestedCallbackUrl,
+    preferredEnvironment
+  );
   
   const [formData, setFormData] = useState({
     name: '',
@@ -108,8 +118,8 @@ function PublicAuthForms({
   const showRegisterOnLogin = allowPublicRegistration;
   const registrationBlocked = formType === 'register' && !allowPublicRegistration;
 
-  const SUPABASE_URL = 'https://sfqtmnncgiqkveaoqckt.supabase.co';
-  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNmcXRtbm5jZ2lxa3ZlYW9xY2t0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4MDEyNDMsImV4cCI6MjA3NTM3NzI0M30.n2yaYrfHDLAFePP1tA3-250P6bgKmf696fYJFHfRZaQ';
+  const SUPABASE_URL = getSupabaseUrl();
+  const SUPABASE_ANON_KEY = getSupabaseAnonKey();
   const API_BASE_URL = `${SUPABASE_URL}/functions/v1`;
 
   // Default branding values
@@ -189,8 +199,13 @@ function PublicAuthForms({
 
       // Load custom texts
       try {
-        if (internalApplicationId && isMounted) {
-          const brandingConfig = await applicationService.getBranding(internalApplicationId);
+        if (branding?.custom_texts && isMounted) {
+          setCustomTexts(branding.custom_texts);
+        } else if (internalApplicationId && isMounted) {
+          const brandingConfig = await applicationService.getPublicBranding(internalApplicationId, {
+            environmentName: preferredEnvironment,
+            host: window.location.hostname
+          });
           if (brandingConfig && brandingConfig.custom_texts && isMounted) {
             setCustomTexts(brandingConfig.custom_texts);
           }
@@ -251,14 +266,12 @@ function PublicAuthForms({
       params.set('api_key', currentApiKey);
     }
 
-    // Support both callback_url and redirect_uri
-    const callbackUrl = searchParams.get('callback_url') || searchParams.get('redirect_uri');
-    if (callbackUrl) {
-      params.set('redirect_uri', callbackUrl);
+    if (trustedCallbackUrl) {
+      params.set('redirect_uri', trustedCallbackUrl);
     }
 
     const url = `${path}?${params.toString()}`;
-    console.log('🔗 buildNavUrl:', { path, callbackUrl, url });
+    console.log('🔗 buildNavUrl:', { path, callbackUrl: trustedCallbackUrl, url });
     return url;
   };
 
@@ -355,9 +368,6 @@ function PublicAuthForms({
 
     try {
       // Obtener parámetros de la URL
-      const urlParams = new URLSearchParams(window.location.search);
-      const callbackUrl = urlParams.get('callback_url') || urlParams.get('redirect_uri');
-
       if (!apiKey) {
         throw new Error('API key no disponible para esta aplicación');
       }
@@ -372,7 +382,7 @@ function PublicAuthForms({
         apiBaseUrl: API_BASE_URL,
         applicationId,
         apiKey: apiKey.substring(0, 20) + '...',
-        callbackUrl
+        callbackUrl: trustedCallbackUrl
       });
 
       let endpoint = '';
@@ -386,7 +396,7 @@ function PublicAuthForms({
             password: formData.password,
             application_id: applicationId,
             api_key: apiKey,
-            callback_url: callbackUrl,
+            callback_url: trustedCallbackUrl || undefined,
             client_ip: clientIp
           };
           break;
@@ -401,7 +411,7 @@ function PublicAuthForms({
             name: formData.name,
             application_id: applicationId,
             api_key: apiKey,
-            callback_url: callbackUrl,
+            callback_url: trustedCallbackUrl || undefined,
             role: selectedRole || undefined,
             client_ip: clientIp
           };
@@ -412,7 +422,7 @@ function PublicAuthForms({
             email: formData.email,
             application_id: applicationId,
             api_key: apiKey,
-            redirect_uri: callbackUrl,
+            redirect_uri: trustedCallbackUrl || undefined,
             client_ip: clientIp
           };
           break;
@@ -472,12 +482,12 @@ function PublicAuthForms({
         }
 
         if (loginData?.access_token) {
-          localStorage.setItem('auth_token', loginData.access_token);
-          localStorage.setItem('refresh_token', loginData.refresh_token);
+          sessionStorage.setItem('auth_token', loginData.access_token);
+          sessionStorage.setItem('refresh_token', loginData.refresh_token);
           if (loginData?.user) {
-            localStorage.setItem('user_data', JSON.stringify(loginData.user));
+            sessionStorage.setItem('user_data', JSON.stringify(loginData.user));
           }
-          console.log('💾 Tokens guardados en localStorage');
+          console.log('💾 Tokens guardados en sessionStorage');
         }
       };
       
@@ -753,8 +763,8 @@ function PublicAuthForms({
           window.location.href = checkResult.data.callback_url;
         }, 800);
       } else if (checkResult.data?.access_token) {
-        localStorage.setItem('auth_token', checkResult.data.access_token);
-        localStorage.setItem('refresh_token', checkResult.data.refresh_token);
+        sessionStorage.setItem('auth_token', checkResult.data.access_token);
+        sessionStorage.setItem('refresh_token', checkResult.data.refresh_token);
       }
 
       if (onSuccess) {
@@ -1001,9 +1011,8 @@ function PublicAuthForms({
             <p className="text-sm text-gray-500 mb-4">
               Si crees que esto es un error, por favor contacta al administrador del sistema.
             </p>
-            <div className="flex items-center justify-center space-x-2 text-sm text-gray-500">
-              <Shield className="w-4 h-4" />
-              <span>Protegido por AuthSystem</span>
+            <div className="flex items-center justify-center">
+              <AuthSystemBadge branding={defaultBranding as any} text="AuthSystem" compact />
             </div>
           </div>
         </div>
@@ -1510,10 +1519,7 @@ function PublicAuthForms({
 
         {/* Security Badge */}
         <div className="mt-6 text-center">
-          <div className="inline-flex items-center space-x-2 text-sm text-gray-500">
-            <Shield className="w-4 h-4" />
-            <span>{getText('security_badge_text', 'Protegido por AuthSystem')}</span>
-          </div>
+          <AuthSystemBadge branding={defaultBranding as any} text={getText('security_badge_text', 'AuthSystem')} compact />
         </div>
       </div>
 
@@ -1603,9 +1609,8 @@ function PublicAuthForms({
               </p>
             </div>
 
-            <div className="border-t border-slate-100 bg-slate-50 px-6 py-4 flex items-center justify-center gap-2 text-slate-600">
-              <Shield className="w-5 h-5 text-indigo-500" />
-              <p className="text-[1.05rem]">Protected by <span className="font-semibold text-slate-800">AuthSystem</span></p>
+            <div className="border-t border-slate-100 bg-slate-50 px-6 py-4 text-center">
+              <AuthSystemBadge branding={defaultBranding as any} text={getText('security_badge_text', 'AuthSystem')} compact />
             </div>
           </div>
         </div>

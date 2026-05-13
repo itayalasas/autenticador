@@ -12,6 +12,13 @@ Sistema completo de autenticación multi-ambiente con API REST estándar por amb
 - **Dashboard Administrativo**: Gestión completa de aplicaciones y usuarios
 - **Documentación API**: Ejemplos y guías de integración
 
+## 📚 Documentación recomendada
+
+- [Arquitectura y negocio](docs/arquitectura-y-negocio.md)
+- [Flujo de autenticación del cliente](FLUJO_AUTENTICACION_CLIENTE.md)
+- [Guía de integración para clientes](docs/client-integration-guide.md)
+- [README de la app móvil Authenticator](mobile-authenticator/README.md)
+
 ## 🛠️ Instalación y Configuración
 
 ### 1. Instalar Dependencias
@@ -20,14 +27,25 @@ npm install
 ```
 
 ### 2. Configurar Variables de Entorno
-Crea un archivo `.env` con:
+Crea un archivo `.env` con los valores de respaldo para el bootstrap y desarrollo local:
 ```env
 VITE_SUPABASE_URL=tu_supabase_url
 VITE_SUPABASE_ANON_KEY=tu_supabase_anon_key
 SUPABASE_SERVICE_ROLE_KEY=tu_service_role_key
 JWT_SECRET=tu_jwt_secret_super_seguro
 PORT=3001
+VITE_ENV_CONFIG_URL=https://ffihaeatoundrjzgtpzk.supabase.co/functions/v1/get-env
+VITE_ENV_CONFIG_ACCESS_KEY=tu_access_key_de_get_env
+
+# Variables para edge functions del backend
+EMAIL_API_URL=https://tu-servicio-email/functions/v1/send-email
+EMAIL_API_KEY=tu_api_key_de_email
+VALIDATION_API_URL=https://tu-servicio-validacion/functions/v1/validation-api
+SUBSCRIPTION_SYNC_API_URL=https://tu-servicio-suscripciones/functions/v1/admin-api
 ```
+
+> La aplicación carga primero la configuración remota desde `/get-env`. Si esa API no está disponible, usa las variables `VITE_*` del build como respaldo.
+> Las edge functions también toman configuración desde variables de entorno para evitar URLs y secretos hardcodeados en el código.
 
 ## 🌍 Configuración por Ambientes
 
@@ -134,7 +152,7 @@ X-API-Key: ak_dev_1234567890abcdef1234567890abcdef
   "email": "usuario@ejemplo.com",
   "password": "micontraseña123",
   "application_id": "app_mk2k3j4h5k6l",
-  "callback_url": "https://miapp.com/callback" // opcional
+  "redirect_uri": "https://miapp.com/callback" // opcional
 }
 ```
 
@@ -149,7 +167,7 @@ X-API-Key: ak_dev_1234567890abcdef1234567890abcdef
   "password": "contraseña123",
   "name": "Nuevo Usuario",
   "application_id": "app_mk2k3j4h5k6l",
-  "callback_url": "https://miapp.com/callback", // opcional
+  "redirect_uri": "https://miapp.com/callback", // opcional
   "metadata": {} // opcional
 }
 ```
@@ -163,7 +181,7 @@ X-API-Key: ak_dev_1234567890abcdef1234567890abcdef
 {
   "email": "usuario@ejemplo.com",
   "application_id": "app_mk2k3j4h5k6l",
-  "callback_url": "https://miapp.com/callback" // opcional
+  "redirect_uri": "https://miapp.com/callback" // opcional
 }
 ```
 
@@ -259,7 +277,7 @@ curl -X POST https://auth-dev.tudominio.com/api/auth/login \
 
 Los formularios públicos están disponibles en:
 
-- `callback_url`: URL de redirección después del éxito
+- `redirect_uri`: URL de redirección después del éxito. `callback_url` sigue como alias compatible.
 - `form`: Tipo de formulario (login, register, reset-password)
 
 ## 🔒 Seguridad

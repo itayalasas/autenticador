@@ -13,10 +13,10 @@ Se actualizó la integración con la API externa de envío de emails para utiliz
 #### Cambio 1: API Key actualizada
 ```typescript
 // ANTES
-const EMAIL_API_KEY = Deno.env.get('EMAIL_API_KEY') || 'sk_bcaca188c1b16345e4d10adf403eb4e9e98d3fa9ff04ba053d7416fe302b7dee';
+const EMAIL_API_KEY = Deno.env.get('EMAIL_API_KEY') || 'tu_email_api_key';
 
 // DESPUÉS
-const EMAIL_API_KEY = Deno.env.get('EMAIL_API_KEY') || 'sk_05f7d2638a2f33e2b730df9d0fb628d7e9230c7ee31a71df5d4f5cde01305e7f';
+const EMAIL_API_KEY = Deno.env.get('EMAIL_API_KEY') || 'tu_email_api_key';
 ```
 
 #### Cambio 2: Nombre del template actualizado
@@ -61,8 +61,8 @@ Se actualizaron todos los ejemplos y referencias con los nuevos valores:
 
 ### API Key
 ```
-ANTERIOR: sk_bcaca188c1b16345e4d10adf403eb4e9e98d3fa9ff04ba053d7416fe302b7dee
-NUEVO:    sk_05f7d2638a2f33e2b730df9d0fb628d7e9230c7ee31a71df5d4f5cde01305e7f
+ANTERIOR: tu_email_api_key_anterior
+NUEVO:    tu_email_api_key
 ```
 
 ### Template Name
@@ -80,12 +80,12 @@ Para aplicar estos cambios en producción, actualiza la variable de entorno en S
 ### Opción A: Dashboard
 1. Ve a **Supabase Dashboard** → **Project Settings** → **Edge Functions** → **Secrets**
 2. Busca `EMAIL_API_KEY`
-3. Edita el valor a: `sk_05f7d2638a2f33e2b730df9d0fb628d7e9230c7ee31a71df5d4f5cde01305e7f`
+3. Edita el valor a: `tu_email_api_key`
 4. Guarda los cambios
 
 ### Opción B: CLI
 ```bash
-supabase secrets set EMAIL_API_KEY=sk_05f7d2638a2f33e2b730df9d0fb628d7e9230c7ee31a71df5d4f5cde01305e7f
+supabase secrets set EMAIL_API_KEY=tu_email_api_key
 ```
 
 ---
@@ -93,9 +93,9 @@ supabase secrets set EMAIL_API_KEY=sk_05f7d2638a2f33e2b730df9d0fb628d7e9230c7ee3
 ## 📤 Request Actual que se Envía
 
 ```bash
-POST https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email
+POST https://tu-servicio-email/functions/v1/send-email
 Content-Type: application/json
-x-api-key: sk_05f7d2638a2f33e2b730df9d0fb628d7e9230c7ee31a71df5d4f5cde01305e7f
+x-api-key: tu_email_api_key
 
 {
   "template_name": "reset-password-authsystem",
@@ -143,7 +143,7 @@ curl -X POST \
 ### Logs Esperados
 ```
 📧 Sending reset password email via external API...
-📧 API URL: https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email
+📧 API URL: https://tu-servicio-email/functions/v1/send-email
 📧 Recipient: test@ejemplo.com
 ✅ Email sent successfully via external API
 ```

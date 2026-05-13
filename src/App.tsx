@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, useLocation, useSearchParams, useParams } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, useSearchParams, useParams } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
 import AuthPage from './components/auth/AuthPage';
 import PublicAuthRouter from './components/auth/PublicAuthRouter';
 import ResetPasswordForm from './components/auth/ResetPasswordForm';
 import VerifyEmailForm from './components/auth/VerifyEmailForm';
+import PasskeySetupPage from './components/auth/PasskeySetupPage';
+import CallbackHandler from './components/auth/CallbackHandler';
 import Sidebar from './components/layout/Sidebar';
 import Header from './components/layout/Header';
 import DashboardOverview from './components/dashboard/DashboardOverview';
@@ -16,6 +18,7 @@ import EnvironmentsManager from './components/environments/EnvironmentsManager';
 import ApiKeysManager from './components/apikeys/ApiKeysManager';
 import RolesManager from './components/roles/RolesManager';
 import AuthenticationSettings from './components/authentication/AuthenticationSettings';
+import PlansSubscriptionsManager from './components/billing/PlansSubscriptionsManager';
 import SettingsPage from './components/settings/SettingsPage';
 import LogsViewer from './components/activity/LogsViewer';
 import ConnectorsPage from './components/connectors/ConnectorsPage';
@@ -64,9 +67,7 @@ function PublicAuthRoute() {
 function MainApp() {
   const { user, loading } = useAuth();
   const [activeSection, setActiveSection] = useState('dashboard');
-  const [currentEnvironment, setCurrentEnvironment] = useState('development');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const location = useLocation();
   const [searchParams] = useSearchParams();
 
   // Check if we're in public auth mode
@@ -123,6 +124,7 @@ function MainApp() {
       case 'users': return 'Gestión de Usuarios';
       case 'roles': return 'Roles y Permisos';
       case 'authentication': return 'Autenticación';
+      case 'plans-subscriptions': return 'Planes y Suscripciones';
       case 'branding': return 'Gestión de Branding';
       case 'environments': return 'Ambientes';
       case 'connectors': return 'Conectores';
@@ -142,6 +144,7 @@ function MainApp() {
       case 'users': return 'Administra usuarios y permisos por aplicación';
       case 'roles': return 'Configura roles y permisos personalizados';
       case 'authentication': return 'Configura métodos de autenticación';
+      case 'plans-subscriptions': return 'Gestiona planes por aplicación, suscripciones y la conexión con Mercado Pago';
       case 'branding': return 'Personaliza la apariencia de tus formularios';
       case 'environments': return 'Gestiona ambientes de desarrollo, testing y producción';
       case 'connectors': return 'Configura integraciones con GitHub, Netlify y más';
@@ -166,6 +169,8 @@ function MainApp() {
         return <RolesManager />;
       case 'authentication':
         return <AuthenticationSettings />;
+      case 'plans-subscriptions':
+        return <PlansSubscriptionsManager />;
       case 'branding':
         return <BrandingManager />;
       case 'environments':
@@ -221,11 +226,13 @@ function App() {
       <Routes>
         <Route path="/prototype" element={<FormStylesPrototype />} />
         <Route path="/reset-password" element={<ResetPasswordForm />} />
-        <Route path="/reset-password-confirm" element={<ResetPasswordForm />} />
-        <Route path="/register-tenant" element={<RegisterTenantForm />} />
-        <Route path="/verify-email" element={<VerifyEmailForm />} />
-        <Route path="/github/callback" element={<GitHubCallback />} />
-        <Route path="/:action" element={<PublicAuthRoute />} />
+      <Route path="/reset-password-confirm" element={<ResetPasswordForm />} />
+      <Route path="/register-tenant" element={<RegisterTenantForm />} />
+      <Route path="/verify-email" element={<VerifyEmailForm />} />
+      <Route path="/passkey-setup" element={<PasskeySetupPage />} />
+      <Route path="/auth/callback" element={<CallbackHandler />} />
+      <Route path="/github/callback" element={<GitHubCallback />} />
+      <Route path="/:action" element={<PublicAuthRoute />} />
         <Route path="/*" element={<MainApp />} />
       </Routes>
     </Router>

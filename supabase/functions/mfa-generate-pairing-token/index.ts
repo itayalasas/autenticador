@@ -16,6 +16,19 @@ interface PairingRequest {
   password: string;
 }
 
+const PAIRING_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+function generatePairingCode(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  let raw = '';
+
+  for (let index = 0; index < bytes.length; index += 1) {
+    raw += PAIRING_CODE_ALPHABET[bytes[index] % PAIRING_CODE_ALPHABET.length];
+  }
+
+  return raw.match(/.{1,4}/g)?.join('-') || raw;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 200, headers: corsHeaders });
 
@@ -107,14 +120,17 @@ Deno.serve(async (req) => {
 
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
+    const pairingCode = generatePairingCode();
+
     const { data: tokenRow, error: tokenError } = await supabase
       .from('mfa_pairing_tokens')
       .insert({
         application_id: application.id,
         app_user_id: user.id,
         expires_at: expiresAt,
+        pairing_code: pairingCode,
       })
-      .select('token, expires_at')
+      .select('token, pairing_code, expires_at')
       .single();
 
     if (tokenError || !tokenRow) {
@@ -128,6 +144,7 @@ Deno.serve(async (req) => {
     const qrPayload = {
       type: 'authsystem-mfa-pair',
       pairing_token: tokenRow.token,
+      pairing_code: tokenRow.pairing_code,
       application_id: application.application_id,
       app_name: application.name,
       expires_at: tokenRow.expires_at,
@@ -137,6 +154,7 @@ Deno.serve(async (req) => {
       success: true,
       data: {
         pairing_token: tokenRow.token,
+        pairing_code: tokenRow.pairing_code,
         expires_at: tokenRow.expires_at,
         qr_payload: qrPayload,
         qr_text: JSON.stringify(qrPayload),

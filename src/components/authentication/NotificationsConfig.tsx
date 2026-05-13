@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   Bell,
+  Fingerprint,
   Mail,
   ChevronDown,
   ChevronUp,
@@ -21,6 +22,7 @@ export type NotificationKey =
   | 'password_reset'
   | 'welcome'
   | 'admin_new_user'
+  | 'passkey_setup'
   | 'tenant_invitation';
 
 export interface NotificationEntry {
@@ -34,7 +36,7 @@ export interface NotificationEntry {
 
 export type NotificationsMap = Record<NotificationKey, NotificationEntry>;
 
-const DEFAULT_API_URL = 'https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email';
+const DEFAULT_API_URL = 'https://tu-servicio-email/functions/v1/send-email';
 
 const NOTIFICATION_DEFINITIONS: Array<{
   key: NotificationKey;
@@ -99,6 +101,21 @@ const NOTIFICATION_DEFINITIONS: Array<{
       { name: 'user_email', description: 'Email del nuevo usuario' },
       { name: 'application_name', description: 'Nombre de la aplicación' },
       { name: 'registration_date', description: 'Fecha de registro' },
+    ],
+  },
+  {
+    key: 'passkey_setup',
+    title: 'Invitación de passkey',
+    description:
+      'Activa el correo que invita al usuario a crear una clave de paso desde el flujo público. Este envío usa la URL y la API key configuradas arriba.',
+    defaultTemplate: 'confirmation_passkey',
+    icon: Fingerprint,
+    variables: [
+      { name: 'client_name', description: 'Nombre del usuario' },
+      { name: 'passkey', description: 'Token o código de activación de la invitación' },
+      { name: 'setup_url', description: 'Enlace para completar la configuración' },
+      { name: 'application_name', description: 'Nombre de la aplicacion' },
+      { name: 'expires_at', description: 'Fecha de expiracion del enlace' },
     ],
   },
   {

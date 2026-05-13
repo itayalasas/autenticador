@@ -5,11 +5,14 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   ScrollView,
   Alert,
   StyleSheet,
   Modal,
   ActivityIndicator,
+  Keyboard,
+  KeyboardAvoidingView,
   Platform,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -17,15 +20,28 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
-import { listPendingChallenges, approveChallenge, generatePairingToken, registerDevice, unlinkDevice } from './src/services/api';
+import { Ionicons } from '@expo/vector-icons';
+import {
+  listPendingChallenges,
+  approveChallenge,
+  generatePairingToken,
+  registerDevice,
+  createPasskeyInvite,
+  getAccountSecurityOverview,
+  revokeAccountDevice,
+  resetAccountSecurity,
+  unlinkDevice
+} from './src/services/api';
 import { AppProfile, loadProfiles, removeProfile, upsertProfile } from './src/services/profiles';
 import { loadBiometricApprovalEnabled, saveBiometricApprovalEnabled } from './src/services/settings';
-
-const SUPABASE_URL = 'https://sfqtmnncgiqkveaoqckt.supabase.co';
+import { getDefaultSupabaseUrl } from './src/config/runtime';
+const SUPABASE_URL = getDefaultSupabaseUrl();
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
   }),
@@ -43,12 +59,14 @@ function createDeviceId() {
 
 function parseQrPayload(rawValue: string): {
   pairingToken?: string;
+  pairingCode?: string;
   applicationId?: string;
   appName?: string;
   apiKey?: string;
   baseUrl?: string;
   email?: string;
   password?: string;
+  deviceToken?: string;
 } {
   const value = rawValue.trim();
 
@@ -56,12 +74,14 @@ function parseQrPayload(rawValue: string): {
     const json = JSON.parse(value);
     return {
       pairingToken: json.pairing_token,
+      pairingCode: json.pairing_code,
       applicationId: json.application_id,
       appName: json.app_name || json.application_name,
       apiKey: json.api_key,
       baseUrl: json.base_url,
       email: json.email,
       password: json.password,
+      deviceToken: json.device_token,
     };
   } catch {
     if (value.includes('pairing_token=') || value.includes('application_id=') || value.includes('api_key=')) {
@@ -69,12 +89,14 @@ function parseQrPayload(rawValue: string): {
       const params = new URLSearchParams(queryPart);
       return {
         pairingToken: params.get('pairing_token') || undefined,
+        pairingCode: params.get('pairing_code') || undefined,
         applicationId: params.get('application_id') || undefined,
         appName: params.get('app_name') || undefined,
         apiKey: params.get('api_key') || undefined,
         baseUrl: params.get('base_url') || undefined,
         email: params.get('email') || undefined,
         password: params.get('password') || undefined,
+        deviceToken: params.get('device_token') || undefined,
       };
     }
 
@@ -93,6 +115,173 @@ function normalizeBaseUrl(baseUrl?: string) {
   return (baseUrl || SUPABASE_URL).trim().replace(/\/+$/, '');
 }
 
+function looksLikeUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
+function normalizePairingValue(value: string) {
+  return value.trim().toUpperCase();
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function buildPasskeyInvitationHtml(input: { appName: string; email: string; deviceName: string; applicationId: string }) {
+  const appName = escapeHtml(input.appName || 'Authenticator');
+  const email = escapeHtml(input.email);
+  const deviceName = escapeHtml(input.deviceName || 'Mi teléfono');
+  const applicationId = escapeHtml(input.applicationId);
+
+  return `<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Invitación para crear una clave de paso</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f4f7fb;font-family:Arial,Helvetica,sans-serif;color:#16314f;">
+    <div style="max-width:640px;margin:0 auto;padding:32px 20px;">
+      <div style="background:#ffffff;border-radius:20px;overflow:hidden;box-shadow:0 16px 40px rgba(13,52,92,0.12);">
+        <div style="background:linear-gradient(135deg,#0A78D1,#1b8be8);padding:28px 30px;color:#fff;">
+          <div style="font-size:13px;letter-spacing:1.2px;text-transform:uppercase;opacity:.9;font-weight:700;">AuthSystem</div>
+          <h1 style="margin:10px 0 0;font-size:28px;line-height:1.2;">Crear una clave de paso</h1>
+          <p style="margin:10px 0 0;font-size:16px;line-height:1.5;max-width:520px;">Te enviamos esta invitación para registrar un acceso más simple y seguro en <strong>${appName}</strong>.</p>
+        </div>
+
+        <div style="padding:28px 30px;">
+          <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hola, <strong>${email}</strong>.</p>
+          <p style="margin:0 0 18px;font-size:15px;line-height:1.7;color:#4a617c;">
+            Desde el dispositivo <strong>${deviceName}</strong> se solicitó crear una clave de paso para la aplicación <strong>${appName}</strong>.
+          </p>
+
+          <div style="border:1px solid #dce7f2;border-radius:16px;padding:18px 18px;background:#f8fbff;margin:0 0 20px;">
+            <div style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:#6f87a6;font-weight:700;margin-bottom:8px;">Resumen</div>
+            <div style="font-size:14px;line-height:1.8;color:#1f3b59;">
+              <div><strong>Aplicación:</strong> ${appName}</div>
+              <div><strong>Correo:</strong> ${email}</div>
+              <div><strong>Dispositivo:</strong> ${deviceName}</div>
+              <div><strong>ID de aplicación:</strong> ${applicationId}</div>
+            </div>
+          </div>
+
+          <p style="margin:0;font-size:15px;line-height:1.7;color:#4a617c;">
+            Si tú hiciste esta solicitud, abre Authenticator y continúa la configuración desde este mismo dispositivo.
+            Si no reconoces este cambio, puedes ignorar este mensaje.
+          </p>
+        </div>
+
+        <div style="padding:0 30px 28px;">
+          <div style="font-size:12px;color:#8aa0b8;line-height:1.6;border-top:1px solid #edf2f7;padding-top:14px;">
+            Este correo fue generado automáticamente por AuthSystem.
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>`;
+}
+
+function groupProfilesByApplication(items: AppProfile[]) {
+  const groups = new Map<string, {
+    id: string;
+    appName: string;
+    baseUrl: string;
+    applicationId: string;
+    profiles: AppProfile[];
+  }>();
+
+  items.forEach((profile) => {
+    const id = [
+      normalizeBaseUrl(profile.baseUrl).toLowerCase(),
+      (profile.applicationId || '').trim().toLowerCase(),
+    ].join('|');
+
+    const existing = groups.get(id);
+    if (existing) {
+      existing.profiles.push(profile);
+      if (
+        profile.appName &&
+        (!existing.appName || existing.appName === 'Cuenta' || existing.appName === existing.applicationId)
+      ) {
+        existing.appName = profile.appName;
+      }
+      return;
+    }
+
+    groups.set(id, {
+      id,
+      appName: profile.appName || profile.applicationId || 'Cuenta',
+      baseUrl: normalizeBaseUrl(profile.baseUrl),
+      applicationId: profile.applicationId,
+      profiles: [profile],
+    });
+  });
+
+  return Array.from(groups.values()).sort((a, b) => {
+    const aDate = Math.max(...a.profiles.map((profile) => new Date(profile.updatedAt || profile.createdAt || 0).getTime()));
+    const bDate = Math.max(...b.profiles.map((profile) => new Date(profile.updatedAt || profile.createdAt || 0).getTime()));
+    return bDate - aDate;
+  });
+}
+
+function profileDisplayTitle(profile: AppProfile) {
+  return `${profile.appName || profile.applicationId} · ${profile.email}`;
+}
+
+function hasMfaAccess(profile: AppProfile) {
+  return !!(profile.applicationId && profile.apiKey && profile.email && (profile.deviceToken || profile.password));
+}
+
+type MfaCredentialsPayload = {
+  baseUrl: string;
+  application_id: string;
+  api_key: string;
+  email: string;
+  password?: string;
+  device_token?: string;
+  device_id: string;
+  device_name: string;
+  push_token?: string;
+  push_provider?: 'expo';
+  device_platform?: string;
+};
+
+function buildMfaCredentials(
+  profile: AppProfile,
+  extras: {
+    deviceId: string;
+    deviceName: string;
+    pushToken?: string;
+    devicePlatform?: string;
+  }
+) : MfaCredentialsPayload {
+  const base: MfaCredentialsPayload = {
+    baseUrl: normalizeBaseUrl(profile.baseUrl),
+    application_id: profile.applicationId,
+    api_key: profile.apiKey,
+    email: profile.email,
+    device_id: extras.deviceId,
+    device_name: extras.deviceName,
+    push_token: extras.pushToken || undefined,
+    push_provider: extras.pushToken ? 'expo' : undefined,
+    device_platform: extras.devicePlatform || undefined,
+  };
+
+  if (profile.deviceToken) {
+    base.device_token = profile.deviceToken;
+  } else if (profile.password) {
+    base.password = profile.password;
+  }
+
+  return base;
+}
+
 export default function App() {
   const [profiles, setProfiles] = useState<AppProfile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
@@ -101,7 +290,10 @@ export default function App() {
   const [tab, setTab] = useState<TabKey>('authenticator');
   const [showActionsModal, setShowActionsModal] = useState(false);
   const [showSetupModal, setShowSetupModal] = useState(false);
+  const [setupMode, setSetupMode] = useState<'quick' | 'advanced'>('quick');
   const [showAccountSettingsModal, setShowAccountSettingsModal] = useState(false);
+  const [showSecurityModal, setShowSecurityModal] = useState(false);
+  const [showPasskeyInviteModal, setShowPasskeyInviteModal] = useState(false);
   const [showApprovalNumberModal, setShowApprovalNumberModal] = useState(false);
   const [approvalChallenge, setApprovalChallenge] = useState<any | null>(null);
   const [approvalNumberInput, setApprovalNumberInput] = useState('');
@@ -112,6 +304,7 @@ export default function App() {
   const [apiKey, setApiKey] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [deviceToken, setDeviceToken] = useState('');
   const [pairingToken, setPairingToken] = useState('');
   const [deviceName, setDeviceName] = useState('Mi teléfono');
   const [deviceId, setDeviceId] = useState(createDeviceId());
@@ -122,6 +315,8 @@ export default function App() {
   const [loadingChallenges, setLoadingChallenges] = useState(false);
   const [working, setWorking] = useState(false);
   const [workingMessage, setWorkingMessage] = useState('Procesando...');
+  const [securityLoading, setSecurityLoading] = useState(false);
+  const [securityOverview, setSecurityOverview] = useState<any | null>(null);
   const [codeNowMs, setCodeNowMs] = useState(Date.now());
 
   const [scannerVisible, setScannerVisible] = useState(false);
@@ -134,6 +329,7 @@ export default function App() {
   const [requireBiometricApproval, setRequireBiometricApproval] = useState(true);
   const detailCodeRefreshInFlightRef = React.useRef(false);
   const approvalCodeRefreshInFlightRef = React.useRef(false);
+  const lastAutoOpenedApprovalChallengeIdRef = React.useRef<string | null>(null);
   const pushTokenRef = React.useRef<string>('');
   const notificationReceivedListener = React.useRef<any>(null);
   const notificationResponseListener = React.useRef<any>(null);
@@ -201,7 +397,7 @@ export default function App() {
       const immediate = await requestPushToken();
       if (immediate) return immediate;
     } catch (error) {
-      console.warn('⚠️ Could not get immediate push token:', error);
+      console.warn('Could not get immediate push token:', error);
     }
 
     const startedAt = Date.now();
@@ -244,12 +440,12 @@ export default function App() {
       try {
         const token = await requestPushToken();
         if (token) {
-          console.log('✅ Expo push token obtained');
+          console.log('Expo push token obtained');
         } else {
-          console.log('⚠️ Push notification token not available yet');
+          console.log('Push notification token not available yet');
         }
       } catch (error) {
-        console.warn('⚠️ Error registering push notifications:', error);
+        console.warn('Error registering push notifications:', error);
       }
     };
 
@@ -264,13 +460,14 @@ export default function App() {
     setApiKey(profile.apiKey || '');
     setEmail(profile.email || '');
     setPassword(profile.password || '');
+    setDeviceToken(profile.deviceToken || '');
     setDeviceId(profile.deviceId || createDeviceId());
     setDeviceName(profile.deviceName || 'Mi teléfono');
   };
 
   const persistCurrentProfile = async () => {
-    if (!applicationId || !apiKey || !email) {
-      Alert.alert('Faltan datos', 'Completa application_id, api_key y email para guardar la cuenta.');
+    if (!applicationId || !apiKey || !email || (!password && !deviceToken)) {
+      Alert.alert('Faltan datos', 'Completa application_id, api_key, email y una forma de acceso para guardar la cuenta.');
       return;
     }
 
@@ -283,6 +480,7 @@ export default function App() {
       apiKey,
       email,
       password,
+      deviceToken,
       deviceId,
       deviceName,
       createdAt: now,
@@ -298,20 +496,18 @@ export default function App() {
   };
 
   const deleteProfile = async (profile: AppProfile) => {
-    const canUnlinkRemotely = !!(profile.applicationId && profile.apiKey && profile.email && profile.password && profile.deviceId);
+    const canUnlinkRemotely = hasMfaAccess(profile) && !!profile.deviceId;
 
     if (canUnlinkRemotely) {
       try {
-        await unlinkDevice({
-          baseUrl: normalizeBaseUrl(profile.baseUrl),
-          application_id: profile.applicationId,
-          api_key: profile.apiKey,
-          email: profile.email,
-          password: profile.password,
-          device_id: profile.deviceId,
-        });
+        await unlinkDevice(buildMfaCredentials(profile, {
+          deviceId: profile.deviceId,
+          deviceName: profile.deviceName,
+          pushToken: undefined,
+          devicePlatform: Device.osName || undefined,
+        }));
       } catch (error) {
-        console.warn('⚠️ No se pudo desvincular el dispositivo en servidor:', error);
+        console.warn('No se pudo desvincular el dispositivo en servidor:', error);
       }
     }
 
@@ -339,7 +535,7 @@ export default function App() {
   const openAccountSettings = () => {
     if (!detailProfile) return;
     applyProfile(detailProfile);
-    const canLoad = !!(detailProfile.applicationId && detailProfile.apiKey && detailProfile.email && detailProfile.password);
+    const canLoad = hasMfaAccess(detailProfile);
     if (canLoad) {
       onLoadChallenges(detailProfile);
     }
@@ -349,8 +545,8 @@ export default function App() {
   const onRenameAccount = () => {
     if (!detailProfile) return;
     setShowAccountSettingsModal(false);
+    setSetupMode('advanced');
     setShowSetupModal(true);
-    Alert.alert('Editar cuenta', 'Puedes cambiar el nombre de la cuenta en el campo "Nombre de la aplicación" y guardar.');
   };
 
   const onAddAccountToDevice = () => {
@@ -377,30 +573,167 @@ export default function App() {
     );
   };
 
-  const onOpenPasswordChange = () => {
-    if (!detailProfile) return;
-    Alert.alert('Cambiar contraseña', `Realiza este cambio en el portal de ${detailProfile.appName || detailProfile.applicationId}.`);
+  const loadSecurityOverview = async (profile: AppProfile) => {
+    try {
+      setSecurityLoading(true);
+      const result: any = await getAccountSecurityOverview(buildMfaCredentials(profile, {
+        deviceId,
+        deviceName,
+        pushToken: undefined,
+        devicePlatform: Device.osName || undefined,
+      }));
+
+      if (!result || result.success === false) {
+        throw new Error(result?.error?.message || result?.message || 'No se pudo cargar la seguridad de la cuenta.');
+      }
+
+      setSecurityOverview(result.data);
+    } catch (error: any) {
+      Alert.alert('Seguridad', error?.message || 'No se pudo cargar la seguridad de la cuenta.');
+      setShowSecurityModal(false);
+    } finally {
+      setSecurityLoading(false);
+    }
   };
 
   const onOpenSecurityInfo = () => {
     if (!detailProfile) return;
-    setShowSetupModal(true);
-    Alert.alert('Información de seguridad', 'Desde Configurar cuenta puedes actualizar credenciales y datos de vinculación.');
-  };
-
-  const onOpenRecentActivity = async () => {
-    if (!detailProfile) return;
-    await onLoadChallenges(detailProfile);
-    Alert.alert('Actividad reciente', 'Se recargaron las solicitudes pendientes de esta cuenta.');
+    setShowAccountSettingsModal(false);
+    setSecurityOverview(null);
+    setShowSecurityModal(true);
+    void loadSecurityOverview(detailProfile);
   };
 
   const onOpenPasskey = () => {
-    Alert.alert('Clave de paso', 'Función preparada. Puedes implementarla en tu backend para registrar passkeys.');
+    if (!detailProfile) return;
+    setShowPasskeyInviteModal(true);
   };
 
-  const onOpenPasswordlessConfig = () => {
-    setShowActionsModal(true);
-    Alert.alert('Solicitudes sin contraseña', 'Desde el menú puedes activar/desactivar biometría para aprobar solicitudes.');
+  const refreshSecurityOverview = () => {
+    const profile = detailProfile || profiles.find((item) => item.id === activeProfileId);
+    if (!profile) return;
+    void loadSecurityOverview(profile);
+  };
+
+  const revokeSecurityDevice = (targetDeviceId: string) => {
+    if (!detailProfile) return;
+
+    Alert.alert(
+      'Revocar dispositivo',
+      'Este dispositivo dejará de poder aprobar solicitudes de seguridad. ¿Continuar?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Revocar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setWorkingMessage('Revocando dispositivo...');
+              setWorking(true);
+
+              const result: any = await revokeAccountDevice({
+                ...buildMfaCredentials(detailProfile, {
+                  deviceId,
+                  deviceName,
+                  pushToken: undefined,
+                  devicePlatform: Device.osName || undefined,
+                }),
+                target_device_id: targetDeviceId,
+              });
+
+              if (!result || result.success === false) {
+                throw new Error(result?.error?.message || result?.message || 'No se pudo revocar el dispositivo.');
+              }
+
+              await loadSecurityOverview(detailProfile);
+              Alert.alert('Listo', 'El dispositivo fue revocado correctamente.');
+            } catch (error: any) {
+              Alert.alert('Error', error?.message || 'No se pudo revocar el dispositivo.');
+            } finally {
+              setWorking(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const resetSecurityEnrollment = () => {
+    if (!detailProfile) return;
+
+    Alert.alert(
+      'Restablecer seguridad',
+      'Se desactivarán los dispositivos y las claves de paso de esta cuenta. Deberás volver a registrarlos después.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Restablecer',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setWorkingMessage('Restableciendo seguridad...');
+              setWorking(true);
+
+              const result: any = await resetAccountSecurity(buildMfaCredentials(detailProfile, {
+                deviceId,
+                deviceName,
+                pushToken: undefined,
+                devicePlatform: Device.osName || undefined,
+              }));
+
+              if (!result || result.success === false) {
+                throw new Error(result?.error?.message || result?.message || 'No se pudo restablecer la seguridad.');
+              }
+
+              await loadSecurityOverview(detailProfile);
+              Alert.alert('Seguridad restablecida', 'La cuenta quedó desactivada y lista para volver a registrarse.');
+            } catch (error: any) {
+              Alert.alert('Error', error?.message || 'No se pudo restablecer la seguridad.');
+            } finally {
+              setWorking(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const onSendPasskeyInvite = async () => {
+    if (!detailProfile) return;
+
+    const recipient = detailProfile.email.trim();
+    if (!recipient) {
+      Alert.alert('Sin correo', 'Esta cuenta no tiene un correo asociado.');
+      return;
+    }
+
+    try {
+      setWorkingMessage('Enviando invitación por correo...');
+      setWorking(true);
+
+      const result: any = await createPasskeyInvite(buildMfaCredentials(detailProfile, {
+        deviceId,
+        deviceName,
+        pushToken: undefined,
+        devicePlatform: Device.osName || undefined,
+      }));
+
+      if (!result || result.success === false) {
+        const errorCode = result?.error?.code ? `(${result.error.code})` : '';
+        const errorDetails = result?.error?.details ? ` ${JSON.stringify(result.error.details)}` : '';
+        const failureMessage = typeof result?.error === 'string'
+          ? result.error
+          : `${result?.error?.message || result?.message || 'No se pudo enviar la invitación.'} ${errorCode}${errorDetails}`.trim();
+        throw new Error(failureMessage);
+      }
+
+      setShowPasskeyInviteModal(false);
+      Alert.alert('Correo enviado', `La invitación fue enviada a ${recipient}.`);
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'No se pudo enviar la invitación.');
+    } finally {
+      setWorking(false);
+    }
   };
 
   const onOpenNotificationsConfig = async () => {
@@ -442,16 +775,21 @@ export default function App() {
     appName?: string;
     email?: string;
     password?: string;
+    deviceToken?: string;
     apiKey?: string;
     baseUrl?: string;
   }) => {
-    const resolvedApplicationId = input.applicationId || applicationId || '';
-    const resolvedAppName = input.appName || appName || resolvedApplicationId || 'Authenticator';
-    const resolvedEmail = input.email || email || '';
-    const resolvedPassword = input.password || password || '';
-    const resolvedBaseUrl = normalizeBaseUrl(input.baseUrl || baseUrl || SUPABASE_URL);
-
-    const existingProfile = profiles.find((item) => item.applicationId === resolvedApplicationId && item.email === resolvedEmail);
+    const resolvedBaseUrl = normalizeBaseUrl(input.baseUrl || SUPABASE_URL);
+    const existingProfile = profiles.find((item) => (
+      item.applicationId === input.applicationId &&
+      item.email === input.email &&
+      normalizeBaseUrl(item.baseUrl) === resolvedBaseUrl
+    ));
+    const resolvedApplicationId = input.applicationId || existingProfile?.applicationId || '';
+    const resolvedAppName = input.appName || existingProfile?.appName || resolvedApplicationId || 'Authenticator';
+    const resolvedEmail = input.email || existingProfile?.email || '';
+    const resolvedPassword = input.password ?? existingProfile?.password ?? '';
+    const resolvedDeviceToken = input.deviceToken ?? existingProfile?.deviceToken ?? '';
     const now = new Date().toISOString();
 
     const profile: AppProfile = {
@@ -459,9 +797,10 @@ export default function App() {
       appName: resolvedAppName,
       baseUrl: resolvedBaseUrl,
       applicationId: resolvedApplicationId,
-      apiKey: input.apiKey || existingProfile?.apiKey || apiKey || '',
+      apiKey: input.apiKey || existingProfile?.apiKey || '',
       email: resolvedEmail,
-      password: resolvedPassword || existingProfile?.password || '',
+      password: resolvedPassword,
+      deviceToken: resolvedDeviceToken,
       deviceId,
       deviceName,
       createdAt: existingProfile?.createdAt || now,
@@ -484,17 +823,21 @@ export default function App() {
 
     const parsed = parseQrPayload(rawData);
 
-    if (parsed.pairingToken) setPairingToken(parsed.pairingToken);
+    const parsedPairingValue = parsed.pairingCode || parsed.pairingToken;
+    if (parsedPairingValue) setPairingToken(normalizePairingValue(parsedPairingValue));
     if (parsed.applicationId) setApplicationId(parsed.applicationId);
     if (parsed.appName) setAppName(parsed.appName);
     if (parsed.apiKey) setApiKey(parsed.apiKey);
     if (parsed.baseUrl) setBaseUrl(parsed.baseUrl);
     if (parsed.email) setEmail(parsed.email);
     if (parsed.password) setPassword(parsed.password);
+    if (parsed.deviceToken) setDeviceToken(parsed.deviceToken);
+    if (!parsed.password) setPassword('');
+    if (!parsed.deviceToken) setDeviceToken('');
 
     setScannerVisible(false);
 
-    if (parsed.pairingToken) {
+    if (parsedPairingValue) {
       setWorkingMessage('Preparando registro automático...');
       setWorking(true);
       try {
@@ -502,9 +845,11 @@ export default function App() {
         const resolvedPushToken = await waitForPushToken();
 
         setWorkingMessage('Registrando dispositivo en AuthSystem...');
+        const pairingValue = normalizePairingValue(parsedPairingValue);
         const result = await registerDevice({
           baseUrl: resolvedBaseUrl,
-          pairing_token: parsed.pairingToken,
+          pairing_code: looksLikeUuid(pairingValue) ? undefined : pairingValue,
+          pairing_token: looksLikeUuid(pairingValue) ? pairingValue : undefined,
           device_id: deviceId,
           device_name: deviceName,
           push_token: resolvedPushToken || undefined,
@@ -518,7 +863,8 @@ export default function App() {
           applicationId: result.data?.application?.application_id || parsed.applicationId,
           appName: result.data?.application?.name || parsed.appName,
           email: result.data?.user?.email || parsed.email,
-          password: parsed.password,
+          password: parsed.password || '',
+          deviceToken: parsed.deviceToken || '',
           apiKey: result.data?.application?.api_key || parsed.apiKey,
           baseUrl: resolvedBaseUrl,
         });
@@ -529,7 +875,8 @@ export default function App() {
           setDetailProfileId(linkedProfile.id);
         }
       } catch (error: any) {
-        if (parsed.pairingToken) setPairingToken(parsed.pairingToken);
+        if (parsedPairingValue) setPairingToken(normalizePairingValue(parsedPairingValue));
+        setSetupMode('quick');
         setShowSetupModal(true);
         Alert.alert('Vinculación manual', error.message || 'No se pudo vincular automáticamente. Completa el registro manual.');
       } finally {
@@ -546,7 +893,8 @@ export default function App() {
           applicationId: parsed.applicationId,
           appName: parsed.appName,
           email: parsed.email,
-          password: parsed.password,
+          password: parsed.password || '',
+          deviceToken: parsed.deviceToken || '',
           apiKey: parsed.apiKey,
           baseUrl: parsed.baseUrl,
         });
@@ -557,6 +905,7 @@ export default function App() {
           setDetailProfileId(autoProfile.id);
         }
       } catch (error: any) {
+        setSetupMode('advanced');
         setShowSetupModal(true);
         Alert.alert('QR leído', error?.message || 'Datos detectados. Completa y guarda manualmente la cuenta.');
       } finally {
@@ -568,36 +917,19 @@ export default function App() {
     Alert.alert('QR leído', 'No se detectaron datos compatibles.');
   };
 
-  const credentials = useMemo(
-    () => ({
-      baseUrl: normalizeBaseUrl(baseUrl),
-      application_id: applicationId,
-      api_key: apiKey,
-      email,
-      password,
-    }),
-    [baseUrl, applicationId, apiKey, email, password]
-  );
-
   const loadChallengesForProfile = useCallback(async (profile: AppProfile, options?: { silent?: boolean }) => {
-    const hasChallengeCredentials = !!(profile.applicationId && profile.apiKey && profile.email && profile.password);
+    const hasChallengeCredentials = hasMfaAccess(profile);
     if (!hasChallengeCredentials) {
       return [];
     }
 
     try {
-      const result = await listPendingChallenges({
-        baseUrl: normalizeBaseUrl(profile.baseUrl),
-        application_id: profile.applicationId,
-        api_key: profile.apiKey,
-        email: profile.email,
-        password: profile.password,
-        device_id: profile.deviceId || deviceId,
-        device_name: profile.deviceName || deviceName,
-        push_token: pushToken || undefined,
-        push_provider: pushToken ? 'expo' : undefined,
-        device_platform: Device.osName || undefined,
-      });
+      const result = await listPendingChallenges(buildMfaCredentials(profile, {
+        deviceId: profile.deviceId || deviceId,
+        deviceName: profile.deviceName || deviceName,
+        pushToken: pushToken || undefined,
+        devicePlatform: Device.osName || undefined,
+      }));
 
       if (!result.success) {
         throw new Error(result.error?.message || 'No se pudieron cargar solicitudes');
@@ -638,7 +970,7 @@ export default function App() {
       return;
     }
 
-    const hasChallengeCredentials = !!(profile.applicationId && profile.apiKey && profile.email && profile.password);
+    const hasChallengeCredentials = hasMfaAccess(profile);
     if (!hasChallengeCredentials) {
       setChallenges([]);
       return;
@@ -650,6 +982,7 @@ export default function App() {
       setApiKey(profile.apiKey || '');
       setEmail(profile.email || '');
       setPassword(profile.password || '');
+      setDeviceToken(profile.deviceToken || '');
     }
 
     setLoadingChallenges(true);
@@ -838,11 +1171,12 @@ export default function App() {
     setWorking(true);
     try {
       const result = await approveChallenge({
-        baseUrl: normalizeBaseUrl(profile.baseUrl),
-        application_id: profile.applicationId,
-        api_key: profile.apiKey,
-        email: profile.email,
-        password: profile.password,
+        ...buildMfaCredentials(profile, {
+          deviceId: profile.deviceId || deviceId,
+          deviceName: profile.deviceName || deviceName,
+          pushToken: pushToken || undefined,
+          devicePlatform: Device.osName || undefined,
+        }),
         challenge_id: challenge.id,
         challenge_code: challenge.challenge_code,
         verification_number: verificationNumber,
@@ -912,6 +1246,12 @@ export default function App() {
       return;
     }
 
+    const pairingPassword = profile.password || password;
+    if (!pairingPassword) {
+      Alert.alert('Modo rapido', 'Este perfil ya usa token de dispositivo. Usa el modo avanzado si necesitas generar un pairing nuevo.');
+      return;
+    }
+
     setWorking(true);
     try {
       const result = await generatePairingToken({
@@ -919,11 +1259,11 @@ export default function App() {
         application_id: profile.applicationId,
         api_key: profile.apiKey,
         email: profile.email,
-        password: profile.password,
+        password: pairingPassword,
       });
       if (!result.success) throw new Error(result.error?.message || 'No se pudo generar token');
-      setPairingToken(result.data?.pairing_token || '');
-      Alert.alert('Token MFA generado', 'Ya puedes registrar el dispositivo.');
+      setPairingToken(normalizePairingValue(result.data?.pairing_code || result.data?.pairing_token || ''));
+      Alert.alert('Código de vinculación generado', 'Ya puedes registrar el dispositivo.');
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Error generando pairing');
     } finally {
@@ -938,9 +1278,11 @@ export default function App() {
       const resolvedPushToken = await waitForPushToken();
 
       setWorkingMessage('Registrando dispositivo...');
+      const pairingValue = normalizePairingValue(pairingToken);
       const result = await registerDevice({
         baseUrl: normalizeBaseUrl(baseUrl),
-        pairing_token: pairingToken,
+        pairing_code: looksLikeUuid(pairingValue) ? undefined : pairingValue,
+        pairing_token: looksLikeUuid(pairingValue) ? pairingValue : undefined,
         device_id: deviceId,
         device_name: deviceName,
         push_token: resolvedPushToken || undefined,
@@ -954,6 +1296,8 @@ export default function App() {
         appName: result.data?.application?.name || appName,
         email: result.data?.user?.email || email,
         apiKey: result.data?.application?.api_key || apiKey,
+        password: '',
+        deviceToken: result.data?.device_token || deviceToken || '',
         baseUrl,
       });
 
@@ -981,9 +1325,19 @@ export default function App() {
     return map;
   }, [profiles, challenges]);
 
+  const profileGroups = useMemo(() => groupProfilesByApplication(profiles), [profiles]);
+  const pendingCount = useMemo(
+    () => Object.values(pendingByProfile).reduce((total, items) => total + items.length, 0),
+    [pendingByProfile]
+  );
+
   const detailProfile = useMemo(
     () => profiles.find((profile) => profile.id === detailProfileId) || null,
     [profiles, detailProfileId]
+  );
+  const approvalProfile = useMemo(
+    () => profiles.find((profile) => profile.id === activeProfileId) || detailProfile || null,
+    [profiles, activeProfileId, detailProfile]
   );
 
   const detailChallenges = detailProfile ? pendingByProfile[detailProfile.id] || [] : [];
@@ -1018,6 +1372,26 @@ export default function App() {
     const elapsedSeconds = Math.floor((codeNowMs - receivedAtMs) / 1000);
     return Math.max(0, baseSeconds - elapsedSeconds);
   }, [approvalChallenge, codeNowMs]);
+
+  useEffect(() => {
+    const verificationNumber = String(detailChallenge?.metadata?.verification_number || '').padStart(2, '0');
+
+    if (!detailProfile || !detailChallenge || !verificationNumber) {
+      if (!detailChallenge) {
+        lastAutoOpenedApprovalChallengeIdRef.current = null;
+      }
+      return;
+    }
+
+    if (showApprovalNumberModal) return;
+    if (lastAutoOpenedApprovalChallengeIdRef.current === detailChallenge.id) return;
+
+    lastAutoOpenedApprovalChallengeIdRef.current = detailChallenge.id;
+    setActiveProfileId(detailProfile.id);
+    setApprovalChallenge(detailChallenge);
+    setApprovalNumberInput('');
+    setShowApprovalNumberModal(true);
+  }, [detailProfile, detailChallenge, showApprovalNumberModal]);
 
   useEffect(() => {
     if (!detailProfile || (!detailChallenge && !detailDynamicCode)) {
@@ -1083,13 +1457,13 @@ export default function App() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.iconButton}>
-          <Text style={styles.headerIcon}>☰</Text>
+        <TouchableOpacity style={styles.iconButton} onPress={() => setShowActionsModal(true)}>
+          <Ionicons name="menu-outline" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Authenticator</Text>
         <View style={styles.headerActions}>
           <TouchableOpacity style={styles.iconButton} onPress={() => onLoadChallenges()}>
-            {loadingChallenges ? <ActivityIndicator color="#fff" /> : <Text style={styles.headerIcon}>⌕</Text>}
+            {loadingChallenges ? <ActivityIndicator color="#fff" /> : <Ionicons name="search-outline" size={22} color="#fff" />}
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.iconButton}
@@ -1097,7 +1471,7 @@ export default function App() {
               setShowActionsModal(true);
             }}
           >
-            <Text style={styles.headerIcon}>＋</Text>
+            <Ionicons name="add" size={28} color="#fff" />
           </TouchableOpacity>
         </View>
       </View>
@@ -1108,11 +1482,12 @@ export default function App() {
             <View style={styles.detailScreen}>
               <View style={styles.detailTopCard}>
                 <View style={styles.detailTopBar}>
-                  <TouchableOpacity style={styles.detailIconButton} onPress={() => setDetailProfileId(null)}>
-                    <Text style={styles.detailHeaderIcon}>‹</Text>
+                  <TouchableOpacity style={styles.detailBackButton} onPress={() => setDetailProfileId(null)}>
+                    <Ionicons name="chevron-back" size={20} color="#fff" />
+                    <Text style={styles.detailBackButtonText}>Volver</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.detailIconButton} onPress={openAccountSettings}>
-                    <Text style={styles.detailHeaderIcon}>⚙</Text>
+                    <Ionicons name="settings-outline" size={22} color="#fff" />
                   </TouchableOpacity>
                 </View>
 
@@ -1133,7 +1508,7 @@ export default function App() {
 
               <TouchableOpacity style={styles.detailRow} onPress={onOpenNotificationsConfig}>
                 <View style={styles.detailRowIconWrap}>
-                  <Text style={styles.detailRowIcon}>✓</Text>
+                  <Ionicons name="notifications-outline" size={18} color="#0A78D1" />
                 </View>
                 <View style={styles.detailRowTextWrap}>
                   <Text style={styles.detailRowTitle}>Notificaciones de inicio de sesión</Text>
@@ -1155,7 +1530,7 @@ export default function App() {
                     Alert.alert('Código', detailCode === '--- ---' ? 'No hay código disponible ahora.' : `Código actual: ${detailCode}`);
                   }}
                 >
-                  <Text style={styles.detailCopyIcon}>⧉</Text>
+                  <Ionicons name="copy-outline" size={18} color="#0A78D1" />
                 </TouchableOpacity>
               </View>
 
@@ -1165,32 +1540,37 @@ export default function App() {
 
               <TouchableOpacity style={styles.detailSimpleAction} onPress={onOpenPasskey}>
                 <Text style={styles.detailSimpleActionText}>Crear una clave de paso</Text>
-                <Text style={styles.detailSimpleActionChevron}>›</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.detailSimpleAction} onPress={onOpenPasswordlessConfig}>
-                <Text style={styles.detailSimpleActionText}>Configuración de solicitudes de inicio de sesión sin contraseña</Text>
-                <Text style={styles.detailSimpleActionChevron}>›</Text>
+                <Ionicons name="chevron-forward" size={18} color="#A0AAB7" />
               </TouchableOpacity>
 
               <View style={styles.detailSectionHeaderWrap}>
                 <Text style={styles.detailSectionHeader}>ADMINISTRAR</Text>
               </View>
 
-              <TouchableOpacity style={styles.detailSimpleAction} onPress={onOpenPasswordChange}>
-                <Text style={styles.detailSimpleActionText}>Cambiar contraseña</Text>
-                <Text style={styles.detailSimpleActionChevron}>↗</Text>
-              </TouchableOpacity>
-
               <TouchableOpacity style={styles.detailSimpleAction} onPress={onOpenSecurityInfo}>
                 <Text style={styles.detailSimpleActionText}>Actualizar la información de seguridad</Text>
-                <Text style={styles.detailSimpleActionChevron}>↗</Text>
+                <Ionicons name="chevron-forward" size={18} color="#A0AAB7" />
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.detailSimpleAction} onPress={onOpenRecentActivity}>
-                <Text style={styles.detailSimpleActionText}>Revisar la actividad reciente</Text>
-                <Text style={styles.detailSimpleActionChevron}>↗</Text>
-              </TouchableOpacity>
+              <View style={styles.detailManagementCard}>
+                <Text style={styles.detailManagementEyebrow}>Gestión de cuenta</Text>
+
+                <TouchableOpacity style={styles.detailManagementAction} onPress={openAccountSettings}>
+                  <View style={styles.detailManagementActionTextWrap}>
+                    <Text style={styles.detailManagementActionTitle}>Ver configuraciones</Text>
+                    <Text style={styles.detailManagementActionSubtitle}>Nombre, seguridad y dispositivos vinculados</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color="#0A78D1" />
+                </TouchableOpacity>
+
+                <TouchableOpacity style={[styles.detailManagementAction, styles.detailManagementDangerAction]} onPress={onRemoveCurrentAccount}>
+                  <View style={styles.detailManagementActionTextWrap}>
+                    <Text style={[styles.detailManagementActionTitle, styles.detailManagementDangerTitle]}>Eliminar cuenta</Text>
+                    <Text style={styles.detailManagementActionSubtitle}>Quita esta cuenta del teléfono de forma permanente</Text>
+                  </View>
+                  <Ionicons name="trash-outline" size={18} color="#D62525" />
+                </TouchableOpacity>
+              </View>
 
               {detailChallenge && (
                 <View style={styles.detailActionButtons}>
@@ -1219,87 +1599,142 @@ export default function App() {
             </View>
           ) : (
             <>
+              <View style={styles.summaryCard}>
+                <View style={styles.summaryCardTopRow}>
+                  <View>
+                    <Text style={styles.summaryEyebrow}>Mis cuentas</Text>
+                    <Text style={styles.summaryTitle}>Gestiona aplicaciones y usuarios vinculados</Text>
+                  </View>
+                  <View style={styles.summaryPill}>
+                    <Text style={styles.summaryPillText}>{profiles.length} cuentas</Text>
+                  </View>
+                </View>
+                <Text style={styles.summarySubtitle}>
+                  {pendingCount > 0
+                    ? `${pendingCount} solicitudes pendientes listas para aprobar en el móvil.`
+                    : 'Toca + para escanear un QR o vincular una cuenta con código.'}
+                </Text>
+              </View>
+
               {profiles.length === 0 ? (
                 <View style={styles.emptyWrap}>
                   <Text style={styles.emptyTitle}>No tienes cuentas todavía</Text>
                   <Text style={styles.emptySubtitle}>Pulsa + para escanear QR o agregar una cuenta manualmente.</Text>
                 </View>
               ) : (
-                profiles.map((profile) => {
-                  const isActive = activeProfileId === profile.id;
-                  const profileChallenges = pendingByProfile[profile.id] || [];
-                  const highlightedChallenge = profileChallenges[0];
-                  const profileDynamicCode = dynamicCodesByProfile[profile.id];
-                  const profileCodeValue = highlightedChallenge?.challenge_code || profileDynamicCode?.code || '--- ---';
-                  const profileCodeHasValue = profileCodeValue !== '--- ---';
-                  const profileCodeBaseSeconds = highlightedChallenge
-                    ? Number(highlightedChallenge?.challenge_code_expires_in_seconds || 0)
-                    : Number(profileDynamicCode?.expiresIn || 0);
-                  const profileCodeReceivedAtMs = highlightedChallenge
-                    ? Number(highlightedChallenge?._receivedAtMs || 0)
-                    : Number(profileDynamicCode?.receivedAtMs || 0);
-                  const profileCodeElapsedSeconds = profileCodeReceivedAtMs
-                    ? Math.floor((codeNowMs - profileCodeReceivedAtMs) / 1000)
-                    : 0;
-                  const profileCodeExpiresIn = (profileCodeBaseSeconds && profileCodeReceivedAtMs)
-                    ? Math.max(0, profileCodeBaseSeconds - profileCodeElapsedSeconds)
-                    : 0;
+                profileGroups.map((group) => {
+                  const groupPendingCount = group.profiles.reduce((total, profile) => total + ((pendingByProfile[profile.id] || []).length), 0);
+                  const groupHasActiveProfile = group.profiles.some((profile) => profile.id === activeProfileId);
 
                   return (
-                    <View key={profile.id} style={styles.rowSection}>
-                      <TouchableOpacity
-                        style={[styles.accountRow, isActive ? styles.accountRowActive : undefined]}
-                        onPress={() => {
-                          applyProfile(profile);
-                          setDetailProfileId(profile.id);
-                          const canLoad = !!(profile.applicationId && profile.apiKey && profile.email && profile.password);
-                          if (canLoad) {
-                            onLoadChallenges(profile);
-                          }
-                        }}
-                        onLongPress={() => deleteProfile(profile)}
-                      >
-                        <View style={styles.avatarCircle}>
-                          <Text style={styles.avatarText}>{initials(profile.appName || profile.applicationId)}</Text>
-                        </View>
-
-                        <View style={styles.accountInfo}>
-                          <Text style={styles.accountName}>{profile.appName || profile.applicationId}</Text>
-                          <Text style={styles.accountMeta}>{profile.email}</Text>
-                        </View>
-
-                        <Text style={styles.chevron}>›</Text>
-                      </TouchableOpacity>
-
-                      {highlightedChallenge && (
-                        <View style={styles.codeBlock}>
-                          <Text style={styles.codeText}>{profileCodeValue}</Text>
-                          <View style={styles.codeBadge}>
-                            <Text style={styles.codeBadgeText}>{profileCodeHasValue ? `${profileCodeExpiresIn}s` : '--'}</Text>
+                    <View key={group.id} style={[styles.applicationGroupCard, groupHasActiveProfile && styles.applicationGroupCardActive]}>
+                      <View style={styles.applicationGroupHeader}>
+                        <View style={styles.applicationGroupHeaderLeft}>
+                          <View style={styles.applicationGroupAvatar}>
+                            <Text style={styles.applicationGroupAvatarText}>{initials(group.appName)}</Text>
                           </View>
-                          <View style={styles.codeActions}>
-                            <TouchableOpacity
-                              style={styles.approveButton}
-                              onPress={() => {
-                                beginApproveChallenge(highlightedChallenge, profile.id);
-                              }}
-                              disabled={working}
-                            >
-                              <Text style={styles.approveText}>Aprobar</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              style={styles.rejectButton}
-                              onPress={() => {
-                                setActiveProfileId(profile.id);
-                                onResolveChallenge(highlightedChallenge, 'reject');
-                              }}
-                              disabled={working}
-                            >
-                              <Text style={styles.rejectText}>Rechazar</Text>
-                            </TouchableOpacity>
+                          <View style={styles.applicationGroupHeaderText}>
+                            <Text style={styles.applicationGroupTitle}>{group.appName}</Text>
+                            <Text style={styles.applicationGroupSubtitle}>{group.baseUrl || group.applicationId}</Text>
                           </View>
                         </View>
-                      )}
+
+                        <View style={styles.applicationGroupStats}>
+                          <View style={styles.applicationGroupStatPill}>
+                            <Text style={styles.applicationGroupStatText}>{group.profiles.length} usuarios</Text>
+                          </View>
+                          {groupPendingCount > 0 && (
+                            <View style={styles.applicationGroupPendingPill}>
+                              <Text style={styles.applicationGroupPendingText}>{groupPendingCount} pendientes</Text>
+                            </View>
+                          )}
+                        </View>
+                      </View>
+
+                      <View style={styles.applicationGroupBody}>
+                        {group.profiles.map((profile) => {
+                          const isActive = activeProfileId === profile.id;
+                          const profileChallenges = pendingByProfile[profile.id] || [];
+                          const highlightedChallenge = profileChallenges[0];
+                          const profileDynamicCode = dynamicCodesByProfile[profile.id];
+                          const profileCodeValue = highlightedChallenge?.challenge_code || profileDynamicCode?.code || '--- ---';
+                          const profileCodeHasValue = profileCodeValue !== '--- ---';
+                          const profileCodeBaseSeconds = highlightedChallenge
+                            ? Number(highlightedChallenge?.challenge_code_expires_in_seconds || 0)
+                            : Number(profileDynamicCode?.expiresIn || 0);
+                          const profileCodeReceivedAtMs = highlightedChallenge
+                            ? Number(highlightedChallenge?._receivedAtMs || 0)
+                            : Number(profileDynamicCode?.receivedAtMs || 0);
+                          const profileCodeElapsedSeconds = profileCodeReceivedAtMs
+                            ? Math.floor((codeNowMs - profileCodeReceivedAtMs) / 1000)
+                            : 0;
+                          const profileCodeExpiresIn = (profileCodeBaseSeconds && profileCodeReceivedAtMs)
+                            ? Math.max(0, profileCodeBaseSeconds - profileCodeElapsedSeconds)
+                            : 0;
+
+                          return (
+                            <View key={profile.id} style={styles.profileEntry}>
+                              <TouchableOpacity
+                                style={[styles.accountRow, styles.profileRow, isActive ? styles.accountRowActive : undefined]}
+                                onPress={() => {
+                                  applyProfile(profile);
+                                  setDetailProfileId(profile.id);
+                                  if (hasMfaAccess(profile)) {
+                                    onLoadChallenges(profile);
+                                  }
+                                }}
+                                onLongPress={() => deleteProfile(profile)}
+                              >
+                                <View style={styles.avatarCircle}>
+                                  <Text style={styles.avatarText}>{initials(profile.email || profile.appName || profile.applicationId)}</Text>
+                                </View>
+
+                                <View style={styles.accountInfo}>
+                                  <Text style={styles.accountName}>{profileDisplayTitle(profile)}</Text>
+                                  <View style={styles.profileMetaRow}>
+                                    <Text style={styles.accountMeta}>{profile.deviceName || profile.applicationId}</Text>
+                                    <View style={[styles.profileBadge, profile.deviceToken ? styles.profileBadgeToken : styles.profileBadgeLegacy]}>
+                                      <Text style={styles.profileBadgeText}>{profile.deviceToken ? 'Token' : 'Legacy'}</Text>
+                                    </View>
+                                  </View>
+                                </View>
+
+                                <Ionicons name="chevron-forward" size={20} color="#A0AAB7" />
+                              </TouchableOpacity>
+
+                              {highlightedChallenge && (
+                                <View style={styles.codeBlock}>
+                                  <Text style={styles.codeText}>{profileCodeValue}</Text>
+                                  <View style={styles.codeBadge}>
+                                    <Text style={styles.codeBadgeText}>{profileCodeHasValue ? `${profileCodeExpiresIn}s` : '--'}</Text>
+                                  </View>
+                                  <View style={styles.codeActions}>
+                                    <TouchableOpacity
+                                      style={styles.approveButton}
+                                      onPress={() => {
+                                        beginApproveChallenge(highlightedChallenge, profile.id);
+                                      }}
+                                      disabled={working}
+                                    >
+                                      <Text style={styles.approveText}>Aprobar</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                      style={styles.rejectButton}
+                                      onPress={() => {
+                                        setActiveProfileId(profile.id);
+                                        onResolveChallenge(highlightedChallenge, 'reject');
+                                      }}
+                                      disabled={working}
+                                    >
+                                      <Text style={styles.rejectText}>Rechazar</Text>
+                                    </TouchableOpacity>
+                                  </View>
+                                </View>
+                              )}
+                            </View>
+                          );
+                        })}
+                      </View>
                     </View>
                   );
                 })
@@ -1315,17 +1750,17 @@ export default function App() {
       </ScrollView>
 
       <TouchableOpacity style={styles.fab} onPress={() => setShowActionsModal(true)}>
-        <Text style={styles.fabText}>⌁</Text>
+        <Ionicons name="add" size={28} color="#fff" />
       </TouchableOpacity>
 
       <View style={styles.bottomTabs}>
         <TouchableOpacity style={styles.tabButton} onPress={() => setTab('authenticator')}>
-          <Text style={[styles.tabIcon, tab === 'authenticator' && styles.tabIconActive]}>⌂</Text>
+          <Ionicons name="home-outline" size={22} color={tab === 'authenticator' ? '#0A78D1' : '#8A97A6'} />
           <Text style={[styles.tabLabel, tab === 'authenticator' && styles.tabLabelActive]}>Authenticator</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.tabButton} onPress={() => setTab('verified')}>
-          <Text style={[styles.tabIcon, tab === 'verified' && styles.tabIconActive]}>🪪</Text>
+          <Ionicons name="shield-checkmark-outline" size={22} color={tab === 'verified' ? '#0A78D1' : '#8A97A6'} />
           <Text style={[styles.tabLabel, tab === 'verified' && styles.tabLabelActive]}>Id. comprobados</Text>
         </TouchableOpacity>
       </View>
@@ -1343,10 +1778,11 @@ export default function App() {
               style={styles.sheetAction}
               onPress={() => {
                 setShowActionsModal(false);
+                setSetupMode('quick');
                 setShowSetupModal(true);
               }}
             >
-              <Text style={styles.sheetActionText}>Agregar cuenta manual</Text>
+              <Text style={styles.sheetActionText}>Vincular cuenta</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -1368,37 +1804,102 @@ export default function App() {
       <Modal visible={showSetupModal} animationType="slide" onRequestClose={() => setShowSetupModal(false)}>
         <SafeAreaView style={styles.setupSafe}>
           <View style={styles.setupHeader}>
-            <Text style={styles.setupTitle}>Configurar cuenta</Text>
+            <Text style={styles.setupTitle}>Vincular cuenta</Text>
             <TouchableOpacity onPress={() => setShowSetupModal(false)}>
               <Text style={styles.setupClose}>Cerrar</Text>
             </TouchableOpacity>
           </View>
 
-          <ScrollView contentContainerStyle={styles.setupContent}>
-            <TextInput style={styles.input} placeholder="Nombre de la aplicación" placeholderTextColor="#8CA0BC" value={appName} onChangeText={setAppName} />
-            <TextInput style={styles.input} placeholder="base_url" placeholderTextColor="#8CA0BC" value={baseUrl} onChangeText={setBaseUrl} autoCapitalize="none" />
-            <TextInput style={styles.input} placeholder="application_id" placeholderTextColor="#8CA0BC" value={applicationId} onChangeText={setApplicationId} />
-            <TextInput style={styles.input} placeholder="api_key" placeholderTextColor="#8CA0BC" value={apiKey} onChangeText={setApiKey} />
-            <TextInput style={styles.input} placeholder="email" placeholderTextColor="#8CA0BC" value={email} onChangeText={setEmail} autoCapitalize="none" />
-            <TextInput style={styles.input} placeholder="password" placeholderTextColor="#8CA0BC" value={password} onChangeText={setPassword} secureTextEntry />
+                    <ScrollView contentContainerStyle={styles.setupContent}>
+            <View style={styles.setupHeroCard}>
+              <Text style={styles.setupHeroEyebrow}>Vinculación rápida</Text>
+              <Text style={styles.setupHeroTitle}>Vincula tu teléfono con un código corto</Text>
+              <Text style={styles.setupHeroSubtitle}>
+                Si escaneaste un QR, el formulario se completa solo. Si no, pega el código de vinculación que te mostró la web.
+              </Text>
+            </View>
 
-            <TouchableOpacity style={styles.saveButton} onPress={persistCurrentProfile}>
-              <Text style={styles.saveButtonText}>Guardar cuenta</Text>
-            </TouchableOpacity>
+            <View style={styles.setupModeTabs}>
+              <TouchableOpacity
+                style={[styles.setupModeTab, setupMode === 'quick' && styles.setupModeTabActive]}
+                onPress={() => setSetupMode('quick')}
+              >
+                <Text style={[styles.setupModeTabText, setupMode === 'quick' && styles.setupModeTabTextActive]}>Rapido</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.setupModeTab, setupMode === 'advanced' && styles.setupModeTabActive]}
+                onPress={() => setSetupMode('advanced')}
+              >
+                <Text style={[styles.setupModeTabText, setupMode === 'advanced' && styles.setupModeTabTextActive]}>Avanzado</Text>
+              </TouchableOpacity>
+            </View>
 
-            <View style={styles.divider} />
-            <Text style={styles.setupSection}>Vinculación MFA</Text>
-            <TextInput style={styles.input} placeholder="pairing_token" placeholderTextColor="#8CA0BC" value={pairingToken} onChangeText={setPairingToken} />
-            <TextInput style={styles.input} placeholder="device_id" placeholderTextColor="#8CA0BC" value={deviceId} onChangeText={setDeviceId} />
-            <TextInput style={styles.input} placeholder="device_name" placeholderTextColor="#8CA0BC" value={deviceName} onChangeText={setDeviceName} />
+            {setupMode === 'quick' ? (
+              <>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Código de vinculación"
+                  placeholderTextColor="#8CA0BC"
+                  value={pairingToken}
+                  onChangeText={(value) => setPairingToken(normalizePairingValue(value))}
+                  autoCapitalize="characters"
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Nombre del dispositivo"
+                  placeholderTextColor="#8CA0BC"
+                  value={deviceName}
+                  onChangeText={setDeviceName}
+                />
 
-            <TouchableOpacity style={styles.secondaryAction} onPress={onGeneratePairing} disabled={working}>
-              <Text style={styles.secondaryActionText}>Generar pairing token</Text>
-            </TouchableOpacity>
+                <TouchableOpacity style={styles.secondaryAction} onPress={openScanner}>
+                  <Text style={styles.secondaryActionText}>Escanear QR</Text>
+                </TouchableOpacity>
 
-            <TouchableOpacity style={styles.primaryAction} onPress={onRegisterDevice} disabled={working}>
-              <Text style={styles.primaryActionText}>Registrar dispositivo</Text>
-            </TouchableOpacity>
+                <TouchableOpacity style={styles.primaryAction} onPress={onRegisterDevice} disabled={working}>
+                  <Text style={styles.primaryActionText}>Vincular dispositivo</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <View style={styles.setupAdvancedCard}>
+                  <Text style={styles.setupSection}>Datos técnicos de la cuenta</Text>
+                  <Text style={styles.setupSectionHint}>Solo usa esta sección si necesitas registrar o editar una cuenta completa manualmente.</Text>
+                </View>
+
+                <TextInput style={styles.input} placeholder="Nombre de la aplicación" placeholderTextColor="#8CA0BC" value={appName} onChangeText={setAppName} />
+                <TextInput style={styles.input} placeholder="base_url" placeholderTextColor="#8CA0BC" value={baseUrl} onChangeText={setBaseUrl} autoCapitalize="none" />
+                <TextInput style={styles.input} placeholder="application_id" placeholderTextColor="#8CA0BC" value={applicationId} onChangeText={setApplicationId} />
+                <TextInput style={styles.input} placeholder="api_key" placeholderTextColor="#8CA0BC" value={apiKey} onChangeText={setApiKey} />
+                <TextInput style={styles.input} placeholder="email" placeholderTextColor="#8CA0BC" value={email} onChangeText={setEmail} autoCapitalize="none" />
+                <TextInput style={styles.input} placeholder="password" placeholderTextColor="#8CA0BC" value={password} onChangeText={setPassword} secureTextEntry />
+
+                <TouchableOpacity style={styles.saveButton} onPress={persistCurrentProfile}>
+                  <Text style={styles.saveButtonText}>Guardar cuenta</Text>
+                </TouchableOpacity>
+
+                <View style={styles.divider} />
+                <Text style={styles.setupSection}>Vinculación MFA</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Código de vinculación"
+                  placeholderTextColor="#8CA0BC"
+                  value={pairingToken}
+                  onChangeText={(value) => setPairingToken(normalizePairingValue(value))}
+                  autoCapitalize="characters"
+                />
+                <TextInput style={styles.input} placeholder="device_id" placeholderTextColor="#8CA0BC" value={deviceId} onChangeText={setDeviceId} />
+                <TextInput style={styles.input} placeholder="Nombre del dispositivo" placeholderTextColor="#8CA0BC" value={deviceName} onChangeText={setDeviceName} />
+
+                <TouchableOpacity style={styles.secondaryAction} onPress={onGeneratePairing} disabled={working}>
+                  <Text style={styles.secondaryActionText}>Generar código de vinculación</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.primaryAction} onPress={onRegisterDevice} disabled={working}>
+                  <Text style={styles.primaryActionText}>Registrar dispositivo</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </ScrollView>
         </SafeAreaView>
       </Modal>
@@ -1407,24 +1908,37 @@ export default function App() {
         <SafeAreaView style={styles.accountSettingsSafe}>
           <View style={styles.accountSettingsHeader}>
             <TouchableOpacity style={styles.accountSettingsBackButton} onPress={() => setShowAccountSettingsModal(false)}>
-              <Text style={styles.accountSettingsBackText}>‹</Text>
+              <Ionicons name="chevron-back" size={22} color="#0A78D1" />
             </TouchableOpacity>
             <Text style={styles.accountSettingsTitle}>Configuración de cuenta</Text>
             <View style={styles.accountSettingsHeaderSpacer} />
           </View>
 
           <ScrollView style={styles.accountSettingsContent}>
+            <View style={styles.accountSettingsIntroCard}>
+              <Text style={styles.accountSettingsIntroEyebrow}>Administración</Text>
+              <Text style={styles.accountSettingsIntroTitle}>Configura y elimina esta cuenta desde un solo lugar</Text>
+              <Text style={styles.accountSettingsIntroText}>
+                Aquí puedes ver la configuración técnica, revisar la seguridad y quitar la cuenta del dispositivo.
+              </Text>
+            </View>
+
             <TouchableOpacity style={styles.accountSettingsRow} onPress={onRenameAccount}>
               <Text style={styles.accountSettingsRowLabel}>Nombre de cuenta</Text>
               <View style={styles.accountSettingsValueWrap}>
                 <Text style={styles.accountSettingsRowValue}>{detailProfile?.appName || detailProfile?.applicationId || '-'}</Text>
-                <Text style={styles.accountSettingsChevron}>›</Text>
+                <Ionicons name="chevron-forward" size={18} color="#A0AAB7" />
               </View>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.accountSettingsRow} onPress={onAddAccountToDevice}>
               <Text style={styles.accountSettingsRowLabel}>Agregar una cuenta a este dispositivo</Text>
-              <Text style={styles.accountSettingsChevron}>›</Text>
+              <Ionicons name="chevron-forward" size={18} color="#A0AAB7" />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.accountSettingsRow} onPress={onOpenSecurityInfo}>
+              <Text style={styles.accountSettingsRowLabel}>Ver seguridad y dispositivos</Text>
+              <Ionicons name="chevron-forward" size={18} color="#A0AAB7" />
             </TouchableOpacity>
 
             <Text style={styles.accountSettingsHelp}>
@@ -1432,10 +1946,211 @@ export default function App() {
             </Text>
 
             <TouchableOpacity style={styles.accountSettingsRemoveButton} onPress={onRemoveCurrentAccount}>
-              <Text style={styles.accountSettingsRemoveText}>Quitar cuenta</Text>
+              <Text style={styles.accountSettingsRemoveText}>Eliminar cuenta del teléfono</Text>
             </TouchableOpacity>
           </ScrollView>
         </SafeAreaView>
+      </Modal>
+
+      <Modal
+        visible={showSecurityModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSecurityModal(false)}
+      >
+        <View style={styles.blockingOverlay}>
+          <View style={styles.securityModalCard}>
+            <View style={styles.approvalModalHeader}>
+              <View style={styles.approvalModalIconWrap}>
+                <Ionicons name="shield-checkmark-outline" size={22} color="#0A78D1" />
+              </View>
+              <View style={styles.approvalModalHeaderText}>
+                <Text style={styles.approvalModalEyebrow}>Seguridad de cuenta</Text>
+                <Text style={styles.approvalModalTitle}>Dispositivos y actividad</Text>
+              </View>
+            </View>
+
+            <Text style={styles.approvalModalText}>
+              Revisa las credenciales vinculadas, los últimos accesos y envía una nueva clave de paso si hace falta.
+            </Text>
+
+            {securityLoading ? (
+              <View style={styles.securityLoadingWrap}>
+                <ActivityIndicator size="large" color="#0A78D1" />
+                <Text style={styles.securityLoadingText}>Cargando información de seguridad...</Text>
+              </View>
+            ) : (
+              <ScrollView style={styles.securityModalScroll} contentContainerStyle={{ paddingBottom: 8 }} showsVerticalScrollIndicator={false}>
+                <View style={styles.securityStatsGrid}>
+                  <View style={styles.securityStatCard}>
+                    <Text style={styles.securityStatValue}>{securityOverview?.summary?.active_devices ?? 0}</Text>
+                    <Text style={styles.securityStatLabel}>Dispositivos activos</Text>
+                  </View>
+                  <View style={styles.securityStatCard}>
+                    <Text style={styles.securityStatValue}>{securityOverview?.summary?.passkeys ?? 0}</Text>
+                    <Text style={styles.securityStatLabel}>Claves de paso</Text>
+                  </View>
+                  <View style={styles.securityStatCard}>
+                    <Text style={styles.securityStatValue}>{securityOverview?.summary?.pending_challenges ?? 0}</Text>
+                    <Text style={styles.securityStatLabel}>Solicitudes</Text>
+                  </View>
+                </View>
+
+                <View style={styles.securitySection}>
+                  <Text style={styles.securitySectionTitle}>Dispositivos vinculados</Text>
+                  {(securityOverview?.devices || []).length > 0 ? (
+                    (securityOverview?.devices || []).map((device: any) => (
+                      <View key={device.id} style={styles.securityDeviceCard}>
+                        <View style={styles.securityDeviceTopRow}>
+                          <View style={styles.securityDeviceMeta}>
+                            <Text style={styles.securityDeviceName}>{device.device_name || 'Dispositivo'}</Text>
+                            <Text style={styles.securityDeviceSubtitle}>
+                              {device.device_platform || 'Sin plataforma'} · {device.last_seen_at ? new Date(device.last_seen_at).toLocaleString('es-ES') : 'Sin actividad reciente'}
+                            </Text>
+                            {device.device_id === deviceId && (
+                              <Text style={styles.securityDeviceCurrentLabel}>Este dispositivo</Text>
+                            )}
+                          </View>
+                          <View style={[styles.profileBadge, device.is_active ? styles.profileBadgeToken : styles.profileBadgeLegacy]}>
+                            <Text style={styles.profileBadgeText}>{device.is_active ? 'Activo' : 'Inactivo'}</Text>
+                          </View>
+                        </View>
+
+                        <View style={styles.securityDeviceActions}>
+                          <TouchableOpacity
+                            style={styles.securityTextButton}
+                            onPress={() => revokeSecurityDevice(device.id)}
+                            disabled={!device.is_active || working}
+                          >
+                            <Text style={styles.securityTextButtonLabel}>Revocar</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={styles.securityEmptyText}>No hay dispositivos vinculados todavía.</Text>
+                  )}
+                </View>
+
+                <View style={styles.securitySection}>
+                  <Text style={styles.securitySectionTitle}>Claves de paso</Text>
+                  {(securityOverview?.passkeys || []).length > 0 ? (
+                    (securityOverview?.passkeys || []).map((passkey: any) => (
+                      <View key={passkey.id} style={styles.securityDeviceCard}>
+                        <View style={styles.securityDeviceTopRow}>
+                          <View style={styles.securityDeviceMeta}>
+                            <Text style={styles.securityDeviceName}>{passkey.device_name || 'Clave de paso'}</Text>
+                            <Text style={styles.securityDeviceSubtitle}>
+                              {passkey.last_used_at ? `Último uso: ${new Date(passkey.last_used_at).toLocaleString('es-ES')}` : 'Todavía no se utilizó'}
+                            </Text>
+                          </View>
+                          <View style={[styles.profileBadge, passkey.is_active ? styles.profileBadgeToken : styles.profileBadgeLegacy]}>
+                            <Text style={styles.profileBadgeText}>{passkey.is_active ? 'Activa' : 'Inactiva'}</Text>
+                          </View>
+                        </View>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={styles.securityEmptyText}>Todavía no hay claves de paso registradas.</Text>
+                  )}
+                </View>
+
+                <View style={styles.securitySection}>
+                  <Text style={styles.securitySectionTitle}>Actividad reciente</Text>
+                  {(securityOverview?.recent_logs || []).length > 0 ? (
+                    (securityOverview?.recent_logs || []).map((item: any) => (
+                      <View key={item.id} style={styles.securityLogRow}>
+                        <View style={styles.securityLogDot} />
+                        <View style={styles.securityLogContent}>
+                          <Text style={styles.securityLogTitle}>{item.event_type}</Text>
+                          <Text style={styles.securityLogSubtitle}>
+                            {item.created_at ? new Date(item.created_at).toLocaleString('es-ES') : 'Sin fecha'}
+                            {item.ip_address ? ` · ${item.ip_address}` : ''}
+                          </Text>
+                        </View>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={styles.securityEmptyText}>No hay actividad reciente disponible.</Text>
+                  )}
+                </View>
+              </ScrollView>
+            )}
+
+            <View style={styles.securityActions}>
+              <TouchableOpacity style={[styles.approvalCancelButton, styles.approvalModalButtonFlex]} onPress={refreshSecurityOverview}>
+                <Text style={styles.approvalCancelText}>Actualizar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={[styles.approvalConfirmButton, styles.approvalModalButtonFlex]} onPress={onOpenPasskey}>
+                <Text style={styles.approvalConfirmText}>Crear clave de paso</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity style={styles.securityDangerButton} onPress={resetSecurityEnrollment}>
+              <Ionicons name="refresh-outline" size={18} color="#B91C1C" />
+              <Text style={styles.securityDangerButtonText}>Restablecer seguridad</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showPasskeyInviteModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowPasskeyInviteModal(false)}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+          <View style={styles.blockingOverlay}>
+            <KeyboardAvoidingView
+              style={styles.approvalKeyboardAvoiding}
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              keyboardVerticalOffset={18}
+            >
+          <View style={styles.approvalModalCard}>
+            <View style={styles.approvalModalHeader}>
+              <View style={styles.approvalModalIconWrap}>
+                <Ionicons name="key-outline" size={22} color="#0A78D1" />
+              </View>
+              <View style={styles.approvalModalHeaderText}>
+                <Text style={styles.approvalModalEyebrow}>Clave de paso</Text>
+                <Text style={styles.approvalModalTitle}>Enviar invitación por correo</Text>
+              </View>
+            </View>
+
+            <Text style={styles.approvalModalText}>
+              Le enviaremos un correo a {detailProfile?.email || 'este usuario'} para continuar la configuración de acceso seguro.
+            </Text>
+
+            <View style={styles.passkeyInviteBox}>
+              <Text style={styles.passkeyInviteLabel}>Destino</Text>
+              <Text style={styles.passkeyInviteValue}>{detailProfile?.email || 'Sin correo'}</Text>
+              <Text style={styles.passkeyInviteMeta}>
+                {detailProfile?.appName || detailProfile?.applicationId || 'Cuenta'} · {detailProfile?.deviceName || 'Mi teléfono'}
+              </Text>
+            </View>
+
+            <View style={styles.approvalModalActions}>
+              <TouchableOpacity
+                style={[styles.approvalCancelButton, styles.approvalModalButtonFlex]}
+                onPress={() => setShowPasskeyInviteModal(false)}
+              >
+                <Text style={styles.approvalCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.approvalConfirmButton, styles.approvalModalButtonFlex]}
+                onPress={onSendPasskeyInvite}
+                disabled={working}
+              >
+                <Text style={styles.approvalConfirmText}>Enviar correo</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+            </KeyboardAvoidingView>
+          </View>
+        </TouchableWithoutFeedback>
       </Modal>
 
       <Modal visible={scannerVisible} animationType="slide" onRequestClose={() => setScannerVisible(false)}>
@@ -1471,10 +2186,27 @@ export default function App() {
       >
         <View style={styles.blockingOverlay}>
           <View style={styles.approvalModalCard}>
-            <Text style={styles.approvalModalTitle}>Confirmar número de inicio de sesión</Text>
+            <View style={styles.approvalModalHeader}>
+              <View style={styles.approvalModalIconWrap}>
+                <Ionicons name="shield-checkmark" size={22} color="#0A78D1" />
+              </View>
+              <View style={styles.approvalModalHeaderText}>
+                <Text style={styles.approvalModalEyebrow}>Validación MFA</Text>
+                <Text style={styles.approvalModalTitle}>Confirma el número de inicio de sesión</Text>
+              </View>
+            </View>
+
             <Text style={styles.approvalModalText}>
-              Ingresa el número de 2 dígitos (01-99) que ves en la pantalla de login web para aprobar.
+              Ingresa el número de 2 dígitos que ves en la pantalla de login web para aprobar esta solicitud.
             </Text>
+
+            <View style={styles.manualCodeBox}>
+              <Text style={styles.manualCodeLabel}>Solicitud detectada</Text>
+              <Text style={styles.manualCodeValue}>{approvalChallenge?.challenge_code || '— — —'}</Text>
+              <Text style={styles.approvalCodeMeta}>
+                {approvalProfile?.appName || approvalProfile?.applicationId || 'Cuenta'} · expira en {approvalCodeExpiresIn > 0 ? `${approvalCodeExpiresIn}s` : '—'}
+              </Text>
+            </View>
 
             <TextInput
               style={styles.approvalNumberInput}
@@ -1488,7 +2220,7 @@ export default function App() {
 
             <View style={styles.approvalModalActions}>
               <TouchableOpacity
-                style={styles.approvalCancelButton}
+                style={[styles.approvalCancelButton, styles.approvalModalButtonFlex]}
                 onPress={() => {
                   setShowApprovalNumberModal(false);
                   setApprovalChallenge(null);
@@ -1498,7 +2230,7 @@ export default function App() {
                 <Text style={styles.approvalCancelText}>Cancelar</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.approvalConfirmButton} onPress={confirmApproveWithNumber}>
+              <TouchableOpacity style={[styles.approvalConfirmButton, styles.approvalModalButtonFlex]} onPress={confirmApproveWithNumber}>
                 <Text style={styles.approvalConfirmText}>Aprobar</Text>
               </TouchableOpacity>
             </View>
@@ -1531,8 +2263,138 @@ const styles = StyleSheet.create({
   headerActions: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center' },
   iconButton: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
   headerIcon: { color: '#fff', fontSize: 24, fontWeight: '700' },
+  headerBackButton: {
+    width: 92,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  headerBackContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  headerBackLabel: { color: '#fff', fontSize: 14, fontWeight: '700' },
 
   listContainer: { flex: 1, backgroundColor: '#F2F2F2' },
+  summaryCard: {
+    marginHorizontal: 14,
+    marginTop: 14,
+    marginBottom: 8,
+    padding: 16,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D8E6F7',
+  },
+  summaryCardTopRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+  summaryEyebrow: { color: '#0A78D1', fontSize: 12, fontWeight: '800', letterSpacing: 1.1, textTransform: 'uppercase' },
+  summaryTitle: { color: '#111', fontSize: 18, fontWeight: '800', marginTop: 4, paddingRight: 12 },
+  summaryPill: {
+    backgroundColor: '#EAF4FF',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  summaryPillText: { color: '#0A78D1', fontWeight: '800', fontSize: 12 },
+  summarySubtitle: { color: '#546579', fontSize: 14, lineHeight: 20, marginTop: 10 },
+  applicationGroupCard: {
+    marginHorizontal: 14,
+    marginTop: 12,
+    borderRadius: 20,
+    overflow: 'hidden',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#DCE7F4',
+  },
+  applicationGroupCardActive: {
+    borderColor: '#8EC2FF',
+    shadowColor: '#0A78D1',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
+  },
+  applicationGroupHeader: {
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    backgroundColor: '#F8FBFF',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  applicationGroupHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    minWidth: 0,
+  },
+  applicationGroupAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#EAF4FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  applicationGroupAvatarText: { color: '#0A78D1', fontWeight: '800', fontSize: 16 },
+  applicationGroupHeaderText: { flex: 1, minWidth: 0 },
+  applicationGroupTitle: { color: '#10233E', fontSize: 17, fontWeight: '800' },
+  applicationGroupSubtitle: { color: '#60738B', fontSize: 13, marginTop: 2 },
+  applicationGroupStats: {
+    alignItems: 'flex-end',
+    gap: 6,
+  },
+  applicationGroupStatPill: {
+    backgroundColor: '#EAF4FF',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  applicationGroupStatText: { color: '#0A78D1', fontSize: 12, fontWeight: '800' },
+  applicationGroupPendingPill: {
+    backgroundColor: '#EEF9F0',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  applicationGroupPendingText: { color: '#15803D', fontSize: 12, fontWeight: '800' },
+  applicationGroupBody: {
+    backgroundColor: '#FFFFFF',
+  },
+  profileEntry: {
+    backgroundColor: '#FFFFFF',
+  },
+  profileRow: {
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#EEF3F8',
+  },
+  profileMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 2,
+    flexWrap: 'wrap',
+  },
+  profileBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+  },
+  profileBadgeToken: {
+    backgroundColor: '#E9F8F0',
+  },
+  profileBadgeLegacy: {
+    backgroundColor: '#F3F4F6',
+  },
+  profileBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#35506F',
+  },
   rowSection: { borderBottomWidth: 1, borderBottomColor: '#DEDEDE', backgroundColor: '#F2F2F2' },
   accountRow: {
     minHeight: 86,
@@ -1596,7 +2458,24 @@ const styles = StyleSheet.create({
   detailScreen: { backgroundColor: '#F2F2F2' },
   detailTopCard: { backgroundColor: '#0A78D1', paddingHorizontal: 14, paddingBottom: 18, paddingTop: 8 },
   detailTopBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  detailIconButton: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
+  detailBackButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    height: 38,
+    paddingHorizontal: 12,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  detailBackButtonText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  detailIconButton: {
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 19,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
   detailHeaderIcon: { color: '#fff', fontSize: 30, fontWeight: '500' },
   detailIdentityRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
   detailAvatar: {
@@ -1694,6 +2573,60 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
 
+  detailManagementCard: {
+    marginHorizontal: 14,
+    marginTop: 12,
+    marginBottom: 8,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D8E6F7',
+    padding: 14,
+  },
+  detailManagementEyebrow: {
+    color: '#0A78D1',
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 10,
+  },
+  detailManagementAction: {
+    minHeight: 66,
+    borderRadius: 14,
+    backgroundColor: '#F8FBFF',
+    borderWidth: 1,
+    borderColor: '#E4EEF8',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  detailManagementDangerAction: {
+    backgroundColor: '#FFF7F7',
+    borderColor: '#F6D1D1',
+  },
+  detailManagementActionTextWrap: {
+    flex: 1,
+    paddingRight: 10,
+  },
+  detailManagementActionTitle: {
+    color: '#10233E',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  detailManagementDangerTitle: {
+    color: '#B91C1C',
+  },
+  detailManagementActionSubtitle: {
+    color: '#60738B',
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 4,
+  },
+
   fab: {
     position: 'absolute',
     right: 18,
@@ -1758,8 +2691,46 @@ const styles = StyleSheet.create({
   },
   setupTitle: { color: '#F8FAFC', fontSize: 22, fontWeight: '800' },
   setupClose: { color: '#93C5FD', fontSize: 16, fontWeight: '700' },
-  setupContent: { padding: 16, gap: 10, paddingBottom: 42 },
-  setupSection: { color: '#E2E8F0', fontWeight: '700', fontSize: 16, marginBottom: 2 },
+  setupContent: { padding: 16, gap: 12, paddingBottom: 42 },
+  setupHeroCard: {
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    borderColor: 'rgba(96, 165, 250, 0.18)',
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 16,
+  },
+  setupHeroEyebrow: { color: '#93C5FD', fontSize: 12, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase' },
+  setupHeroTitle: { color: '#F8FAFC', fontSize: 22, fontWeight: '800', marginTop: 6 },
+  setupHeroSubtitle: { color: '#CBD5E1', fontSize: 14, lineHeight: 20, marginTop: 8 },
+  setupModeTabs: {
+    flexDirection: 'row',
+    backgroundColor: '#0F172A',
+    borderRadius: 16,
+    padding: 4,
+    gap: 4,
+  },
+  setupModeTab: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  setupModeTabActive: {
+    backgroundColor: '#1D4ED8',
+  },
+  setupModeTabText: { color: '#94A3B8', fontWeight: '700' },
+  setupModeTabTextActive: { color: '#fff' },
+  setupSection: { color: '#E2E8F0', fontWeight: '800', fontSize: 16, marginBottom: 2 },
+  setupSectionHint: { color: '#94A3B8', fontSize: 13, lineHeight: 18, marginTop: 6 },
+  setupAdvancedCard: {
+    backgroundColor: '#0F172A',
+    borderRadius: 16,
+    padding: 14,
+    borderColor: '#1E293B',
+    borderWidth: 1,
+  },
   input: {
     backgroundColor: '#1E293B',
     color: '#F8FAFC',
@@ -1804,6 +2775,33 @@ const styles = StyleSheet.create({
   accountSettingsTitle: { color: '#fff', fontSize: 20, fontWeight: '700', flex: 1, textAlign: 'center' },
   accountSettingsHeaderSpacer: { width: 42 },
   accountSettingsContent: { flex: 1 },
+  accountSettingsIntroCard: {
+    margin: 14,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D8E6F7',
+    padding: 14,
+  },
+  accountSettingsIntroEyebrow: {
+    color: '#0A78D1',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  accountSettingsIntroTitle: {
+    color: '#10233E',
+    fontSize: 17,
+    fontWeight: '800',
+    marginTop: 6,
+  },
+  accountSettingsIntroText: {
+    color: '#60738B',
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 6,
+  },
   accountSettingsRow: {
     backgroundColor: '#F4F4F4',
     minHeight: 72,
@@ -1827,20 +2825,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#EAEAEA',
   },
   accountSettingsRemoveButton: {
-    backgroundColor: '#F4F4F4',
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#DADADA',
+    backgroundColor: '#FFF2F2',
+    borderWidth: 1,
+    borderColor: '#F0CACA',
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     height: 72,
-    marginTop: 8,
+    marginHorizontal: 14,
+    marginTop: 14,
+    marginBottom: 18,
   },
-  accountSettingsRemoveText: { color: '#D62525', fontSize: 22, fontWeight: '400' },
+  accountSettingsRemoveText: { color: '#D62525', fontSize: 18, fontWeight: '800' },
 
   blockingOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.28)',
+    backgroundColor: 'rgba(15,23,42,0.54)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1858,29 +2858,59 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 14,
   },
+  approvalKeyboardAvoiding: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   approvalModalCard: {
-    width: '86%',
-    maxWidth: 360,
-    borderRadius: 16,
+    width: '88%',
+    maxWidth: 380,
+    maxHeight: '82%',
+    borderRadius: 24,
     backgroundColor: '#fff',
     paddingHorizontal: 18,
     paddingVertical: 18,
     shadowColor: '#000',
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
+    shadowOpacity: 0.25,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 10,
+  },
+  approvalModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 10,
+  },
+  approvalModalIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#EAF4FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  approvalModalHeaderText: {
+    flex: 1,
+  },
+  approvalModalEyebrow: {
+    color: '#0A78D1',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 2,
   },
   approvalModalTitle: {
-    fontSize: 17,
+    fontSize: 20,
     fontWeight: '800',
-    color: '#1A2C45',
-    marginBottom: 8,
+    color: '#10233E',
   },
   approvalModalText: {
-    fontSize: 13,
-    lineHeight: 18,
-    color: '#4B5F79',
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#51647D',
     marginBottom: 12,
   },
   manualCodeBox: {
@@ -1905,23 +2935,240 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     letterSpacing: 5,
   },
+  approvalCodeMeta: {
+    marginTop: 6,
+    color: '#60738B',
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  securityModalCard: {
+    width: '90%',
+    maxWidth: 420,
+    borderRadius: 24,
+    backgroundColor: '#fff',
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 10,
+    maxHeight: '88%',
+  },
+  securityLoadingWrap: {
+    minHeight: 180,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+  },
+  securityLoadingText: {
+    marginTop: 10,
+    color: '#51647D',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  securityModalScroll: {
+    maxHeight: 420,
+    marginBottom: 10,
+  },
+  securityStatsGrid: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 14,
+  },
+  securityStatCard: {
+    flex: 1,
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    backgroundColor: '#F6FAFF',
+    borderWidth: 1,
+    borderColor: '#D9E5F3',
+  },
+  securityStatValue: {
+    color: '#103A63',
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  securityStatLabel: {
+    color: '#60738B',
+    fontSize: 12,
+    marginTop: 4,
+    fontWeight: '700',
+  },
+  securitySection: {
+    marginTop: 6,
+    marginBottom: 12,
+  },
+  securitySectionTitle: {
+    color: '#10233E',
+    fontSize: 15,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  securityDeviceCard: {
+    borderWidth: 1,
+    borderColor: '#D9E5F3',
+    backgroundColor: '#F8FBFF',
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 10,
+  },
+  securityDeviceTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  securityDeviceMeta: {
+    flex: 1,
+  },
+  securityDeviceName: {
+    color: '#10233E',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  securityDeviceSubtitle: {
+    color: '#60738B',
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 4,
+  },
+  securityDeviceCurrentLabel: {
+    color: '#15803D',
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 6,
+  },
+  securityDeviceActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 10,
+  },
+  securityTextButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: '#EEF4FB',
+  },
+  securityTextButtonLabel: {
+    color: '#0A78D1',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  securityEmptyText: {
+    color: '#60738B',
+    fontSize: 13,
+    lineHeight: 18,
+    backgroundColor: '#F8FBFF',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#D9E5F3',
+  },
+  securityLogRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EDF2F7',
+  },
+  securityLogDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#0A78D1',
+    marginTop: 5,
+  },
+  securityLogContent: {
+    flex: 1,
+  },
+  securityLogTitle: {
+    color: '#10233E',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  securityLogSubtitle: {
+    color: '#60738B',
+    fontSize: 12,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  securityActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  securityDangerButton: {
+    marginTop: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#F0CACA',
+    backgroundColor: '#FFF2F2',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  securityDangerButtonText: {
+    color: '#B91C1C',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  passkeyInviteBox: {
+    borderWidth: 1,
+    borderColor: '#D9E5F3',
+    backgroundColor: '#F6FAFF',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    marginBottom: 14,
+  },
+  passkeyInviteLabel: {
+    fontSize: 12,
+    color: '#4B5F79',
+    marginBottom: 4,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  passkeyInviteValue: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#103A63',
+    lineHeight: 22,
+  },
+  passkeyInviteMeta: {
+    marginTop: 6,
+    color: '#60738B',
+    fontSize: 12,
+    lineHeight: 18,
+  },
   approvalNumberInput: {
     borderWidth: 1,
     borderColor: '#C8D4E5',
-    borderRadius: 12,
-    paddingVertical: 12,
+    backgroundColor: '#FAFCFF',
+    borderRadius: 16,
+    paddingVertical: 14,
     paddingHorizontal: 14,
     textAlign: 'center',
-    fontSize: 24,
+    fontSize: 30,
     fontWeight: '800',
     color: '#103A63',
-    letterSpacing: 4,
+    letterSpacing: 8,
     marginBottom: 14,
   },
   approvalModalActions: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
     gap: 10,
+  },
+  approvalModalButtonFlex: {
+    flex: 1,
+    alignItems: 'center',
   },
   approvalCancelButton: {
     backgroundColor: '#EFF4FA',

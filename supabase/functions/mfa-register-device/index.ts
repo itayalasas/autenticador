@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
+import { generateDeviceToken, hashDeviceToken } from '../_shared/device-token.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -10,6 +11,7 @@ const corsHeaders = {
 
 interface RegisterDeviceRequest {
   pairing_token: string;
+  pairing_code?: string;
   device_id: string;
   device_name?: string;
   push_token?: string;
@@ -29,10 +31,10 @@ Deno.serve(async (req) => {
     }
 
     const body: RegisterDeviceRequest = await req.json();
-    const { pairing_token, device_id, device_name, push_token, push_provider, device_platform } = body;
+    const { pairing_token, pairing_code, device_id, device_name, push_token, push_provider, device_platform } = body;
 
-    if (!pairing_token || !device_id) {
-      return new Response(JSON.stringify({ success: false, error: { code: 'MISSING_FIELDS', message: 'pairing_token and device_id are required' } }), {
+    if ((!pairing_token && !pairing_code) || !device_id) {
+      return new Response(JSON.stringify({ success: false, error: { code: 'MISSING_FIELDS', message: 'pairing_code or pairing_token and device_id are required' } }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
@@ -43,11 +45,13 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { data: pairing, error: pairingError } = await supabase
+    const pairingQuery = supabase
       .from('mfa_pairing_tokens')
-      .select('id, token, application_id, app_user_id, expires_at, used_at')
-      .eq('token', pairing_token)
-      .maybeSingle();
+      .select('id, token, pairing_code, application_id, app_user_id, expires_at, used_at');
+
+    const { data: pairing, error: pairingError } = pairing_code
+      ? await pairingQuery.eq('pairing_code', pairing_code.trim().toUpperCase()).maybeSingle()
+      : await pairingQuery.eq('token', pairing_token).maybeSingle();
 
     if (pairingError || !pairing) {
       return new Response(JSON.stringify({ success: false, error: { code: 'INVALID_PAIRING_TOKEN', message: 'Token de emparejamiento inválido' } }), {
@@ -89,6 +93,7 @@ Deno.serve(async (req) => {
           linked_at: pairing.used_at,
           application: applicationWithApiKey,
           user: appUser,
+          pairing_code: pairing.pairing_code,
         }
       }), {
         status: 200,
@@ -103,6 +108,10 @@ Deno.serve(async (req) => {
       });
     }
 
+    const deviceToken = generateDeviceToken();
+    const deviceTokenHash = await hashDeviceToken(deviceToken);
+    const tokenIssuedAt = new Date().toISOString();
+
     const { data: deviceRow, error: deviceError } = await supabase
       .from('mfa_devices')
       .upsert({
@@ -113,6 +122,9 @@ Deno.serve(async (req) => {
         push_token: push_token || null,
         push_provider: push_provider || (push_token ? 'expo' : null),
         device_platform: device_platform || null,
+        device_token_hash: deviceTokenHash,
+        device_token_issued_at: tokenIssuedAt,
+        device_token_last_used_at: tokenIssuedAt,
         is_active: true,
         last_seen_at: new Date().toISOString(),
       }, { onConflict: 'application_id,app_user_id,device_id' })
@@ -144,14 +156,16 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({
       success: true,
-      data: {
-        status: 'linked',
-        linked_at: linkedAt,
-        device: deviceRow,
-        application: applicationWithApiKey,
-        user: appUser,
-      }
-    }), {
+        data: {
+          status: 'linked',
+          linked_at: linkedAt,
+          device: deviceRow,
+          device_token: deviceToken,
+          application: applicationWithApiKey,
+          user: appUser,
+          pairing_code: pairing.pairing_code,
+        }
+      }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });

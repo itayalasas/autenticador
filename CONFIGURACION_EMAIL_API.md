@@ -15,12 +15,12 @@ Para que el sistema de recuperación de contraseña funcione con la API externa 
 
 #### `EMAIL_API_URL`
 - **Descripción**: URL de la API externa que enviará los emails
-- **Valor**: `https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email`
+- **Valor**: `https://tu-servicio-email/functions/v1/send-email`
 - **Tipo**: String (URL)
 
 #### `EMAIL_API_KEY`
 - **Descripción**: API Key para autenticación con la API externa
-- **Valor**: `sk_05f7d2638a2f33e2b730df9d0fb628d7e9230c7ee31a71df5d4f5cde01305e7f`
+- **Valor**: `tu_email_api_key`
 - **Tipo**: String (Secret Key)
 - **⚠️ Importante**: Esta key se envía en el header `x-api-key`
 
@@ -31,20 +31,20 @@ Para que el sistema de recuperación de contraseña funcione con la API externa 
 1. En **Edge Functions > Secrets**, haz clic en **Add Secret**
 2. Agrega la primera variable:
    - **Name**: `EMAIL_API_URL`
-   - **Value**: `https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email`
+   - **Value**: `https://tu-servicio-email/functions/v1/send-email`
 3. Haz clic en **Save**
 4. Repite para la segunda variable:
    - **Name**: `EMAIL_API_KEY`
-   - **Value**: `sk_05f7d2638a2f33e2b730df9d0fb628d7e9230c7ee31a71df5d4f5cde01305e7f`
+   - **Value**: `tu_email_api_key`
 
 #### Opción B: Usando Supabase CLI
 
 ```bash
 # Configurar EMAIL_API_URL
-supabase secrets set EMAIL_API_URL=https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email
+supabase secrets set EMAIL_API_URL=https://tu-servicio-email/functions/v1/send-email
 
 # Configurar EMAIL_API_KEY
-supabase secrets set EMAIL_API_KEY=sk_05f7d2638a2f33e2b730df9d0fb628d7e9230c7ee31a71df5d4f5cde01305e7f
+supabase secrets set EMAIL_API_KEY=tu_email_api_key
 ```
 
 ### 4. Verificar la Configuración
@@ -83,7 +83,7 @@ La edge function `auth-reset-password` envía el siguiente payload a la API exte
 
 ```
 Content-Type: application/json
-x-api-key: sk_05f7d2638a2f33e2b730df9d0fb628d7e9230c7ee31a71df5d4f5cde01305e7f
+x-api-key: tu_email_api_key
 ```
 
 ---
@@ -115,8 +115,8 @@ x-api-key: sk_05f7d2638a2f33e2b730df9d0fb628d7e9230c7ee31a71df5d4f5cde01305e7f
 
 ### 1. Valores por Defecto
 Si no configuras las variables, se usarán estos valores por defecto (definidos en el código):
-- `EMAIL_API_URL`: `https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email`
-- `EMAIL_API_KEY`: `sk_05f7d2638a2f33e2b730df9d0fb628d7e9230c7ee31a71df5d4f5cde01305e7f`
+- `EMAIL_API_URL`: `https://tu-servicio-email/functions/v1/send-email`
+- `EMAIL_API_KEY`: `tu_email_api_key`
 
 ### 2. Seguridad
 - **NUNCA** expongas el `EMAIL_API_KEY` en el código del frontend
@@ -170,7 +170,7 @@ Los logs de la edge function mostrarán:
 
 ```
 📧 Sending reset password email via external API...
-📧 API URL: https://drhbcmithlrldtjlhnee.supabase.co/functions/v1/send-email
+📧 API URL: https://tu-servicio-email/functions/v1/send-email
 📧 Recipient: usuario@ejemplo.com
 ✅ Email sent successfully via external API
 ```

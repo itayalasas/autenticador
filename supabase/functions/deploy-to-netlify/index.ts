@@ -66,12 +66,14 @@ Deno.serve(async (req: Request) => {
 
     console.log(' API key found');
 
-    // Get branding
+    // Get branding draft and prefer published environment snapshot when available
     const { data: branding } = await supabase
       .from('branding_configs')
       .select('*')
       .eq('application_id', environment.application_id)
       .maybeSingle();
+
+    const publishedBranding = environment.metadata?.branding_snapshot || branding || {};
 
     console.log('=� Generating project files...');
 
@@ -87,7 +89,7 @@ Deno.serve(async (req: Request) => {
         apiKey: apiKey,
         supabaseUrl: supabaseUrl,
         supabaseAnonKey: supabaseAnonKey,
-        branding: branding,
+        branding: publishedBranding,
         internalApplicationId: environment.application_id
       })
     });

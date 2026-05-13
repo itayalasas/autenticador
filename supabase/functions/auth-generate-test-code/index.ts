@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
+import { buildRedirectUrl, resolveApplicationAuthUrl } from '../_shared/application-auth-url.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -82,7 +83,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { application_id, api_key, email, callback_url, ttl_seconds } = requestBody;
+    const { application_id, api_key, email, ttl_seconds } = requestBody;
 
     if (!application_id || !api_key || !email) {
       return new Response(
@@ -247,12 +248,18 @@ Deno.serve(async (req) => {
       },
     };
 
-    if (callback_url) {
-      const callbackParams = new URLSearchParams({
+    const { callbackUrl: configuredCallbackUrl } = await resolveApplicationAuthUrl(
+      supabase,
+      application.id,
+      (apiKeyData as any).environment || null
+    );
+
+    if (configuredCallbackUrl) {
+      responseData.callback_url = buildRedirectUrl(configuredCallbackUrl, {
         code,
+        application_id: application.application_id,
         state: 'authenticated',
       });
-      responseData.callback_url = `${callback_url}?${callbackParams.toString()}`;
     }
 
     return new Response(

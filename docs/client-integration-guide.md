@@ -1,50 +1,81 @@
-# Guía de Integración para Clientes
+# Guia de Integracion para Clientes
 
-## 🚀 Cómo integrar AuthSystem en tu aplicación
+## Como integrar AuthSystem en tu aplicacion
 
-### 1. Configuración Inicial
+Esta guia documenta el flujo recomendado actual:
 
-#### URLs que debes configurar en tu aplicación:
-```
-https://tudominio.com/auth/callback     (obligatorio)
-https://tudominio.com/auth/error        (opcional)
-https://tudominio.com/verify-email      (opcional)
-```
-
-#### Datos que recibirás de AuthSystem:
-- **API Key**: Para hacer requests a nuestros endpoints
-- **Application ID**: Identificador único de tu app
-- **URLs de formularios**: Para redirigir usuarios a login/registro
+1. Tu app redirige al usuario a AuthSystem.
+2. AuthSystem autentica al usuario.
+3. AuthSystem devuelve un `code` temporal en el callback.
+4. Tu app intercambia ese `code` por tokens usando `auth-exchange-code`.
 
 ---
 
-## 2. Flujo de Autenticación
+## 1. Configuracion inicial
 
-### Paso 1: Redirigir usuario a AuthSystem
+### URLs que debes definir en tu aplicacion
+
+```text
+https://tudominio.com/auth/callback
+https://tudominio.com/auth/error
+https://tudominio.com/verify-email
+```
+
+### Datos que usa la integracion
+
+- `app_id`: identificador publico de la aplicacion.
+- `api_key`: llave publica del ambiente.
+- `redirect_uri` o `callback_url`: URL de retorno de tu app.
+
+---
+
+## 2. Flujo de autenticacion
+
+### Paso 1: redirigir al usuario
+
 ```javascript
-// Redirigir a login
-window.location.href = 'https://auth-dev.tudominio.com/login?app_id=app_mk2k3j4h5k6l&callback_url=https://miapp.com/auth/callback';
+const authBaseUrl = 'https://auth-dev.tudominio.com';
+const appId = 'app_mk2k3j4h5k6l';
+const callbackUrl = 'https://miapp.com/auth/callback';
+const apiKey = 'ak_production_042a5f866c7e35630a9340bd224cbdda';
 
-// Redirigir a registro
-window.location.href = 'https://auth-dev.tudominio.com/register?app_id=app_mk2k3j4h5k6l&callback_url=https://miapp.com/auth/callback';
+window.location.href =
+  `${authBaseUrl}/login?app_id=${appId}` +
+  `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
+  `&api_key=${apiKey}`;
 ```
 
-### Paso 2: Manejar el callback en tu aplicación
+Para registro:
 
-Cuando el usuario se autentica exitosamente, lo redirigimos a tu `callback_url` con estos parámetros:
-
-```
-https://miapp.com/auth/callback?token=JWT_TOKEN&refresh_token=REFRESH_TOKEN&user_id=123&state=success&user_email=usuario@ejemplo.com&user_name=Juan%20Perez&expires_in=86400
+```javascript
+window.location.href =
+  `${authBaseUrl}/register?app_id=${appId}` +
+  `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
+  `&api_key=${apiKey}`;
 ```
 
 ---
 
-## 3. Implementación en el Cliente
+### Paso 2: recibir el callback
 
-### JavaScript/React (Recomendado)
+AuthSystem redirige con un `code` temporal:
+
+```text
+https://miapp.com/auth/callback?code=AUTH_CODE_UUID&state=authenticated
+```
+
+El cliente debe:
+
+- validar que exista `code`,
+- validar `state`,
+- intercambiar el `code` por tokens,
+- guardar la sesion en su propio storage.
+
+---
+
+### Paso 3: intercambiar el code por tokens
 
 ```javascript
-// /auth/callback - Página que maneja la respuesta de AuthSystem
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -53,321 +84,147 @@ function AuthCallback() {
   const [status, setStatus] = useState('loading');
 
   useEffect(() => {
-    handleAuthCallback();
+    void handleAuthCallback();
   }, []);
 
   const handleAuthCallback = async () => {
     try {
-      // 1. Extraer datos de la URL
-      const token = searchParams.get('token');
-      const refreshToken = searchParams.get('refresh_token');
-      const userId = searchParams.get('user_id');
-      const userEmail = searchParams.get('user_email');
-      const userName = searchParams.get('user_name');
+      const code = searchParams.get('code');
       const state = searchParams.get('state');
-      const expiresIn = searchParams.get('expires_in');
 
-      if (state !== 'success' || !token) {
-        throw new Error('Autenticación fallida');
+      if (state !== 'authenticated' || !code) {
+        throw new Error('Callback invalido');
       }
 
-      // 2. Validar el token con AuthSystem (opcional pero recomendado)
-      const isValid = await validateToken(token);
-      if (!isValid) {
-        throw new Error('Token inválido');
-      }
-
-      // 3. Decodificar el JWT para obtener datos completos del usuario
-      const userData = parseJWT(token);
-      
-      // 4. Guardar datos de autenticación
-      const authData = {
-        accessToken: token,
-        refreshToken: refreshToken,
-        user: {
-          id: userId,
-          email: userEmail,
-          name: decodeURIComponent(userName || ''),
-          roles: userData.roles || [],
-          permissions: userData.permissions || [],
-          metadata: userData.metadata || {}
+      const response = await fetch('https://auth-dev.tudominio.com/functions/v1/auth-exchange-code', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
         },
-        expiresAt: new Date(Date.now() + parseInt(expiresIn) * 1000)
-      };
+        body: JSON.stringify({
+          code,
+          application_id: 'app_mk2k3j4h5k6l'
+        })
+      });
 
-      // 5. Guardar en localStorage/sessionStorage
-      localStorage.setItem('authData', JSON.stringify(authData));
-      
-      // 6. Actualizar estado de la aplicación
-      setUserAuthenticated(authData.user);
-      
+      const result = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.error?.message || 'No se pudieron intercambiar los tokens');
+      }
+
+      localStorage.setItem('access_token', result.data.access_token);
+      localStorage.setItem('refresh_token', result.data.refresh_token);
+      localStorage.setItem('user', JSON.stringify(result.data.user));
+
       setStatus('success');
-      
-      // 7. Redirigir a la página principal de tu app
-      setTimeout(() => {
-        window.location.href = '/dashboard';
-      }, 1000);
-
+      window.location.href = '/dashboard';
     } catch (error) {
       console.error('Error en callback:', error);
       setStatus('error');
     }
   };
 
-  // Función para validar token con AuthSystem
-  const validateToken = async (token) => {
-    try {
-      const response = await fetch('https://auth-dev.tudominio.com/api/auth/verify', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': 'tu_api_key_aqui'
-        },
-        body: JSON.stringify({
-          token: token,
-          application_id: 'app_mk2k3j4h5k6l'
-        })
-      });
-      
-      const result = await response.json();
-      return result.success && result.data.valid;
-    } catch (error) {
-      return false;
-    }
-  };
-
-  // Función para decodificar JWT (lado cliente)
-  const parseJWT = (token) => {
-    try {
-      const base64Url = token.split('.')[1];
-      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-      const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-      }).join(''));
-      return JSON.parse(jsonPayload);
-    } catch (error) {
-      return {};
-    }
-  };
-
   if (status === 'loading') {
-    return <div>Procesando autenticación...</div>;
+    return <div>Procesando autenticacion...</div>;
   }
 
   if (status === 'error') {
-    return <div>Error en la autenticación. <a href="/login">Intentar de nuevo</a></div>;
+    return <div>Error en la autenticacion. <a href="/login">Intentar de nuevo</a></div>;
   }
 
-  return <div>¡Autenticación exitosa! Redirigiendo...</div>;
+  return <div>Autenticacion exitosa. Redirigiendo...</div>;
 }
 ```
 
-### PHP (Alternativa)
+---
+
+## 3. Ejemplo en PHP
 
 ```php
 <?php
-// /auth/callback.php
 session_start();
 
 try {
-    // 1. Extraer datos de la URL
-    $token = $_GET['token'] ?? null;
-    $refreshToken = $_GET['refresh_token'] ?? null;
-    $userId = $_GET['user_id'] ?? null;
-    $userEmail = $_GET['user_email'] ?? null;
-    $userName = $_GET['user_name'] ?? null;
+    $code = $_GET['code'] ?? null;
     $state = $_GET['state'] ?? null;
-    $expiresIn = $_GET['expires_in'] ?? 86400;
 
-    if ($state !== 'success' || !$token) {
-        throw new Exception('Autenticación fallida');
+    if ($state !== 'authenticated' || !$code) {
+        throw new Exception('Callback invalido');
     }
 
-    // 2. Validar token con AuthSystem
-    $isValid = validateToken($token);
-    if (!$isValid) {
-        throw new Exception('Token inválido');
-    }
-
-    // 3. Decodificar JWT
-    $userData = parseJWT($token);
-    
-    // 4. Guardar en sesión
-    $_SESSION['auth_data'] = [
-        'access_token' => $token,
-        'refresh_token' => $refreshToken,
-        'user' => [
-            'id' => $userId,
-            'email' => $userEmail,
-            'name' => urldecode($userName),
-            'roles' => $userData['roles'] ?? [],
-            'permissions' => $userData['permissions'] ?? []
-        ],
-        'expires_at' => date('Y-m-d H:i:s', time() + $expiresIn)
-    ];
-
-    // 5. Redirigir a dashboard
-    header('Location: /dashboard');
-    exit;
-
-} catch (Exception $e) {
-    // Manejar error
-    header('Location: /login?error=' . urlencode($e->getMessage()));
-    exit;
-}
-
-function validateToken($token) {
-    $data = [
-        'token' => $token,
+    $payload = [
+        'code' => $code,
         'application_id' => 'app_mk2k3j4h5k6l'
     ];
-    
-    $options = [
-        'http' => [
-            'header' => "Content-type: application/json\r\n" .
-                       "X-API-Key: tu_api_key_aqui\r\n",
-            'method' => 'POST',
-            'content' => json_encode($data)
-        ]
-    ];
-    
-    $context = stream_context_create($options);
-    $result = file_get_contents('https://auth-dev.tudominio.com/api/auth/verify', false, $context);
-    $response = json_decode($result, true);
-    
-    return $response['success'] && $response['data']['valid'];
-}
 
-function parseJWT($token) {
-    $parts = explode('.', $token);
-    $payload = json_decode(base64_decode($parts[1]), true);
-    return $payload;
+    $ch = curl_init('https://auth-dev.tudominio.com/functions/v1/auth-exchange-code');
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+
+    $response = curl_exec($ch);
+    curl_close($ch);
+
+    $result = json_decode($response, true);
+
+    if (!$result['success']) {
+        throw new Exception($result['error']['message'] ?? 'Error de autenticacion');
+    }
+
+    $_SESSION['auth_data'] = [
+        'access_token' => $result['data']['access_token'],
+        'refresh_token' => $result['data']['refresh_token'],
+        'user' => $result['data']['user']
+    ];
+
+    header('Location: /dashboard');
+    exit;
+} catch (Exception $e) {
+    header('Location: /login?error=' . urlencode($e->getMessage()));
+    exit;
 }
 ?>
 ```
 
 ---
 
-## 4. Middleware de Autenticación
+## 4. Proteccion de rutas
 
-### Para proteger rutas en tu aplicación:
+Si quieres proteger rutas en tu app, usa la sesion local o un middleware propio:
 
 ```javascript
-// middleware/auth.js
-export const requireAuth = (req, res, next) => {
-  const authData = getStoredAuthData();
-  
-  if (!authData || !isAuthenticated()) {
-    // Redirigir a login con callback
-    const loginUrl = `https://auth-dev.tudominio.com/login?app_id=app_mk2k3j4h5k6l&callback_url=${encodeURIComponent(window.location.href)}`;
-    window.location.href = loginUrl;
-    return;
-  }
-  
-  // Usuario autenticado, continuar
-  req.user = authData.user;
-  next();
-};
+export const requireAuth = () => {
+  const accessToken = localStorage.getItem('access_token');
 
-// Verificar permisos específicos
-export const requirePermission = (permission) => {
-  return (req, res, next) => {
-    const authData = getStoredAuthData();
-    
-    if (!authData.user.permissions.includes(permission)) {
-      return res.status(403).json({ error: 'Sin permisos suficientes' });
-    }
-    
-    next();
-  };
+  if (!accessToken) {
+    const loginUrl = `https://auth-dev.tudominio.com/login?app_id=app_mk2k3j4h5k6l&redirect_uri=${encodeURIComponent(window.location.href)}`;
+    window.location.href = loginUrl;
+    return false;
+  }
+
+  return true;
 };
 ```
 
 ---
 
-## 5. Ejemplo de Uso Completo
+## 5. Recomendaciones de seguridad
 
-```javascript
-// App.js - Ejemplo completo
-import { useEffect, useState } from 'react';
-import { getStoredAuthData, isAuthenticated, clearAuthData } from './utils/authHelpers';
-
-function App() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    checkAuthentication();
-  }, []);
-
-  const checkAuthentication = () => {
-    if (isAuthenticated()) {
-      const authData = getStoredAuthData();
-      setUser(authData.user);
-    }
-    setLoading(false);
-  };
-
-  const handleLogin = () => {
-    const loginUrl = `https://auth-dev.tudominio.com/login?app_id=app_mk2k3j4h5k6l&callback_url=${encodeURIComponent(window.location.origin + '/auth/callback')}`;
-    window.location.href = loginUrl;
-  };
-
-  const handleLogout = () => {
-    clearAuthData();
-    setUser(null);
-    // Opcional: notificar logout a AuthSystem
-  };
-
-  if (loading) {
-    return <div>Cargando...</div>;
-  }
-
-  if (!user) {
-    return (
-      <div>
-        <h1>Mi Aplicación</h1>
-        <button onClick={handleLogin}>Iniciar Sesión</button>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <h1>Bienvenido, {user.name}!</h1>
-      <p>Email: {user.email}</p>
-      <p>Roles: {user.roles.join(', ')}</p>
-      <p>Permisos: {user.permissions.join(', ')}</p>
-      <button onClick={handleLogout}>Cerrar Sesión</button>
-      
-      {/* Contenido protegido basado en roles */}
-      {user.roles.includes('admin') && (
-        <div>
-          <h2>Panel de Administración</h2>
-          <p>Solo visible para administradores</p>
-        </div>
-      )}
-    </div>
-  );
-}
-```
+- Usa siempre HTTPS.
+- Registra las `redirect_uri` permitidas por aplicacion. `callback_url` sigue como alias compatible en el backend.
+- No expongas la `api_key` en repositorios publicos.
+- Trata el `code` como un valor de un solo uso.
+- No guardes tokens sensibles en lugares compartidos entre usuarios.
+- Valida `state` antes de intercambiar el `code`.
 
 ---
 
-## 6. Resumen para el Cliente
+## 6. Resumen rapido
 
-**El cliente debe implementar:**
-
-1. **Página de callback** (`/auth/callback`) que procese los parámetros de la URL
-2. **Validación del token** (opcional pero recomendado)
-3. **Almacenamiento de la sesión** (localStorage, sessionStorage, cookies)
-4. **Middleware de autenticación** para proteger rutas
-5. **Manejo de expiración** y refresh de tokens
-
-**Lo que nosotros proporcionamos:**
-- URLs de formularios de login/registro personalizados
-- API REST para validar tokens
-- Redirección automática con todos los datos del usuario
-- Documentación completa con ejemplos de código
-
-¿Te parece claro este flujo? ¿Quieres que ajuste algo específico?
+- Redirige al usuario a `/login` o `/register`.
+- Recibe `code` en el callback.
+- Llama a `auth-exchange-code`.
+- Guarda `access_token` y `refresh_token`.
+- Continua el flujo en tu aplicacion.

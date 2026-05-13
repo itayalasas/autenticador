@@ -94,27 +94,87 @@ export default function RegisterTenantForm() {
 
   useEffect(() => {
     const loadPlans = async () => {
-      if (!appId) { setPlansLoading(false); return; }
+      if (!appId || !resolvedApiKey) { setPlansLoading(false); return; }
       try {
-        const res = await fetch(\`https://veymthufmfqhxxxzfmfi.supabase.co/functions/v1/validation-api/plans?external_app_id=\${appId}\`);
-        const json = await res.json();
-        const list = Array.isArray(json?.plans) ? json.plans.filter((p: any) => p.is_active !== false) : [];
-        list.sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+        const payload = {
+          application_id: appId,
+          api_key: resolvedApiKey
+        };
+
+        const attempts = [
+          {
+            url: '/api/application/plans',
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          },
+          {
+            url: \`\${API_BASE_URL}/application-plans\`,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`,
+              'apikey': SUPABASE_ANON_KEY
+            }
+          }
+        ];
+
+        let json: any = null;
+        for (const attempt of attempts) {
+          try {
+            const res = await fetch(attempt.url, {
+              method: 'POST',
+              headers: attempt.headers,
+              body: JSON.stringify(payload)
+            });
+            const result = await res.json().catch(() => null);
+            if (!res.ok || !result?.success) {
+              throw new Error(result?.error?.message || 'No se pudieron cargar los planes');
+            }
+            json = result;
+            break;
+          } catch {
+            json = null;
+          }
+        }
+
+        const list = Array.isArray(json?.data?.available_plans)
+          ? json.data.available_plans
+              .map((p: any) => ({
+                ...p,
+                price: Number(p.price || 0),
+                trial_days: Number(p.trial_days || p.free_trial_days || 0),
+                sort_order: Number(p.sort_order || 0)
+              }))
+              .filter((p: any) => p.active !== false)
+          : [];
+
+        list.sort((a: any, b: any) => {
+          if ((a.sort_order ?? 0) !== (b.sort_order ?? 0)) {
+            return (a.sort_order ?? 0) - (b.sort_order ?? 0);
+          }
+          return Number(a.price || 0) - Number(b.price || 0);
+        });
+
         setPlans(list);
         if (!selectedPlanId) {
-          const trial = list.find((p: any) => (p.trial_days ?? 0) > 0) || list.find((p: any) => Number(p.price) === 0) || list[0];
+          const trial = list.find((p: any) => (p.is_default === true))
+            || list.find((p: any) => (p.trial_days ?? 0) > 0)
+            || list.find((p: any) => Number(p.price) === 0)
+            || list[0];
           if (trial) setSelectedPlanId(trial.id);
         } else if (!list.some((p: any) => p.id === selectedPlanId)) {
-          const fallback = list.find((p: any) => (p.trial_days ?? 0) > 0) || list[0];
+          const fallback = list.find((p: any) => (p.is_default === true))
+            || list.find((p: any) => (p.trial_days ?? 0) > 0)
+            || list[0];
           if (fallback) setSelectedPlanId(fallback.id);
         }
       } catch {
-        /* ignore */
+        setPlans([]);
       } finally { setPlansLoading(false); }
     };
     loadPlans();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appId]);
+  }, [appId, resolvedApiKey]);
 
   useEffect(() => {
     if (!slugManuallyEdited && tenantData.name) {
