@@ -28,6 +28,13 @@ function buildHelpfulGitHubError(rawMessage: string, files: Record<string, strin
   return rawMessage;
 }
 
+function parseScopes(rawScopes: string | null): string[] {
+  return String(rawScopes || '')
+    .split(',')
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, {
@@ -56,6 +63,22 @@ Deno.serve(async (req: Request) => {
       "Accept": "application/vnd.github.v3+json",
       "Content-Type": "application/json",
     };
+
+    const includesWorkflowFiles = Object.keys(files).some((path) => path.startsWith('.github/workflows/'));
+    if (includesWorkflowFiles) {
+      const scopeResponse = await fetch('https://api.github.com/user', { headers });
+      if (!scopeResponse.ok) {
+        throw new Error(`Failed to inspect GitHub token scopes: ${await scopeResponse.text()}`);
+      }
+
+      const grantedScopes = parseScopes(scopeResponse.headers.get('X-OAuth-Scopes'));
+      if (!grantedScopes.includes('workflow')) {
+        throw new Error(
+          `El token de GitHub no tiene el scope "workflow". Scopes actuales: ${grantedScopes.join(', ') || 'ninguno'}. ` +
+          `Desconecta GitHub y vuelve a conectarlo. Si persiste, revoca AuthSystem desde GitHub > Settings > Applications > Authorized OAuth Apps y reconecta de nuevo.`
+        );
+      }
+    }
 
     const refResponse = await fetch(
       `https://api.github.com/repos/${repoFullName}/git/ref/heads/${branch}`,

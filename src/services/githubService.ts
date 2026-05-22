@@ -381,6 +381,27 @@ class GitHubService {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
+    const connection = await this.getActiveConnection();
+    const supabaseUrl = getEnvVariable('VITE_SUPABASE_URL');
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (connection?.access_token && supabaseUrl && session?.access_token) {
+      try {
+        await fetch(`${supabaseUrl}/functions/v1/github-revoke-token`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            accessToken: connection.access_token,
+          }),
+        });
+      } catch (error) {
+        console.warn('No se pudo revocar el token de GitHub antes de desconectar:', error);
+      }
+    }
+
     const { error } = await supabase
       .from('git_connections')
       .update({ is_active: false })
