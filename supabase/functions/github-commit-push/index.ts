@@ -17,6 +17,17 @@ interface CommitRequest {
   deploymentUrl?: string;
 }
 
+function buildHelpfulGitHubError(rawMessage: string, files: Record<string, string>) {
+  const includesWorkflowFiles = Object.keys(files).some((path) => path.startsWith('.github/workflows/'));
+  const mentionsNotFound = rawMessage.includes('"message":"Not Found"') || rawMessage.includes('Not Found');
+
+  if (includesWorkflowFiles && mentionsNotFound) {
+    return `${rawMessage}. GitHub probablemente rechazó la actualización porque el token OAuth no tiene permiso para modificar workflows. Reconecta GitHub desde Conectores para obtener el scope "workflow" y vuelve a intentar.`;
+  }
+
+  return rawMessage;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, {
@@ -110,7 +121,8 @@ Deno.serve(async (req: Request) => {
     );
 
     if (!treeResponse.ok) {
-      throw new Error(`Failed to create tree: ${await treeResponse.text()}`);
+      const rawMessage = `Failed to create tree: ${await treeResponse.text()}`;
+      throw new Error(buildHelpfulGitHubError(rawMessage, files));
     }
 
     const treeData = await treeResponse.json();

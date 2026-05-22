@@ -32,16 +32,71 @@ interface AzureContainerAppsConfig {
 }
 
 class ConnectorsService {
+  private extractGuid(value: string): string {
+    const normalizedValue = String(value || '').trim();
+    const match = normalizedValue.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);
+    return match ? match[0] : normalizedValue;
+  }
+
   private normalizeAzureContainerAppsConfig(config: AzureContainerAppsConfig): AzureContainerAppsConfig {
     return {
-      tenant_id: config.tenant_id.trim(),
-      subscription_id: config.subscription_id.trim(),
-      client_id: config.client_id.trim(),
+      tenant_id: this.extractGuid(config.tenant_id),
+      subscription_id: this.extractGuid(config.subscription_id),
+      client_id: this.extractGuid(config.client_id),
       client_secret: config.client_secret.trim(),
       resource_group: config.resource_group.trim(),
       location: config.location.trim(),
       containerapps_environment: config.containerapps_environment?.trim() || undefined,
     };
+  }
+
+  private async extractEdgeFunctionErrorMessage(error: any): Promise<string> {
+    const fallbackMessage = error?.message || 'No se pudo validar Azure Container Apps';
+    const response = error?.context;
+
+    if (!(response instanceof Response)) {
+      return fallbackMessage;
+    }
+
+    const payload = await response.clone().json().catch(async () => ({
+      message: await response.text().catch(() => ''),
+    }));
+
+    const detail = payload?.error?.detail;
+    const message = payload?.error?.message || payload?.message || fallbackMessage;
+
+    if (!detail) {
+      return message;
+    }
+
+    if (typeof detail === 'string') {
+      try {
+        const parsedDetail = JSON.parse(detail);
+        const azureMessage =
+          parsedDetail?.error_description ||
+          parsedDetail?.error?.message ||
+          parsedDetail?.message;
+
+        if (azureMessage) {
+          return `${message}: ${azureMessage}`;
+        }
+      } catch {
+        return `${message}: ${detail}`;
+      }
+    }
+
+    if (typeof detail === 'object') {
+      const azureMessage =
+        detail?.error_description ||
+        detail?.error?.message ||
+        detail?.message;
+
+      if (azureMessage) {
+        return `${message}: ${azureMessage}`;
+      }
+    }
+
+    return message;
   }
 
   // Save or update connector configuration
@@ -191,54 +246,27 @@ class ConnectorsService {
     }
 
     try {
-      const tokenResponse = await fetch(`https://login.microsoftonline.com/${azureConfig.tenant_id}/oauth2/v2.0/token`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          client_id: azureConfig.client_id,
-          client_secret: azureConfig.client_secret,
-          scope: 'https://management.azure.com/.default',
-          grant_type: 'client_credentials',
-        }),
+      const { data, error } = await supabase.functions.invoke('azure-test-connector', {
+        body: azureConfig,
       });
 
-      if (!tokenResponse.ok) {
+      if (error) {
         return {
           success: false,
-          message: 'Credenciales de Azure inválidas',
+          message: await this.extractEdgeFunctionErrorMessage(error),
         };
       }
 
-      const tokenPayload = await tokenResponse.json();
-      const accessToken = tokenPayload?.access_token;
-      if (!accessToken) {
+      if (!data?.success) {
         return {
           success: false,
-          message: 'Azure no devolvió un access token válido',
-        };
-      }
-
-      const subscriptionResponse = await fetch(
-        `https://management.azure.com/subscriptions/${azureConfig.subscription_id}?api-version=2020-01-01`,
-        {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-          },
-        }
-      );
-
-      if (!subscriptionResponse.ok) {
-        return {
-          success: false,
-          message: 'No se pudo validar la suscripción de Azure',
+          message: data?.error?.message || data?.message || 'No se pudo validar Azure Container Apps',
         };
       }
 
       return {
         success: true,
-        message: 'Azure Container Apps conectado correctamente',
+        message: data?.message || 'Azure Container Apps conectado correctamente',
       };
     } catch (error: any) {
       return {

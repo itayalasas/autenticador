@@ -339,6 +339,7 @@ export default function ConnectorsPage() {
                 </ul>
               </li>
               <li>Copia el Client ID y genera un Client Secret</li>
+              <li>Si ya conectaste GitHub antes de este ajuste, desconéctalo y vuelve a conectarlo para que el token reciba permiso para workflows de GitHub Actions.</li>
               <li>Pégalos en los campos de abajo</li>
             </ol>
           </div>
@@ -654,6 +655,9 @@ export default function ConnectorsPage() {
                 placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                Si copias el valor desde Azure con texto adicional, usamos automaticamente solo el GUID valido.
+              </p>
             </div>
 
             <div>

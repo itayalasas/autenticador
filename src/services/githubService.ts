@@ -45,7 +45,7 @@ interface GitRepository {
 }
 
 class GitHubService {
-  private readonly scopes = ['repo', 'user:email'];
+  private readonly scopes = ['repo', 'workflow', 'user:email'];
 
   private async getConfig() {
     const config = await connectorsService.getGitHubConfig();
