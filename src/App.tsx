@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, useSearchParams, useParams } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useSearchParams, useParams, useLocation } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
 import AuthPage from './components/auth/AuthPage';
 import PublicAuthRouter from './components/auth/PublicAuthRouter';
@@ -26,6 +26,30 @@ import GitHubCallback from './components/github/GitHubCallback';
 import DeploymentManager from './components/deployments/DeploymentManager';
 import FormStylesPrototype from './components/auth/FormStylesPrototype';
 import RegisterTenantForm from './components/auth/RegisterTenantForm';
+
+const INTERNAL_SECTION_PATHS = [
+  'dashboard',
+  'applications',
+  'users',
+  'roles',
+  'authentication',
+  'plans-subscriptions',
+  'branding',
+  'environments',
+  'connectors',
+  'deployments',
+  'api-keys',
+  'logs',
+  'documentation',
+  'settings',
+] as const;
+
+function getSectionFromPathname(pathname: string): string {
+  const normalizedPath = pathname.replace(/^\/+|\/+$/g, '');
+  return INTERNAL_SECTION_PATHS.includes(normalizedPath as typeof INTERNAL_SECTION_PATHS[number])
+    ? normalizedPath
+    : 'dashboard';
+}
 
 // Component for handling public auth routes
 function PublicAuthRoute() {
@@ -66,7 +90,8 @@ function PublicAuthRoute() {
 
 function MainApp() {
   const { user, loading } = useAuth();
-  const [activeSection, setActiveSection] = useState('dashboard');
+  const location = useLocation();
+  const [activeSection, setActiveSection] = useState(() => getSectionFromPathname(location.pathname));
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchParams] = useSearchParams();
 
@@ -93,6 +118,12 @@ function MainApp() {
       window.removeEventListener('changeSectionWithApp', handleSectionChange as EventListener);
     };
   }, []);
+
+  useEffect(() => {
+    if (!searchParams.get('app_id')) {
+      setActiveSection(getSectionFromPathname(location.pathname));
+    }
+  }, [location.pathname, searchParams]);
 
   if (loading) {
     return (
@@ -226,13 +257,16 @@ function App() {
       <Routes>
         <Route path="/prototype" element={<FormStylesPrototype />} />
         <Route path="/reset-password" element={<ResetPasswordForm />} />
-      <Route path="/reset-password-confirm" element={<ResetPasswordForm />} />
-      <Route path="/register-tenant" element={<RegisterTenantForm />} />
-      <Route path="/verify-email" element={<VerifyEmailForm />} />
-      <Route path="/passkey-setup" element={<PasskeySetupPage />} />
-      <Route path="/auth/callback" element={<CallbackHandler />} />
-      <Route path="/github/callback" element={<GitHubCallback />} />
-      <Route path="/:action" element={<PublicAuthRoute />} />
+        <Route path="/reset-password-confirm" element={<ResetPasswordForm />} />
+        <Route path="/register-tenant" element={<RegisterTenantForm />} />
+        <Route path="/verify-email" element={<VerifyEmailForm />} />
+        <Route path="/passkey-setup" element={<PasskeySetupPage />} />
+        <Route path="/auth/callback" element={<CallbackHandler />} />
+        <Route path="/github/callback" element={<GitHubCallback />} />
+        {INTERNAL_SECTION_PATHS.map((sectionPath) => (
+          <Route key={sectionPath} path={`/${sectionPath}`} element={<MainApp />} />
+        ))}
+        <Route path="/:action" element={<PublicAuthRoute />} />
         <Route path="/*" element={<MainApp />} />
       </Routes>
     </Router>

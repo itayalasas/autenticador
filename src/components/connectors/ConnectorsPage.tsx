@@ -631,6 +631,8 @@ export default function ConnectorsPage() {
               <li>Guarda Tenant ID, Subscription ID, Client ID y Client Secret.</li>
               <li>Configura el Resource Group y la region base para los ambientes.</li>
               <li>El Container Apps Environment por defecto es opcional: si lo dejas vacio se genera en el primer deploy y luego se reutiliza en los redeploys.</li>
+              <li>Un administrador de la suscripcion debe tener registrados una sola vez los proveedores Microsoft.App y Microsoft.OperationalInsights antes del primer deploy.</li>
+              <li>El primer deploy crea el Container Apps Environment sin Log Analytics por defecto, para no requerir permisos extra sobre Operational Insights.</li>
             </ol>
           </div>
 

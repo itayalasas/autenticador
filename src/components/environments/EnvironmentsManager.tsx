@@ -73,6 +73,15 @@ interface PendingDeployData {
   apiKey: string;
 }
 
+interface ActiveEnvironmentApiKeyRecord {
+  id: string;
+  name: string;
+  key_hash: string;
+  key_preview: string;
+  environment: string;
+  is_active: boolean;
+}
+
 export default function EnvironmentsManager() {
   const [applications, setApplications] = useState<any[]>([]);
   const [selectedApp, setSelectedApp] = useState('');
@@ -280,12 +289,13 @@ export default function EnvironmentsManager() {
         setLoading(true);
       }
       const envs = await applicationService.getEnvironments(selectedApp);
-      setEnvironments(envs);
+      const hydratedEnvs = await hydrateEnvironmentsWithApiKeys(selectedApp, envs);
+      setEnvironments(hydratedEnvs);
 
       await loadEnvironmentBindings(selectedApp);
 
       // Load latest deployment logs for all environments
-      await loadLatestLogs(envs);
+      await loadLatestLogs(hydratedEnvs);
     } catch (error) {
       console.error('Error loading environments:', error);
     } finally {
@@ -628,6 +638,164 @@ export default function EnvironmentsManager() {
     return result;
   };
 
+  const getActiveEnvironmentApiKey = async (
+    applicationId: string,
+    environmentName: string
+  ): Promise<ActiveEnvironmentApiKeyRecord | null> => {
+    const { data, error } = await supabase
+      .from('api_keys')
+      .select('id, name, key_hash, key_preview, environment, is_active')
+      .eq('application_id', applicationId)
+      .eq('environment', environmentName)
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (error) {
+      throw error;
+    }
+
+    return (data?.[0] as ActiveEnvironmentApiKeyRecord | undefined) || null;
+  };
+
+  const createEnvironmentApiKey = async (
+    applicationId: string,
+    environmentName: string
+  ): Promise<ActiveEnvironmentApiKeyRecord> => {
+    const validation = await subscriptionService.canCreateApiKey(applicationId, environmentName);
+    if (!validation.allowed) {
+      throw new Error(
+        validation.reason ||
+        `No se puede crear una API Key para el ambiente ${environmentName}.`
+      );
+    }
+
+    const apiKey = generateApiKey(environmentName);
+    const keyPreview = `${apiKey.substring(0, 12)}...${apiKey.substring(apiKey.length - 6)}`;
+
+    const { data, error } = await supabase
+      .from('api_keys')
+      .insert({
+        application_id: applicationId,
+        name: `${environmentName.charAt(0).toUpperCase() + environmentName.slice(1)} Environment Key`,
+        key_hash: apiKey,
+        key_preview: keyPreview,
+        permissions: ['read', 'write'],
+        environment: environmentName,
+        is_active: true
+      })
+      .select('id, name, key_hash, key_preview, environment, is_active')
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return data as ActiveEnvironmentApiKeyRecord;
+  };
+
+  const syncEnvironmentApiKeyMetadata = async (
+    environment: Environment,
+    apiKey: string
+  ): Promise<Environment['metadata']> => {
+    const nextMetadata = {
+      ...(environment.metadata || {}),
+      api_key: apiKey
+    };
+
+    if (String(environment.metadata?.api_key || '').trim() === apiKey) {
+      return nextMetadata;
+    }
+
+    const { error } = await supabase
+      .from('environments')
+      .update({ metadata: nextMetadata })
+      .eq('id', environment.id);
+
+    if (error) {
+      throw error;
+    }
+
+    return nextMetadata;
+  };
+
+  const ensureEnvironmentApiKey = async (
+    applicationId: string,
+    environment: Environment
+  ): Promise<{ record: ActiveEnvironmentApiKeyRecord; created: boolean; metadata: Environment['metadata'] }> => {
+    let record = await getActiveEnvironmentApiKey(applicationId, environment.name);
+    let created = false;
+
+    if (!record) {
+      record = await createEnvironmentApiKey(applicationId, environment.name);
+      created = true;
+    }
+
+    const metadata = await syncEnvironmentApiKeyMetadata(environment, record.key_hash);
+    return { record, created, metadata };
+  };
+
+  const hydrateEnvironmentsWithApiKeys = async (
+    applicationId: string,
+    envs: Environment[]
+  ): Promise<Environment[]> => {
+    const { data, error } = await supabase
+      .from('api_keys')
+      .select('id, name, key_hash, key_preview, environment, is_active')
+      .eq('application_id', applicationId)
+      .eq('is_active', true)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    const keyMap = new Map<string, ActiveEnvironmentApiKeyRecord>();
+    for (const row of (data || []) as ActiveEnvironmentApiKeyRecord[]) {
+      if (!row?.environment || !row?.key_hash || keyMap.has(row.environment)) continue;
+      keyMap.set(row.environment, row);
+    }
+
+    const hydrated: Environment[] = [];
+    for (const environment of envs) {
+      let apiKeyRecord = keyMap.get(environment.name) || null;
+
+      if (!apiKeyRecord) {
+        try {
+          apiKeyRecord = await createEnvironmentApiKey(applicationId, environment.name);
+          keyMap.set(environment.name, apiKeyRecord);
+        } catch (createError) {
+          console.warn(`No se pudo crear API Key automática para ${environment.name}:`, createError);
+        }
+      }
+
+      if (!apiKeyRecord) {
+        hydrated.push(environment);
+        continue;
+      }
+
+      let nextMetadata = {
+        ...(environment.metadata || {}),
+        api_key: apiKeyRecord.key_hash
+      };
+
+      if (String(environment.metadata?.api_key || '').trim() !== apiKeyRecord.key_hash) {
+        try {
+          nextMetadata = await syncEnvironmentApiKeyMetadata(environment, apiKeyRecord.key_hash);
+        } catch (metadataError) {
+          console.warn(`No se pudo sincronizar metadata de API Key para ${environment.name}:`, metadataError);
+        }
+      }
+
+      hydrated.push({
+        ...environment,
+        metadata: nextMetadata
+      });
+    }
+
+    return hydrated;
+  };
+
   // Generate valid reset token (same logic as edge function)
   const generateValidResetToken = async (applicationId: string): Promise<string> => {
     try {
@@ -755,6 +923,8 @@ export default function EnvironmentsManager() {
     const location = binding?.azure_location || azureConfig.location;
     const containerAppsEnvironment = binding?.azure_containerapps_environment || azureConfig.containerapps_environment || `${containerAppName}-env`;
     const createIfMissing = binding?.azure_create_if_missing ?? true;
+    const deployCallbackToken = (environment.metadata as any)?.deploy_callback_token
+      || `${crypto.randomUUID().replace(/-/g, '')}${crypto.randomUUID().replace(/-/g, '')}`;
 
     addLog(`   Proveedor: Azure Container Apps`, 'success');
     addLog(`   Container App: ${containerAppName}`, 'info');
@@ -762,13 +932,31 @@ export default function EnvironmentsManager() {
     addLog(`   Región: ${location}`, 'info');
     addLog(`   ACA Environment: ${containerAppsEnvironment}`, 'info');
     addLog(`   Branch: ${deployBranch}`, 'info');
+    addLog('   Prerrequisito único: la suscripción debe tener Microsoft.App y Microsoft.OperationalInsights registrados por un administrador.', 'warning');
+    addLog('   El ACA Environment se crea sin Log Analytics por defecto para evitar permisos extra sobre Operational Insights.', 'info');
+    addLog('   Cuando GitHub Actions termine, AuthSystem sincronizará automáticamente la URL Base real del deploy.', 'info');
     addLog('', 'info');
+
+    await applicationService.updateEnvironment(environmentId, {
+      metadata: {
+        ...(environment.metadata || {}),
+        deploy_callback_token: deployCallbackToken,
+        deployment_provider: 'azure_container_apps',
+        azure_container_app_name: containerAppName,
+        azure_resource_group: resourceGroup,
+        azure_location: location,
+        azure_containerapps_environment: containerAppsEnvironment,
+        api_key: apiKey,
+        deployment_status: 'queued',
+      }
+    });
 
     const deployFiles = applyAzureContainerAppsDeploymentFiles(files, {
       environmentName,
       branch: deployBranch,
       applicationDisplayName: selectedApplication.name || 'AuthSystem',
       containerAppName,
+      environmentId,
       resourceGroup,
       location,
       containerAppsEnvironment,
@@ -780,6 +968,7 @@ export default function EnvironmentsManager() {
 
     const secretsResult = await githubService.syncRepositorySecrets(repo.repo_full_name, {
       AZURE_CREDENTIALS: buildAzureCredentialsSecretPayload(azureConfig),
+      AUTHSYSTEM_DEPLOY_CALLBACK_TOKEN: deployCallbackToken,
     });
 
     if (!secretsResult.success) {
@@ -803,17 +992,10 @@ export default function EnvironmentsManager() {
     addLog(`✅ Commit publicado en ${repo.repo_full_name}`, 'success');
     addLog(`   Commit: ${commitResult.sha?.substring(0, 7) || 'n/a'}`, 'info');
     addLog('🤖 GitHub Actions creará o actualizará la Container App automáticamente.', 'info');
+    addLog('🔄 Al terminar el workflow, AuthSystem actualizará la URL Base y las URLs públicas del ambiente.', 'info');
     addLog('', 'info');
 
-    const baseUrl = (environment.auth_url || '').replace(/\/+$/, '');
     const fallbackCallbackUrl = environment.callback_url || `https://${selectedApplication.domain}/callback`;
-    const redirectUri = encodeURIComponent(fallbackCallbackUrl);
-    const loginUrl = `${baseUrl}/login?app_id=${applicationId}&redirect_uri=${redirectUri}&api_key=${apiKey}`;
-    const registerUrl = `${baseUrl}/register?app_id=${applicationId}&redirect_uri=${redirectUri}&api_key=${apiKey}`;
-    const resetUrl = `${baseUrl}/reset-password?app_id=${applicationId}&redirect_uri=${redirectUri}&api_key=${apiKey}`;
-    const registerTenantUrl = selectedApplication?.auth_mode === 'tenant'
-      ? `${baseUrl}/register-tenant?app_id=${applicationId}&redirect_uri=${redirectUri}&api_key=${apiKey}`
-      : null;
 
     await applicationService.updateEnvironment(environmentId, {
       auth_url: environment.auth_url,
@@ -828,7 +1010,7 @@ export default function EnvironmentsManager() {
         azure_containerapps_environment: containerAppsEnvironment,
         last_commit: commitResult.sha,
         last_deploy: new Date().toISOString(),
-        deployment_status: 'deployed',
+        deployment_status: 'deploying',
         api_key: apiKey,
       }
     });
@@ -854,52 +1036,7 @@ export default function EnvironmentsManager() {
       }));
     }
 
-    try {
-      const { data: currentApp, error: fetchError } = await supabase
-        .from('applications')
-        .select('metadata')
-        .eq('id', selectedApp)
-        .single();
-
-      if (fetchError) throw fetchError;
-
-      const authUrls: Record<string, any> = {
-        base_url: baseUrl,
-        callback_url: fallbackCallbackUrl,
-        login_url: loginUrl,
-        register_url: registerUrl,
-        reset_password_url: resetUrl,
-        deployed_at: new Date().toISOString(),
-        deployment_provider: 'azure_container_apps',
-        azure_container_app_name: containerAppName,
-      };
-
-      if (registerTenantUrl) {
-        authUrls.register_tenant_url = registerTenantUrl;
-      }
-
-      const updatedMetadata = {
-        ...(currentApp?.metadata || {}),
-        environment_urls: {
-          ...(currentApp?.metadata?.environment_urls || {}),
-          [environmentName.toLowerCase()]: authUrls,
-        }
-      };
-
-      const { error: updateError } = await supabase
-        .from('applications')
-        .update({
-          metadata: updatedMetadata,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', selectedApp);
-
-      if (updateError) throw updateError;
-
-      addLog('✅ URLs públicas actualizadas para Azure', 'success');
-    } catch (error: any) {
-      addLog(`⚠️ No se pudieron actualizar las URLs publicas: ${error.message}`, 'warning');
-    }
+    addLog('⏳ Se omitió la actualización inmediata de URLs públicas hasta recibir el FQDN real del workflow.', 'info');
 
     if (deploymentLogId) {
       await supabase
@@ -920,22 +1057,14 @@ export default function EnvironmentsManager() {
             azure_resource_group: resourceGroup,
             azure_location: location,
             workflow_branch: deployBranch,
-            deployed_urls: {
-              login_url: loginUrl,
-              register_url: registerUrl,
-              reset_password_url: resetUrl,
-              ...(registerTenantUrl ? { register_tenant_url: registerTenantUrl } : {}),
-            }
+            deployed_urls_pending_sync: true
           }
         })
         .eq('id', deploymentLogId);
     }
 
     addLog('🎉 Workflow de Azure preparado y publicado.', 'success');
-    addLog(`🌐 Login: ${loginUrl}`, 'info');
-    if (registerTenantUrl) {
-      addLog(`🌐 Tenant: ${registerTenantUrl}`, 'info');
-    }
+    addLog('🌐 Las URLs finales aparecerán aquí cuando el workflow sincronice el FQDN real.', 'info');
     addLog('ℹ️ El despliegue efectivo ocurre en GitHub Actions sobre la branch vinculada.', 'info');
 
     await loadApplications();
@@ -1081,25 +1210,16 @@ export default function EnvironmentsManager() {
 
       // Verificar si ya existe una API Key para este ambiente
       addLog('🔑 Verificando API Key existente...', 'info');
-      const { data: existingApiKeys } = await supabase
-        .from('api_keys')
-        .select('*')
-        .eq('application_id', selectedApp)
-        .eq('environment', environmentName)
-        .eq('is_active', true)
-        .limit(1);
+      const { record: ensuredApiKey, created: createdApiKey, metadata: syncedMetadata } =
+        await ensureEnvironmentApiKey(selectedApp, environment);
+      currentEnvironmentMetadata = { ...(syncedMetadata || {}) };
+      const apiKey = ensuredApiKey.key_hash;
 
-      let apiKey = '';
-      if (existingApiKeys && existingApiKeys.length > 0) {
-        // Ya existe una API Key, NO crear otra
-        addLog(`   ✓ API Key existente encontrada: ${existingApiKeys[0].key_preview}`, 'success');
-        addLog(`   ℹ️  Usando API Key existente para este ambiente`, 'info');
-        // Generar una nueva para este deploy específico (temporal para URLs de prueba)
-        apiKey = generateApiKey(environmentName);
+      if (createdApiKey) {
+        addLog(`   ✓ Nueva API Key generada: ${ensuredApiKey.key_preview}`, 'success');
       } else {
-        // No existe, generar nueva
-        apiKey = generateApiKey(environmentName);
-        addLog(`   ✓ Nueva API Key generada: ${apiKey.substring(0, 20)}...`, 'success');
+        addLog(`   ✓ API Key existente encontrada: ${ensuredApiKey.key_preview}`, 'success');
+        addLog(`   ℹ️  Usando API Key real activa del ambiente`, 'info');
       }
 
       // Generate valid reset token for testing (same logic as edge function)
@@ -1109,32 +1229,10 @@ export default function EnvironmentsManager() {
       addLog('', 'info');
 
       // Save API key to database (solo si no existe)
-      addLog('💾 Paso 6: Guardando API key en la base de datos...', 'info');
+      addLog('💾 Paso 6: Verificando persistencia de API key...', 'info');
 
-      if (!existingApiKeys || existingApiKeys.length === 0) {
-        try {
-          const { data: apiKeyData, error: apiKeyError } = await supabase
-            .from('api_keys')
-            .insert({
-              application_id: selectedApp,
-              name: `${environmentName.charAt(0).toUpperCase() + environmentName.slice(1)} Environment Key`,
-              key_hash: apiKey,
-              key_preview: `${apiKey.substring(0, 12)}...${apiKey.substring(apiKey.length - 6)}`,
-              permissions: ['read', 'write'],
-              environment: environmentName,
-              is_active: true
-            })
-            .select()
-            .single();
-
-          if (apiKeyError) {
-            addLog(`⚠️ Advertencia: No se pudo guardar la API key: ${apiKeyError.message}`, 'warning');
-          } else {
-            addLog('✅ API key guardada exitosamente', 'success');
-          }
-        } catch (error) {
-          addLog(`⚠️ Advertencia: No se pudo guardar la API key: ${error.message}`, 'warning');
-        }
+      if (createdApiKey) {
+        addLog('✅ API key creada y guardada exitosamente', 'success');
       } else {
         addLog('✅ API key ya existe en la base de datos', 'success');
       }
@@ -1557,84 +1655,15 @@ export default function EnvironmentsManager() {
       addLog(`   📍 Ambiente: ${environmentName}`, 'info');
 
       // Buscar API key existente para este ambiente
-      let { data: apiKeys, error: selectError } = await supabase
-        .from('api_keys')
-        .select('id, name, key_preview, environment')
-        .eq('application_id', app.id)
-        .eq('environment', environmentName)
-        .eq('is_active', true)
-        .limit(1);
+      const { record: ensuredApiKey, created: createdApiKey, metadata: syncedMetadata } =
+        await ensureEnvironmentApiKey(app.id, environment);
+      const apiKey = ensuredApiKey.key_hash;
+      environment.metadata = { ...(syncedMetadata || {}) };
 
-      if (selectError) {
-        console.error('Error selecting API keys:', selectError);
-        throw new Error(`Error al buscar API Key: ${selectError.message}`);
-      }
-
-      let apiKey: string;
-
-      if (!apiKeys || apiKeys.length === 0) {
-        // No hay API Key para este ambiente, crear una nueva
-        addLog('   No se encontró API Key, creando una nueva...', 'info');
-
-        const subscription = await subscriptionService.getCurrentSubscription();
-        if (!subscription) {
-          throw new Error('No hay suscripción activa');
-        }
-
-        // El plan viene anidado en la suscripción
-        const plan = subscription.subscription_plans;
-        if (!plan) {
-          throw new Error('No se pudo obtener información del plan');
-        }
-
-        // Verificar límite de API Keys POR AMBIENTE (no total)
-        const { count: envKeyCount } = await supabase
-          .from('api_keys')
-          .select('id', { count: 'exact', head: true })
-          .eq('application_id', app.id)
-          .eq('environment', environmentName)
-          .eq('is_active', true);
-
-        const currentEnvKeyCount = envKeyCount || 0;
-
-        // El límite es por ambiente, no total
-        const maxApiKeysPerEnv = plan.api_keys_per_environment || plan.max_api_keys || 1;
-
-        if (currentEnvKeyCount >= maxApiKeysPerEnv) {
-          throw new Error(`Has alcanzado el límite de ${maxApiKeysPerEnv} API Keys para el ambiente ${environmentName}. Desactiva una API Key existente o actualiza tu plan.`);
-        }
-
-        // Generar nueva API Key con el nombre correcto del ambiente
-        const keyPrefix = `ak_${environmentName}_`;
-        const randomPart = Array.from(crypto.getRandomValues(new Uint8Array(16)))
-          .map(b => b.toString(16).padStart(2, '0'))
-          .join('');
-        apiKey = keyPrefix + randomPart;
-
-        // Crear preview (primeros 20 chars + ... + últimos 4)
-        const keyPreview = `${apiKey.substring(0, 20)}...${apiKey.substring(apiKey.length - 4)}`;
-
-        const { error: insertError } = await supabase
-          .from('api_keys')
-          .insert({
-            application_id: app.id,
-            name: `${environmentName} API Key`,
-            key_hash: apiKey,
-            key_preview: keyPreview,
-            environment: environmentName,
-            is_active: true
-          });
-
-        if (insertError) {
-          console.error('Error creating API key:', insertError);
-          throw new Error(`Error al crear API Key: ${insertError.message}`);
-        }
-
-        addLog(`   ✓ API Key creada: ${keyPreview}`, 'success');
+      if (createdApiKey) {
+        addLog(`   ✓ API Key creada: ${ensuredApiKey.key_preview}`, 'success');
       } else {
-        // Ya existe una API Key para este ambiente
-        apiKey = apiKeys[0].key_hash;
-        addLog(`   ✓ API Key existente encontrada: ${apiKeys[0].key_preview}`, 'success');
+        addLog(`   ✓ API Key existente encontrada: ${ensuredApiKey.key_preview}`, 'success');
       }
 
       addLog('📁 Preparando formularios estáticos...', 'info');
