@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
+import { resolveRoleAccess } from '../_shared/role-access.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -10,7 +11,7 @@ const corsHeaders = {
 
 interface ExchangeRequest {
   code: string;
-  application_id: string;
+  application_id?: string;
 }
 
 Deno.serve(async (req) => {
@@ -61,13 +62,13 @@ Deno.serve(async (req) => {
 
     const { code, application_id }: ExchangeRequest = requestBody;
 
-    if (!code || !application_id) {
+    if (!code) {
       return new Response(
         JSON.stringify({
           success: false,
           error: {
             code: 'MISSING_FIELDS',
-            message: 'Code and application_id are required'
+            message: 'Code is required'
           }
         }),
         {
@@ -142,11 +143,28 @@ Deno.serve(async (req) => {
     // Verify application_id matches
     const { data: application } = await supabase
       .from('applications')
-      .select('application_id')
+      .select('application_id, name, domain')
       .eq('id', authCode.application_id)
       .single();
 
-    if (!application || application.application_id !== application_id) {
+    if (!application) {
+      console.log('❌ Application not found for auth code');
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'APPLICATION_NOT_FOUND',
+            message: 'Application not found for authorization code'
+          }
+        }),
+        {
+          status: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    if (application_id && application.application_id !== application_id) {
       console.log('❌ Application ID mismatch');
       return new Response(
         JSON.stringify({
@@ -192,41 +210,13 @@ Deno.serve(async (req) => {
     // Get role name and permissions
     let roleName = 'user';
     let rolePermissions: { [menuSlug: string]: string[] } = {};
+    let rolePermissionsHierarchy: { [menuSlug: string]: { actions: string[]; submenus?: { [submenuSlug: string]: string[] } } } = {};
 
     if (user?.role_id) {
-      const { data: roleData } = await supabase
-        .from('application_roles')
-        .select('name')
-        .eq('id', user.role_id)
-        .maybeSingle();
-
-      if (roleData) {
-        roleName = roleData.name;
-      }
-
-      const { data: permissions } = await supabase
-        .from('role_permissions')
-        .select(`
-          granted,
-          menu:application_menus!inner(slug),
-          action:menu_actions!inner(slug)
-        `)
-        .eq('role_id', user.role_id)
-        .eq('granted', true);
-
-      if (permissions) {
-        permissions.forEach((perm: any) => {
-          const menuSlug = perm.menu?.slug;
-          const actionSlug = perm.action?.slug;
-
-          if (menuSlug && actionSlug) {
-            if (!rolePermissions[menuSlug]) {
-              rolePermissions[menuSlug] = [];
-            }
-            rolePermissions[menuSlug].push(actionSlug);
-          }
-        });
-      }
+      const resolvedRoleAccess = await resolveRoleAccess(supabase, user.role_id);
+      roleName = resolvedRoleAccess.roleName;
+      rolePermissions = resolvedRoleAccess.rolePermissions;
+      rolePermissionsHierarchy = resolvedRoleAccess.rolePermissionsHierarchy;
     }
 
     const response = {
@@ -242,12 +232,14 @@ Deno.serve(async (req) => {
           name: user.name,
           role: roleName,
           permissions: rolePermissions,
+          permissions_hierarchy: rolePermissionsHierarchy,
           metadata: user.metadata || {},
           created_at: user.created_at
         },
         application: {
-          id: application_id,
-          name: application.name
+          id: application.application_id,
+          name: application.name,
+          domain: application.domain || ''
         }
       }
     };

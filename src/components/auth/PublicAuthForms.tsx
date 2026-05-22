@@ -97,7 +97,8 @@ function PublicAuthForms({
   const trustedCallbackUrl = getTrustedCallbackUrl(
     appInfo?.metadata?.environment_urls || null,
     requestedCallbackUrl,
-    preferredEnvironment
+    preferredEnvironment,
+    appInfo?.metadata?.cors_origins || null
   );
   
   const [formData, setFormData] = useState({

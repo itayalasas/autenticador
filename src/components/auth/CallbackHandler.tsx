@@ -43,12 +43,12 @@ export default function CallbackHandler({ onSuccess, onError }: CallbackHandlerP
 
       const processingKey = buildCallbackStorageKey(
         CALLBACK_PROCESSING_PREFIX,
-        callbackParams.application_id,
+        callbackParams.application_id || 'unknown',
         callbackParams.code
       );
       const processedKey = buildCallbackStorageKey(
         CALLBACK_PROCESSED_PREFIX,
-        callbackParams.application_id,
+        callbackParams.application_id || 'unknown',
         callbackParams.code
       );
 
@@ -103,7 +103,7 @@ export default function CallbackHandler({ onSuccess, onError }: CallbackHandlerP
       if (callbackParams) {
         const processingKey = buildCallbackStorageKey(
           CALLBACK_PROCESSING_PREFIX,
-          callbackParams.application_id,
+          callbackParams.application_id || 'unknown',
           callbackParams.code
         );
         sessionStorage.removeItem(processingKey);

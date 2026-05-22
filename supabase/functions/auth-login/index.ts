@@ -1,8 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
 import bcrypt from "npm:bcryptjs@2.4.3";
-import { buildRedirectUrl, normalizeUrl, resolveApplicationAuthUrl } from '../_shared/application-auth-url.ts';
+import { buildRedirectUrl, normalizeUrl, resolveApplicationAuthUrl, resolveTrustedApplicationCallbackUrl } from '../_shared/application-auth-url.ts';
 import { resolveApplicationBillingAccess } from '../_shared/application-billing.ts';
+import { resolveRoleAccess, type PermissionNode } from '../_shared/role-access.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -18,11 +19,6 @@ interface LoginRequest {
   api_key: string
   callback_url?: string
   client_ip?: string
-}
-
-interface PermissionNode {
-  actions: string[];
-  submenus?: { [submenuSlug: string]: string[] };
 }
 
 const isExpoPushToken = (token: string) => /^ExponentPushToken\[[^\]]+\]$|^ExpoPushToken\[[^\]]+\]$/.test(token);
@@ -378,18 +374,25 @@ Deno.serve(async (req) => {
 
     console.log('✅ API Key belongs to application');
 
-    const { baseUrl: authBaseUrl, callbackUrl: configuredCallbackUrl, environmentName: resolvedEnvironmentName } = await resolveApplicationAuthUrl(
+    const { baseUrl: authBaseUrl, callbackUrl: resolvedCallbackUrl, environmentName: resolvedEnvironmentName } = await resolveApplicationAuthUrl(
       supabase,
       application.id,
       (apiKeyData as any).environment || null
     );
+    const configuredCallbackUrl = resolveTrustedApplicationCallbackUrl({
+      requestedCallbackUrl: callback_url,
+      configuredCallbackUrl: resolvedCallbackUrl,
+      configuredBaseUrl: authBaseUrl,
+      applicationDomain: application.domain || null,
+      applicationMetadata: application.metadata || null
+    });
 
     if (!authBaseUrl) {
       console.warn('⚠️ No auth_url resolved for application; callback redirects will be disabled');
     }
 
     if (normalizeUrl(callback_url) && configuredCallbackUrl && normalizeUrl(callback_url) !== configuredCallbackUrl) {
-      console.warn('⚠️ Ignoring untrusted callback_url from request. Using configured callback URL instead.', {
+      console.warn('⚠️ Replacing requested callback_url with trusted application callback URL.', {
         requested: normalizeUrl(callback_url),
         configured: configuredCallbackUrl,
         environment: resolvedEnvironmentName || (apiKeyData as any).environment || null
@@ -533,96 +536,10 @@ Deno.serve(async (req) => {
     let rolePermissionsHierarchy: { [menuSlug: string]: PermissionNode } = {};
 
     if (user.role_id) {
-      const { data: roleData } = await supabase
-        .from('application_roles')
-        .select('name')
-        .eq('id', user.role_id)
-        .maybeSingle();
-
-      if (roleData) {
-        roleName = roleData.name;
-      }
-
-      const { data: permissions } = await supabase
-        .from('role_permissions')
-        .select(`
-          granted,
-          menu:application_menus!inner(id, slug, parent_menu_id),
-          action:menu_actions!inner(slug)
-        `)
-        .eq('role_id', user.role_id)
-        .eq('granted', true);
-
-      if (permissions) {
-        const menuById: { [menuId: string]: { slug: string; parent_menu_id: string | null } } = {};
-
-        permissions.forEach((perm: any) => {
-          const menuData = perm.menu;
-          if (menuData?.id && menuData?.slug) {
-            menuById[menuData.id] = {
-              slug: menuData.slug,
-              parent_menu_id: menuData.parent_menu_id || null
-            };
-          }
-        });
-
-        permissions.forEach((perm: any) => {
-          const menuId = perm.menu?.id;
-          const menuSlug = perm.menu?.slug;
-          const actionSlug = perm.action?.slug;
-
-          if (menuId && menuSlug && actionSlug) {
-            if (!rolePermissions[menuSlug]) {
-              rolePermissions[menuSlug] = [];
-            }
-            rolePermissions[menuSlug].push(actionSlug);
-
-            const parentMenuId = menuById[menuId]?.parent_menu_id || null;
-            if (parentMenuId && menuById[parentMenuId]) {
-              const parentSlug = menuById[parentMenuId].slug;
-
-              if (!rolePermissionsHierarchy[parentSlug]) {
-                rolePermissionsHierarchy[parentSlug] = {
-                  actions: [],
-                  submenus: {}
-                };
-              }
-
-              if (!rolePermissionsHierarchy[parentSlug].submenus) {
-                rolePermissionsHierarchy[parentSlug].submenus = {};
-              }
-
-              if (!rolePermissionsHierarchy[parentSlug].submenus![menuSlug]) {
-                rolePermissionsHierarchy[parentSlug].submenus![menuSlug] = [];
-              }
-
-              rolePermissionsHierarchy[parentSlug].submenus![menuSlug].push(actionSlug);
-            } else {
-              if (!rolePermissionsHierarchy[menuSlug]) {
-                rolePermissionsHierarchy[menuSlug] = {
-                  actions: []
-                };
-              }
-
-              rolePermissionsHierarchy[menuSlug].actions.push(actionSlug);
-            }
-          }
-        });
-
-        Object.keys(rolePermissions).forEach((menuSlug) => {
-          rolePermissions[menuSlug] = Array.from(new Set(rolePermissions[menuSlug]));
-        });
-
-        Object.keys(rolePermissionsHierarchy).forEach((menuSlug) => {
-          rolePermissionsHierarchy[menuSlug].actions = Array.from(new Set(rolePermissionsHierarchy[menuSlug].actions));
-
-          if (rolePermissionsHierarchy[menuSlug].submenus) {
-            Object.keys(rolePermissionsHierarchy[menuSlug].submenus!).forEach((submenuSlug) => {
-              rolePermissionsHierarchy[menuSlug].submenus![submenuSlug] = Array.from(new Set(rolePermissionsHierarchy[menuSlug].submenus![submenuSlug]));
-            });
-          }
-        });
-      }
+      const resolvedRoleAccess = await resolveRoleAccess(supabase, user.role_id);
+      roleName = resolvedRoleAccess.roleName;
+      rolePermissions = resolvedRoleAccess.rolePermissions;
+      rolePermissionsHierarchy = resolvedRoleAccess.rolePermissionsHierarchy;
     }
 
     console.log('✅ Login successful for user:', user.email);
@@ -1135,7 +1052,6 @@ Deno.serve(async (req) => {
 
       response.data.callback_url = buildRedirectUrl(configuredCallbackUrl, {
         code: authCode,
-        application_id: application_id,
         state: 'authenticated'
       });
     }

@@ -94,6 +94,47 @@ async function resolveBrandingEnvironment(
 }
 
 export const applicationService = {
+  async syncEnvironmentUrlRecords(applicationId: string, environmentUrls: Record<string, any> | null | undefined) {
+    if (!environmentUrls || typeof environmentUrls !== 'object') {
+      return;
+    }
+
+    const { data: environments, error: envError } = await supabase
+      .from('environments')
+      .select('id, name, auth_url, callback_url')
+      .eq('application_id', applicationId);
+
+    if (envError) throw envError;
+
+    const updates = (environments || [])
+      .map((environment) => {
+        const envConfig = environmentUrls?.[environment.name?.toLowerCase()];
+        if (!envConfig || typeof envConfig !== 'object') return null;
+
+        const nextAuthUrl = envConfig.base_url || environment.auth_url;
+        const nextCallbackUrl = envConfig.callback_url || environment.callback_url;
+
+        if (nextAuthUrl === environment.auth_url && nextCallbackUrl === environment.callback_url) {
+          return null;
+        }
+
+        return supabase
+          .from('environments')
+          .update({
+            auth_url: nextAuthUrl,
+            callback_url: nextCallbackUrl
+          })
+          .eq('id', environment.id);
+      })
+      .filter(Boolean);
+
+    if (updates.length > 0) {
+      const results = await Promise.all(updates);
+      const failed = results.find((result) => result.error);
+      if (failed?.error) throw failed.error;
+    }
+  },
+
   // Get all applications for current user
   async getApplications(): Promise<Application[]> {
     const { data, error } = await supabase
@@ -154,7 +195,7 @@ export const applicationService = {
         application_id: app.id,
         name: appData.environment,
         domain: `auth-${appData.environment}.${appData.domain}`,
-        auth_url: `https://auth-${appData.environment}.${appData.domain}/auth`,
+        auth_url: `https://auth-${appData.environment}.${appData.domain}`,
         callback_url: `https://${appData.domain}/callback`
       });
 
@@ -186,16 +227,28 @@ export const applicationService = {
       console.error('Error updating application:', error);
       throw error;
     }
+    if (updates.metadata && typeof updates.metadata === 'object' && (updates.metadata as any).environment_urls) {
+      await this.syncEnvironmentUrlRecords(id, (updates.metadata as any).environment_urls);
+    }
     console.log('Application updated successfully:', data);
     return data;
   },
 
   // Update application URLs
   async updateApplicationUrls(id: string, environment_urls: any) {
+    const { data: currentApp, error: currentAppError } = await supabase
+      .from('applications')
+      .select('metadata')
+      .eq('id', id)
+      .single();
+
+    if (currentAppError) throw currentAppError;
+
     const { data, error } = await supabase
       .from('applications')
       .update({
         metadata: {
+          ...(currentApp?.metadata || {}),
           environment_urls
         }
       })
@@ -204,6 +257,7 @@ export const applicationService = {
       .single();
 
     if (error) throw error;
+    await this.syncEnvironmentUrlRecords(id, environment_urls);
     return data;
   },
 

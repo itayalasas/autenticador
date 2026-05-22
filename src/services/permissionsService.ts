@@ -46,6 +46,54 @@ export interface RolePermissionDetail extends RolePermission {
 }
 
 class PermissionsService {
+  private flattenMenus(items: MenuWithActions[]): MenuWithActions[] {
+    const result: MenuWithActions[] = [];
+    const walk = (menusToWalk: MenuWithActions[]) => {
+      menusToWalk.forEach((menu) => {
+        result.push(menu);
+        if (menu.submenus.length > 0) {
+          walk(menu.submenus);
+        }
+      });
+    };
+
+    walk(items);
+    return result;
+  }
+
+  private normalizeLegacyPermissions(legacyPermissions: unknown): Record<string, string[]> {
+    if (!legacyPermissions || typeof legacyPermissions !== 'object' || Array.isArray(legacyPermissions)) {
+      return {};
+    }
+
+    const result: Record<string, string[]> = {};
+
+    Object.entries(legacyPermissions as Record<string, unknown>).forEach(([menuSlug, rawValue]) => {
+      if (Array.isArray(rawValue)) {
+        result[menuSlug] = Array.from(new Set(rawValue.map((value) => String(value))));
+        return;
+      }
+
+      if (rawValue && typeof rawValue === 'object') {
+        const nested = rawValue as Record<string, unknown>;
+
+        if (Array.isArray(nested.actions)) {
+          result[menuSlug] = Array.from(new Set(nested.actions.map((value) => String(value))));
+        }
+
+        if (nested.submenus && typeof nested.submenus === 'object' && !Array.isArray(nested.submenus)) {
+          Object.entries(nested.submenus as Record<string, unknown>).forEach(([submenuSlug, submenuValue]) => {
+            if (Array.isArray(submenuValue)) {
+              result[submenuSlug] = Array.from(new Set(submenuValue.map((value) => String(value))));
+            }
+          });
+        }
+      }
+    });
+
+    return result;
+  }
+
   // ============ MENUS ============
   async getApplicationMenus(applicationId: string): Promise<MenuWithActions[]> {
     const { data: menus, error: menusError } = await supabase
@@ -289,6 +337,67 @@ class PermissionsService {
 
       if (error) throw error;
     }
+  }
+
+  async syncRolePermissionsFromLegacyRole(
+    roleId: string,
+    applicationId: string,
+    legacyPermissions: unknown
+  ): Promise<void> {
+    const menus = await this.getApplicationMenus(applicationId);
+    const flatMenus = this.flattenMenus(menus);
+
+    const permissionsToInsert: Array<{
+      menu_id: string;
+      action_id: string;
+      granted: boolean;
+    }> = [];
+
+    const explicitPermissions = this.normalizeLegacyPermissions(legacyPermissions);
+
+    if (Object.keys(explicitPermissions).length > 0) {
+      const menuBySlug = new Map(flatMenus.map((menu) => [menu.slug, menu] as const));
+
+      Object.entries(explicitPermissions).forEach(([menuSlug, actionSlugs]) => {
+        const menu = menuBySlug.get(menuSlug);
+        if (!menu) return;
+
+        const actionBySlug = new Map(menu.actions.map((action) => [action.slug, action.id] as const));
+
+        Array.from(new Set(actionSlugs)).forEach((actionSlug) => {
+          const actionId = actionBySlug.get(actionSlug);
+          if (!actionId) return;
+
+          permissionsToInsert.push({
+            menu_id: menu.id,
+            action_id: actionId,
+            granted: true
+          });
+        });
+      });
+
+      await this.bulkSetRolePermissions(roleId, permissionsToInsert);
+      return;
+    }
+
+    const genericPermissions = Array.isArray(legacyPermissions)
+      ? Array.from(new Set(legacyPermissions.map((value) => String(value))))
+      : [];
+    const grantAll = genericPermissions.includes('admin');
+
+    flatMenus.forEach((menu) => {
+      menu.actions.forEach((action) => {
+        if (grantAll || genericPermissions.includes(action.slug)) {
+          permissionsToInsert.push({
+            menu_id: menu.id,
+            action_id: action.id,
+            granted: true
+          });
+        }
+      });
+    });
+
+    await this.bulkSetRolePermissions(roleId, permissionsToInsert);
   }
 
   async deleteRolePermission(permissionId: string): Promise<void> {

@@ -63,6 +63,18 @@ export interface ApplicationBillingConfig {
   require_plan_for_access?: boolean;
 }
 
+export type DeployProvider = 'netlify' | 'azure_container_apps';
+
+export interface AzureContainerAppsConfig {
+  tenant_id: string;
+  subscription_id: string;
+  client_id: string;
+  client_secret: string;
+  resource_group: string;
+  location: string;
+  containerapps_environment?: string;
+}
+
 export type BillingFeatureValueType = 'boolean' | 'number' | 'text';
 
 export interface ApplicationBillingFeatureCatalogItem {

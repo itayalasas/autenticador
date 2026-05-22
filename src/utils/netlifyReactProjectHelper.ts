@@ -148,16 +148,28 @@ VITE_API_KEY=your-api-key
   files['src/main.tsx'] = `${deployTimestamp}import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
-import App from './App';
 import './index.css';
+import { envConfigService } from './services/envConfigService';
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
-  </React.StrictMode>
-);
+async function bootstrap() {
+  try {
+    await envConfigService.loadConfig();
+  } catch (error) {
+    console.warn('No se pudo cargar /get-env. Continuamos con fallback público.', error);
+  }
+
+  const { default: App } = await import('./App');
+
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    </React.StrictMode>
+  );
+}
+
+bootstrap();
 `;
 
   // src/index.css
@@ -190,6 +202,12 @@ import RegisterTenantForm from './components/auth/RegisterTenantForm';
 import ResetPasswordForm from './components/auth/ResetPasswordForm';
 import VerifyEmailForm from './components/auth/VerifyEmailForm';
 import AcceptInvitationForm from './components/auth/AcceptInvitationForm';
+
+function PreserveSearchLoginRedirect() {
+  const location = useLocation();
+  const target = '/login' + (location.search || '');
+  return <Navigate to={target} replace />;
+}
 
 export default function App() {
   const [searchParams] = useSearchParams();
@@ -242,14 +260,15 @@ export default function App() {
           />
         }
       />
+      <Route path="/callback" element={<CallbackHandler />} />
       <Route path="/auth/callback" element={<CallbackHandler />} />
       <Route path="/reset-password" element={<ResetPasswordForm />} />
       <Route path="/reset-password-confirm" element={<ResetPasswordForm />} />
       <Route path="/register-tenant" element={<RegisterTenantForm />} />
       <Route path="/verify-email" element={<VerifyEmailForm />} />
       <Route path="/accept-invitation" element={<AcceptInvitationForm />} />
-      <Route path="/" element={<Navigate to="/login" replace />} />
-      <Route path="*" element={<Navigate to="/login" replace />} />
+      <Route path="/" element={<PreserveSearchLoginRedirect />} />
+      <Route path="*" element={<PreserveSearchLoginRedirect />} />
     </Routes>
   );
 }
@@ -258,12 +277,13 @@ export default function App() {
   files['src/components/auth/CallbackHandler.tsx'] = `${deployTimestamp}import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CheckCircle, AlertCircle, Shield, ArrowRight } from 'lucide-react';
+import { requireSupabaseAnonKey, requireSupabaseUrl } from '../../lib/supabaseRuntime';
 
 const CALLBACK_PROCESSING_PREFIX = 'auth_callback_processing';
 const CALLBACK_PROCESSED_PREFIX = 'auth_callback_processed';
 
 function buildCallbackStorageKey(prefix: string, applicationId: string, code: string) {
-  return prefix + ':' + applicationId + ':' + code;
+  return prefix + ':' + (applicationId || 'unknown') + ':' + code;
 }
 
 export default function CallbackHandler() {
@@ -275,11 +295,11 @@ export default function CallbackHandler() {
     const run = async () => {
       try {
         const code = searchParams.get('code');
-        const applicationId = searchParams.get('application_id') || searchParams.get('app_id');
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-        const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+        const applicationId = searchParams.get('application_id') || searchParams.get('app_id') || '';
+        const supabaseUrl = requireSupabaseUrl();
+        const supabaseAnonKey = requireSupabaseAnonKey();
 
-        if (!code || !applicationId) {
+        if (!code) {
           throw new Error('No se encontró un código de autenticación válido en la URL');
         }
 
@@ -289,8 +309,9 @@ export default function CallbackHandler() {
 
         window.history.replaceState({}, document.title, window.location.pathname);
 
-        const processingKey = buildCallbackStorageKey(CALLBACK_PROCESSING_PREFIX, applicationId, code);
-        const processedKey = buildCallbackStorageKey(CALLBACK_PROCESSED_PREFIX, applicationId, code);
+        const storageApplicationId = applicationId || 'unknown';
+        const processingKey = buildCallbackStorageKey(CALLBACK_PROCESSING_PREFIX, storageApplicationId, code);
+        const processedKey = buildCallbackStorageKey(CALLBACK_PROCESSED_PREFIX, storageApplicationId, code);
 
         if (sessionStorage.getItem(processedKey) === '1') {
           setStatus('success');
@@ -316,7 +337,7 @@ export default function CallbackHandler() {
             'Authorization': 'Bearer ' + supabaseAnonKey,
             'apikey': supabaseAnonKey
           },
-          body: JSON.stringify({ code, application_id: applicationId })
+          body: JSON.stringify(applicationId ? { code, application_id: applicationId } : { code })
         });
 
         const result = await response.json();
@@ -347,7 +368,7 @@ export default function CallbackHandler() {
         const code = searchParams.get('code');
         const applicationId = searchParams.get('application_id') || searchParams.get('app_id');
         if (code && applicationId) {
-          const processingKey = buildCallbackStorageKey(CALLBACK_PROCESSING_PREFIX, applicationId, code);
+          const processingKey = buildCallbackStorageKey(CALLBACK_PROCESSING_PREFIX, applicationId || 'unknown', code);
           sessionStorage.removeItem(processingKey);
         }
 
@@ -411,6 +432,7 @@ export default function CallbackHandler() {
 import BrandedPublicAuth from './BrandedPublicAuth';
 import { applicationService } from '../../services/applicationService';
 import { supabase } from '../../lib/supabase';
+import { requireSupabaseAnonKey, requireSupabaseUrl } from '../../lib/supabaseRuntime';
 import { useSearchParams } from 'react-router-dom';
 
 interface PublicAuthRouterProps {
@@ -518,9 +540,8 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
       const ipData = await ipResponse.json();
       const clientIp = ipData.ip;
 
-      // Use Supabase Edge Functions directly (hardcoded for production)
-      const supabaseUrl = 'https://sfqtmnncgiqkveaoqckt.supabase.co';
-      const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNmcXRtbm5jZ2lxa3ZlYW9xY2t0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4MDEyNDMsImV4cCI6MjA3NTM3NzI0M30.n2yaYrfHDLAFePP1tA3-250P6bgKmf696fYJFHfRZaQ';
+      const supabaseUrl = requireSupabaseUrl();
+      const supabaseAnonKey = requireSupabaseAnonKey();
       const apiBaseUrl = \`\${supabaseUrl}/functions/v1\`;
 
       console.log('🔧 Configuration:', {
@@ -1144,6 +1165,139 @@ export const applicationService = {
 };
 `;
 
+  files['src/services/envConfigService.ts'] = `${deployTimestamp}declare global {
+  interface Window {
+    __ENV__?: Record<string, string>;
+  }
+}
+
+const DEFAULT_ENV_CONFIG_URL = 'https://ffihaeatoundrjzgtpzk.supabase.co/functions/v1/get-env';
+const DEFAULT_ENV_CONFIG_ACCESS_KEY = '4a63305a316f04fe2acf33b2b63135925bd3a0523c1fd453a42fbf1fc49e6240';
+const DEFAULT_SUPABASE_URL = 'https://sfqtmnncgiqkveaoqckt.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNmcXRtbm5jZ2lxa3ZlYW9xY2t0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4MDEyNDMsImV4cCI6MjA3NTM3NzI0M30.n2yaYrfHDLAFePP1tA3-250P6bgKmf696fYJFHfRZaQ';
+
+class EnvConfigService {
+  private loaded = false;
+  private loadPromise: Promise<void> | null = null;
+
+  async loadConfig(): Promise<void> {
+    if (this.loaded) return;
+    if (this.loadPromise) return this.loadPromise;
+
+    this.loadPromise = this.fetchConfig().finally(() => {
+      this.loadPromise = null;
+    });
+
+    return this.loadPromise;
+  }
+
+  private getFallbackVariables(): Record<string, string> {
+    return {
+      VITE_SUPABASE_URL: (import.meta.env.VITE_SUPABASE_URL as string | undefined) || DEFAULT_SUPABASE_URL,
+      VITE_SUPABASE_ANON_KEY: (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) || DEFAULT_SUPABASE_ANON_KEY,
+      ...(window.__ENV__ || {})
+    };
+  }
+
+  private applyVariables(variables: Record<string, string>) {
+    window.__ENV__ = {
+      ...this.getFallbackVariables(),
+      ...variables
+    };
+    this.loaded = true;
+  }
+
+  private async fetchConfig(): Promise<void> {
+    const configuredUrl = (import.meta.env.VITE_ENV_CONFIG_URL as string | undefined)?.trim();
+    const configuredAccessKey = (import.meta.env.VITE_ENV_CONFIG_ACCESS_KEY as string | undefined)?.trim()
+      || DEFAULT_ENV_CONFIG_ACCESS_KEY;
+
+    const candidates = [
+      '/get-env',
+      configuredUrl,
+      DEFAULT_ENV_CONFIG_URL
+    ].filter((value, index, array): value is string => !!value && array.indexOf(value) === index);
+
+    for (const url of candidates) {
+      try {
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: configuredAccessKey
+            ? {
+                'X-Access-Key': configuredAccessKey,
+                'Content-Type': 'application/json'
+              }
+            : {
+                'Content-Type': 'application/json'
+              }
+        });
+
+        if (!response.ok) {
+          throw new Error('Config response ' + response.status);
+        }
+
+        const payload = await response.json();
+        const variables = payload?.variables && typeof payload.variables === 'object'
+          ? payload.variables
+          : payload;
+
+        if (!variables || typeof variables !== 'object' || !Object.keys(variables).length) {
+          throw new Error('No variables returned by ' + url);
+        }
+
+        this.applyVariables(variables as Record<string, string>);
+        return;
+      } catch (error) {
+        console.warn('No se pudo cargar configuración desde', url, error);
+      }
+    }
+
+    this.applyVariables({});
+  }
+
+  getVariable(key: string): string {
+    return (window.__ENV__?.[key] || (import.meta.env[key] as string | undefined) || '').trim();
+  }
+}
+
+export const envConfigService = new EnvConfigService();
+
+export function getEnvVariable(key: string): string {
+  return envConfigService.getVariable(key);
+}
+`;
+
+  files['src/lib/supabaseRuntime.ts'] = `${deployTimestamp}import { getEnvVariable } from '../services/envConfigService';
+
+function resolveEnvValue(key: string): string {
+  return (getEnvVariable(key) || (import.meta.env[key] as string | undefined) || '').trim();
+}
+
+export function getSupabaseUrl(): string {
+  return resolveEnvValue('VITE_SUPABASE_URL').replace(/\\/+$/, '');
+}
+
+export function getSupabaseAnonKey(): string {
+  return resolveEnvValue('VITE_SUPABASE_ANON_KEY');
+}
+
+export function requireSupabaseUrl(): string {
+  const value = getSupabaseUrl();
+  if (!value || !/^https?:\\/\\//i.test(value)) {
+    throw new Error('VITE_SUPABASE_URL no está configurada correctamente');
+  }
+  return value;
+}
+
+export function requireSupabaseAnonKey(): string {
+  const value = getSupabaseAnonKey();
+  if (!value) {
+    throw new Error('VITE_SUPABASE_ANON_KEY no está configurada correctamente');
+  }
+  return value;
+}
+`;
+
   // src/lib/config.ts - Configuration for public auth forms
   // This file is auto-generated with the application's API credentials
   files['src/lib/config.ts'] = `${deployTimestamp}// Public configuration for auth forms
@@ -1159,12 +1313,9 @@ export const config = {
 
   // src/lib/supabase.ts - Supabase client for loading branding data
   files['src/lib/supabase.ts'] = `${deployTimestamp}import { createClient } from '@supabase/supabase-js';
+import { requireSupabaseAnonKey, requireSupabaseUrl } from './supabaseRuntime';
 
-// Supabase client for public read-only access to branding data
-const supabaseUrl = 'https://sfqtmnncgiqkveaoqckt.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNmcXRtbm5jZ2lxa3ZlYW9xY2t0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4MDEyNDMsImV4cCI6MjA3NTM3NzI0M30.n2yaYrfHDLAFePP1tA3-250P6bgKmf696fYJFHfRZaQ';
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(requireSupabaseUrl(), requireSupabaseAnonKey());
 `;
 
   // netlify.toml for deployment configuration

@@ -295,7 +295,8 @@ class GitHubService {
   async commitAndPush(
     repoFullName: string,
     files: Record<string, string>,
-    commitMessage: string
+    commitMessage: string,
+    branch: string = 'main'
   ): Promise<{ success: boolean; sha?: string; error?: string }> {
     try {
       const connection = await this.getActiveConnection();
@@ -312,6 +313,7 @@ class GitHubService {
           repoFullName,
           files,
           commitMessage,
+          branch,
         }),
       });
 
@@ -332,6 +334,44 @@ class GitHubService {
       return {
         success: false,
         error: error.message || 'Unknown error'
+      };
+    }
+  }
+
+  async syncRepositorySecrets(
+    repoFullName: string,
+    secrets: Record<string, string>
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const connection = await this.getActiveConnection();
+      if (!connection) throw new Error('No active GitHub connection');
+
+      const response = await fetch(`${getEnvVariable('VITE_SUPABASE_URL')}/functions/v1/github-sync-actions-secrets`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getEnvVariable('VITE_SUPABASE_ANON_KEY')}`,
+        },
+        body: JSON.stringify({
+          accessToken: connection.access_token,
+          repoFullName,
+          secrets,
+        }),
+      });
+
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        return {
+          success: false,
+          error: result.error || 'Failed to sync repository secrets',
+        };
+      }
+
+      return { success: true };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.message || 'Unknown error',
       };
     }
   }

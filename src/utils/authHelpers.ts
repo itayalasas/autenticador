@@ -24,7 +24,7 @@ export interface AuthTokenData {
 
 export interface CallbackExchangeParams {
   code: string;
-  application_id: string;
+  application_id?: string;
 }
 
 export interface CallbackUrlParams extends CallbackExchangeParams {
@@ -37,9 +37,9 @@ export function extractCallbackExchangeParams(url: string): CallbackUrlParams | 
     const params = urlObj.searchParams;
 
     const code = params.get('code');
-    const applicationId = params.get('application_id') || params.get('app_id');
+    const applicationId = params.get('application_id') || params.get('app_id') || undefined;
 
-    if (!code || !applicationId) {
+    if (!code) {
       return null;
     }
 
@@ -129,7 +129,7 @@ export async function exchangeCallbackCode(params: CallbackExchangeParams): Prom
       last_login: new Date().toISOString()
     },
     application: {
-      id: application.id || params.application_id,
+      id: application.id || params.application_id || '',
       name: application.name || '',
       domain: application.domain || ''
     },

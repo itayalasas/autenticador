@@ -1015,7 +1015,7 @@ export default function AuthenticationSettings() {
                   onChange={(e) => handleSettingChange('allowed_callback_urls', e.target.value)}
                   rows={4}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="https://miapp.com/auth/callback&#10;https://localhost:3000/callback&#10;https://staging.miapp.com/callback"
+                  placeholder="https://miapp.com/callback&#10;https://localhost:3000/callback&#10;https://staging.miapp.com/callback"
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   Una URL por línea. Solo estas URLs podrán recibir redirecciones después de la autenticación.

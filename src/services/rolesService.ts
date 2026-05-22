@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { permissionsService } from './permissionsService';
 
 export interface ApplicationRole {
   id: string;
@@ -66,6 +67,11 @@ export const rolesService = {
       .single();
 
     if (error) throw error;
+    await permissionsService.syncRolePermissionsFromLegacyRole(
+      data.id,
+      data.application_id,
+      data.permissions
+    );
     return data;
   },
 
@@ -96,6 +102,13 @@ export const rolesService = {
       .single();
 
     if (error) throw error;
+    if (typeof updates.permissions !== 'undefined') {
+      await permissionsService.syncRolePermissionsFromLegacyRole(
+        data.id,
+        data.application_id,
+        data.permissions
+      );
+    }
     return data;
   },
 

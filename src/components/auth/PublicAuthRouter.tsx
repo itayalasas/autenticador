@@ -26,7 +26,7 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
   const fallbackApiKey = getEnvVariable('VITE_PUBLIC_API_KEY') || (publicConfig.apiKey && publicConfig.apiKey !== 'PLACEHOLDER_API_KEY'
     ? publicConfig.apiKey
     : null);
-  const developmentCallbackUrl = `${window.location.origin}/auth/callback`;
+  const developmentCallbackUrl = `${window.location.origin}/callback`;
 
   useEffect(() => {
     applyFaviconToDocument('/images/icon.svg');

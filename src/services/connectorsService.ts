@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 interface ConnectorConfig {
   id: string;
   user_id: string;
-  connector_type: 'github' | 'netlify' | 'gitlab' | 'bitbucket' | 'stripe' | 'dlocal';
+  connector_type: 'github' | 'netlify' | 'azure_container_apps' | 'gitlab' | 'bitbucket' | 'stripe' | 'dlocal';
   config_data: Record<string, any>;
   is_active: boolean;
   created_at: string;
@@ -21,7 +21,29 @@ interface NetlifyConfig {
   site_id?: string;
 }
 
+interface AzureContainerAppsConfig {
+  tenant_id: string;
+  subscription_id: string;
+  client_id: string;
+  client_secret: string;
+  resource_group: string;
+  location: string;
+  containerapps_environment?: string;
+}
+
 class ConnectorsService {
+  private normalizeAzureContainerAppsConfig(config: AzureContainerAppsConfig): AzureContainerAppsConfig {
+    return {
+      tenant_id: config.tenant_id.trim(),
+      subscription_id: config.subscription_id.trim(),
+      client_id: config.client_id.trim(),
+      client_secret: config.client_secret.trim(),
+      resource_group: config.resource_group.trim(),
+      location: config.location.trim(),
+      containerapps_environment: config.containerapps_environment?.trim() || undefined,
+    };
+  }
+
   // Save or update connector configuration
   async saveConfig(
     connectorType: ConnectorConfig['connector_type'],
@@ -133,8 +155,101 @@ class ConnectorsService {
     return !!(config?.access_token);
   }
 
+  // Azure Container Apps specific methods
+  async saveAzureContainerAppsConfig(config: AzureContainerAppsConfig): Promise<ConnectorConfig> {
+    return this.saveConfig('azure_container_apps', this.normalizeAzureContainerAppsConfig(config));
+  }
+
+  async getAzureContainerAppsConfig(): Promise<AzureContainerAppsConfig | null> {
+    const config = await this.getConfig('azure_container_apps');
+    return config ? config.config_data as AzureContainerAppsConfig : null;
+  }
+
+  async isAzureContainerAppsConfigured(): Promise<boolean> {
+    const config = await this.getAzureContainerAppsConfig();
+    return !!(
+      config?.tenant_id &&
+      config?.subscription_id &&
+      config?.client_id &&
+      config?.client_secret &&
+      config?.resource_group &&
+      config?.location
+    );
+  }
+
+  async testAzureContainerAppsConfig(config: AzureContainerAppsConfig): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    const azureConfig = this.normalizeAzureContainerAppsConfig(config);
+
+    if (!azureConfig.tenant_id || !azureConfig.subscription_id || !azureConfig.client_id || !azureConfig.client_secret) {
+      return {
+        success: false,
+        message: 'Faltan credenciales de Azure',
+      };
+    }
+
+    try {
+      const tokenResponse = await fetch(`https://login.microsoftonline.com/${azureConfig.tenant_id}/oauth2/v2.0/token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          client_id: azureConfig.client_id,
+          client_secret: azureConfig.client_secret,
+          scope: 'https://management.azure.com/.default',
+          grant_type: 'client_credentials',
+        }),
+      });
+
+      if (!tokenResponse.ok) {
+        return {
+          success: false,
+          message: 'Credenciales de Azure inválidas',
+        };
+      }
+
+      const tokenPayload = await tokenResponse.json();
+      const accessToken = tokenPayload?.access_token;
+      if (!accessToken) {
+        return {
+          success: false,
+          message: 'Azure no devolvió un access token válido',
+        };
+      }
+
+      const subscriptionResponse = await fetch(
+        `https://management.azure.com/subscriptions/${azureConfig.subscription_id}?api-version=2020-01-01`,
+        {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+          },
+        }
+      );
+
+      if (!subscriptionResponse.ok) {
+        return {
+          success: false,
+          message: 'No se pudo validar la suscripción de Azure',
+        };
+      }
+
+      return {
+        success: true,
+        message: 'Azure Container Apps conectado correctamente',
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: `Error: ${error.message}`,
+      };
+    }
+  }
+
   // Validate all required connectors for deployment
-  async validateDeploymentConnectors(): Promise<{
+  async validateDeploymentConnectors(provider: 'netlify' | 'azure_container_apps' = 'netlify'): Promise<{
     valid: boolean;
     missing: string[];
     configured: string[];
@@ -149,16 +264,24 @@ class ConnectorsService {
       missing.push('GitHub');
     }
 
-    // Check Netlify
-    const netlifyConfigured = await this.isNetlifyConfigured();
-    if (!netlifyConfigured) {
-      missing.push('Netlify');
+    if (provider === 'netlify') {
+      const netlifyConfigured = await this.isNetlifyConfigured();
+      if (!netlifyConfigured) {
+        missing.push('Netlify');
+      }
+    }
+
+    if (provider === 'azure_container_apps') {
+      const azureConfigured = await this.isAzureContainerAppsConfigured();
+      if (!azureConfigured) {
+        missing.push('Azure Container Apps');
+      }
     }
 
     return {
       valid: missing.length === 0,
       missing,
-      configured: configured.filter(c => ['github', 'netlify'].includes(c)),
+      configured: configured.filter(c => ['github', 'netlify', 'azure_container_apps'].includes(c)),
     };
   }
 
@@ -220,6 +343,66 @@ class ConnectorsService {
           }
         }
 
+        case 'azure_container_apps': {
+          const azureConfig = config.config_data as AzureContainerAppsConfig;
+          if (!azureConfig.tenant_id || !azureConfig.subscription_id || !azureConfig.client_id || !azureConfig.client_secret) {
+            return {
+              success: false,
+              message: 'Faltan credenciales de Azure',
+            };
+          }
+
+          const tokenResponse = await fetch(`https://login.microsoftonline.com/${azureConfig.tenant_id}/oauth2/v2.0/token`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+              client_id: azureConfig.client_id,
+              client_secret: azureConfig.client_secret,
+              scope: 'https://management.azure.com/.default',
+              grant_type: 'client_credentials',
+            }),
+          });
+
+          if (!tokenResponse.ok) {
+            return {
+              success: false,
+              message: 'Credenciales de Azure inválidas',
+            };
+          }
+
+          const tokenPayload = await tokenResponse.json();
+          const accessToken = tokenPayload?.access_token;
+          if (!accessToken) {
+            return {
+              success: false,
+              message: 'Azure no devolvió un access token válido',
+            };
+          }
+
+          const subscriptionResponse = await fetch(
+            `https://management.azure.com/subscriptions/${azureConfig.subscription_id}?api-version=2020-01-01`,
+            {
+              headers: {
+                'Authorization': `Bearer ${accessToken}`,
+              },
+            }
+          );
+
+          if (!subscriptionResponse.ok) {
+            return {
+              success: false,
+              message: 'No se pudo validar la suscripción de Azure',
+            };
+          }
+
+          return {
+            success: true,
+            message: 'Azure Container Apps conectado correctamente',
+          };
+        }
+
         default:
           return {
             success: false,
@@ -246,7 +429,7 @@ class ConnectorsService {
     }[];
   }> {
     const allConfigs = await this.getAllConfigs();
-    const requiredConnectors = ['github', 'netlify'];
+    const requiredConnectors = ['github', 'netlify', 'azure_container_apps'];
 
     const connectorStatus = requiredConnectors.map(type => {
       const config = allConfigs.find(c => c.connector_type === type);
@@ -267,4 +450,4 @@ class ConnectorsService {
 }
 
 export const connectorsService = new ConnectorsService();
-export type { ConnectorConfig, GitHubConfig, NetlifyConfig };
+export type { ConnectorConfig, GitHubConfig, NetlifyConfig, AzureContainerAppsConfig };

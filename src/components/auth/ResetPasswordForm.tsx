@@ -66,7 +66,8 @@ export default function ResetPasswordForm() {
   const trustedCallbackUrl = getTrustedCallbackUrl(
     application?.metadata?.environment_urls || null,
     callbackUrl,
-    preferredEnvironment
+    preferredEnvironment,
+    application?.metadata?.cors_origins || null
   );
 
   useEffect(() => {

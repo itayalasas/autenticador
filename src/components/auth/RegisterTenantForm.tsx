@@ -109,7 +109,8 @@ export default function RegisterTenantForm() {
   const trustedRedirectUri = getTrustedCallbackUrl(
     appData?.metadata?.environment_urls || null,
     redirectUri,
-    preferredEnvironment
+    preferredEnvironment,
+    appData?.metadata?.cors_origins || null
   );
 
   const loginHref = useMemo(() => {

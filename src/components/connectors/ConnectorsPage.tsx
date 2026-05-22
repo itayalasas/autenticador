@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Github, Cloud, CheckCircle, AlertCircle, Settings, Link as LinkIcon, Trash2, Unlink } from 'lucide-react';
-import { connectorsService, GitHubConfig, NetlifyConfig } from '../../services/connectorsService';
+import { connectorsService, GitHubConfig, NetlifyConfig, AzureContainerAppsConfig } from '../../services/connectorsService';
 import NotificationModal from '../ui/NotificationModal';
 import GitHubConnector from '../github/GitHubConnector';
 import { supabase } from '../../lib/supabase';
@@ -15,6 +15,15 @@ export default function ConnectorsPage() {
   const [netlifyConfig, setNetlifyConfig] = useState<NetlifyConfig>({
     access_token: '',
     site_id: '',
+  });
+  const [azureConfig, setAzureConfig] = useState<AzureContainerAppsConfig>({
+    tenant_id: '',
+    subscription_id: '',
+    client_id: '',
+    client_secret: '',
+    resource_group: '',
+    location: '',
+    containerapps_environment: '',
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
@@ -65,6 +74,19 @@ export default function ConnectorsPage() {
       const netlify = await connectorsService.getNetlifyConfig();
       if (netlify) {
         setNetlifyConfig(netlify);
+      }
+
+      const azure = await connectorsService.getAzureContainerAppsConfig();
+      if (azure) {
+        setAzureConfig({
+          tenant_id: azure.tenant_id || '',
+          subscription_id: azure.subscription_id || '',
+          client_id: azure.client_id || '',
+          client_secret: azure.client_secret || '',
+          resource_group: azure.resource_group || '',
+          location: azure.location || '',
+          containerapps_environment: azure.containerapps_environment || '',
+        });
       }
     } catch (error) {
       console.error('Error loading configs:', error);
@@ -144,10 +166,43 @@ export default function ConnectorsPage() {
     }
   };
 
-  const handleTestConnection = async (connector: 'github' | 'netlify') => {
+  const handleSaveAzure = async () => {
+    try {
+      setSaving('azure_container_apps');
+      await connectorsService.saveAzureContainerAppsConfig({
+        ...azureConfig,
+        tenant_id: azureConfig.tenant_id.trim(),
+        subscription_id: azureConfig.subscription_id.trim(),
+        client_id: azureConfig.client_id.trim(),
+        client_secret: azureConfig.client_secret.trim(),
+        resource_group: azureConfig.resource_group.trim(),
+        location: azureConfig.location.trim(),
+        containerapps_environment: azureConfig.containerapps_environment?.trim() || '',
+      });
+      await loadSummary();
+      showNotification('success', 'Configuracion Guardada', 'La configuracion de Azure Container Apps se ha guardado exitosamente.');
+    } catch (error: any) {
+      showNotification('error', 'Error al Guardar', error.message || 'No se pudo guardar la configuracion de Azure Container Apps.');
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const handleTestConnection = async (connector: 'github' | 'netlify' | 'azure_container_apps') => {
     try {
       setTesting(connector);
-      const result = await connectorsService.testConnection(connector);
+      const result = connector === 'azure_container_apps'
+        ? await connectorsService.testAzureContainerAppsConfig({
+            ...azureConfig,
+            tenant_id: azureConfig.tenant_id.trim(),
+            subscription_id: azureConfig.subscription_id.trim(),
+            client_id: azureConfig.client_id.trim(),
+            client_secret: azureConfig.client_secret.trim(),
+            resource_group: azureConfig.resource_group.trim(),
+            location: azureConfig.location.trim(),
+            containerapps_environment: azureConfig.containerapps_environment?.trim() || '',
+          })
+        : await connectorsService.testConnection(connector);
       setTestResults(prev => ({ ...prev, [connector]: result }));
 
       if (result.success) {
@@ -162,7 +217,7 @@ export default function ConnectorsPage() {
     }
   };
 
-  const handleDeleteConfig = async (connector: 'github' | 'netlify') => {
+  const handleDeleteConfig = async (connector: 'github' | 'netlify' | 'azure_container_apps') => {
     if (!confirm(`¿Estás seguro de eliminar la configuración de ${connector}?`)) return;
 
     try {
@@ -174,10 +229,20 @@ export default function ConnectorsPage() {
           client_secret: '',
           redirect_uri: '',
         });
-      } else {
+      } else if (connector === 'netlify') {
         setNetlifyConfig({
           access_token: '',
           site_id: '',
+        });
+      } else {
+        setAzureConfig({
+          tenant_id: '',
+          subscription_id: '',
+          client_id: '',
+          client_secret: '',
+          resource_group: '',
+          location: '',
+          containerapps_environment: '',
         });
       }
 
@@ -526,6 +591,183 @@ export default function ConnectorsPage() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Azure Container Apps Connector */}
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center space-x-3">
+            <div className="w-12 h-12 bg-sky-600 rounded-lg flex items-center justify-center">
+              <Cloud className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-gray-900 flex items-center space-x-2">
+                <span>Azure Container Apps</span>
+                {azureConfig.tenant_id && <CheckCircle className="w-5 h-5 text-green-500" />}
+              </h2>
+              <p className="text-sm text-gray-600">Credenciales para crear y actualizar formularios en Azure Container Apps</p>
+            </div>
+          </div>
+          {azureConfig.tenant_id && (
+            <button
+              onClick={() => handleDeleteConfig('azure_container_apps')}
+              className="text-red-600 hover:text-red-700 text-sm flex items-center space-x-1"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>Eliminar</span>
+            </button>
+          )}
+        </div>
+
+        <div className="space-y-4">
+          <div className="bg-sky-50 border border-sky-200 rounded-lg p-4 mb-4">
+            <h4 className="font-semibold text-sky-900 mb-2 flex items-center space-x-2">
+              <Settings className="w-4 h-4" />
+              <span>Credenciales requeridas</span>
+            </h4>
+            <ol className="text-sm text-sky-800 space-y-1 list-decimal list-inside">
+              <li>Crea o reutiliza un Service Principal con permisos sobre el resource group donde se desplegaran las apps.</li>
+              <li>Guarda Tenant ID, Subscription ID, Client ID y Client Secret.</li>
+              <li>Configura el Resource Group y la region base para los ambientes.</li>
+              <li>El Container Apps Environment por defecto es opcional: si lo dejas vacio se genera en el primer deploy y luego se reutiliza en los redeploys.</li>
+            </ol>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Tenant ID *</label>
+              <input
+                type="text"
+                value={azureConfig.tenant_id}
+                onChange={(e) => setAzureConfig({ ...azureConfig, tenant_id: e.target.value })}
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Subscription ID *</label>
+              <input
+                type="text"
+                value={azureConfig.subscription_id}
+                onChange={(e) => setAzureConfig({ ...azureConfig, subscription_id: e.target.value })}
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Client ID *</label>
+              <input
+                type="text"
+                value={azureConfig.client_id}
+                onChange={(e) => setAzureConfig({ ...azureConfig, client_id: e.target.value })}
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Client Secret *</label>
+              <input
+                type="password"
+                value={azureConfig.client_secret}
+                onChange={(e) => setAzureConfig({ ...azureConfig, client_secret: e.target.value })}
+                placeholder="Azure client secret"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Resource Group *</label>
+              <input
+                type="text"
+                value={azureConfig.resource_group}
+                onChange={(e) => setAzureConfig({ ...azureConfig, resource_group: e.target.value })}
+                placeholder="rg-auth-forms"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Region *</label>
+              <input
+                type="text"
+                value={azureConfig.location}
+                onChange={(e) => setAzureConfig({ ...azureConfig, location: e.target.value })}
+                placeholder="eastus"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Container Apps Environment por defecto (opcional)</label>
+            <input
+              type="text"
+              value={azureConfig.containerapps_environment || ''}
+              onChange={(e) => setAzureConfig({ ...azureConfig, containerapps_environment: e.target.value })}
+              placeholder="Dejar vacio para generarlo durante el primer deploy"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Si no lo defines, el primer deploy genera uno con el nombre de la app y el ambiente. Ese mismo valor queda guardado para reutilizarlo en redeploys.
+            </p>
+          </div>
+
+          <div className="flex space-x-3">
+            <button
+              onClick={handleSaveAzure}
+              disabled={
+                saving === 'azure_container_apps' ||
+                !azureConfig.tenant_id ||
+                !azureConfig.subscription_id ||
+                !azureConfig.client_id ||
+                !azureConfig.client_secret ||
+                !azureConfig.resource_group ||
+                !azureConfig.location
+              }
+              className="flex-1 bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-lg flex items-center justify-center space-x-2 transition-colors disabled:opacity-50"
+            >
+              {saving === 'azure_container_apps' ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Guardando...</span>
+                </>
+              ) : (
+                <>
+                  <Cloud className="w-4 h-4" />
+                  <span>Guardar Configuracion</span>
+                </>
+              )}
+            </button>
+            {azureConfig.tenant_id && (
+              <button
+                onClick={() => handleTestConnection('azure_container_apps')}
+                disabled={testing === 'azure_container_apps'}
+                className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors disabled:opacity-50"
+              >
+                {testing === 'azure_container_apps' ? (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <CheckCircle className="w-4 h-4" />
+                    <span>Probar</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+
+          {testResults.azure_container_apps && (
+            <div className={`p-3 rounded-lg ${testResults.azure_container_apps.success ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+              <p className="text-sm flex items-center space-x-2">
+                {testResults.azure_container_apps.success ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                <span>{testResults.azure_container_apps.message}</span>
+              </p>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Notification Modal */}

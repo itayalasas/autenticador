@@ -87,15 +87,15 @@ export default function EditApplicationWizard({
     return {
       development: {
         base_url: `https://auth-dev.${domain}`,
-        callback_url: `https://${domain}/auth/callback`
+        callback_url: `https://${domain}/callback`
       },
       testing: {
         base_url: `https://auth-test.${domain}`,
-        callback_url: `https://${domain}/auth/callback`
+        callback_url: `https://${domain}/callback`
       },
       production: {
         base_url: `https://auth.${domain}`,
-        callback_url: `https://${domain}/auth/callback`
+        callback_url: `https://${domain}/callback`
       }
     };
   };
@@ -228,7 +228,7 @@ export default function EditApplicationWizard({
                       value={formData.environment_urls?.[env]?.callback_url || ''}
                       onChange={(e) => handleEnvironmentUrlChange(env, 'callback_url', e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                      placeholder={ph[env]?.callback_url || `https://${formData.domain || 'midominio.com'}/auth/callback`}
+                      placeholder={ph[env]?.callback_url || `https://${formData.domain || 'midominio.com'}/callback`}
                     />
                   </div>
                 </div>

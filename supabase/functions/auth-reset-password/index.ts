@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
-import { normalizeUrl, resolveApplicationAuthUrl } from '../_shared/application-auth-url.ts';
+import { normalizeUrl, resolveApplicationAuthUrl, resolveTrustedApplicationCallbackUrl } from '../_shared/application-auth-url.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -436,11 +436,18 @@ Deno.serve(async (req) => {
 
     console.log('✅ Reset password successful for user:', appUser.email);
     
-    const { baseUrl, callbackUrl: configuredCallbackUrl, environmentName } = await resolveApplicationAuthUrl(
+    const { baseUrl, callbackUrl: resolvedCallbackUrl, environmentName } = await resolveApplicationAuthUrl(
       supabase,
       application.id,
       (apiKeyData as any).environment || null
     );
+    const configuredCallbackUrl = resolveTrustedApplicationCallbackUrl({
+      requestedCallbackUrl: callback_url,
+      configuredCallbackUrl: resolvedCallbackUrl,
+      configuredBaseUrl: baseUrl,
+      applicationDomain: application.domain || null,
+      applicationMetadata: application.metadata || null
+    });
 
     if (!baseUrl) {
       console.error('❌ No auth_url configured for application environment; cannot build reset URL safely.');
@@ -460,7 +467,7 @@ Deno.serve(async (req) => {
     }
 
     if (normalizeUrl(callback_url) && configuredCallbackUrl && normalizeUrl(callback_url) !== configuredCallbackUrl) {
-      console.warn('⚠️ Ignoring untrusted callback_url for reset password flow. Using configured callback URL instead.', {
+      console.warn('⚠️ Replacing requested callback_url for reset password flow with trusted application callback URL.', {
         requested: normalizeUrl(callback_url),
         configured: configuredCallbackUrl,
         environment: environmentName || (apiKeyData as any).environment || null

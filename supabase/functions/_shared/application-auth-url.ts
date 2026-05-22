@@ -9,6 +9,17 @@ export function normalizeUrl(raw: string | null | undefined): string {
   return withScheme.replace(/\/$/, '');
 }
 
+function normalizeOrigin(raw: string | null | undefined): string {
+  const normalized = normalizeUrl(raw);
+  if (!normalized) return '';
+
+  try {
+    return new URL(normalized).origin.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
 export function buildRedirectUrl(baseUrl: string, params: Record<string, string | number | boolean | null | undefined>): string {
   const normalizedBaseUrl = normalizeUrl(baseUrl);
   if (!normalizedBaseUrl) return '';
@@ -36,6 +47,77 @@ export function buildRedirectUrl(baseUrl: string, params: Record<string, string 
   }
 }
 
+function collectMetadataOrigins(metadata: Record<string, any> | null | undefined): Set<string> {
+  const origins = new Set<string>();
+  if (!metadata || typeof metadata !== 'object') return origins;
+
+  const envUrls = metadata.environment_urls;
+  if (envUrls && typeof envUrls === 'object') {
+    Object.values(envUrls).forEach((envConfig: any) => {
+      const callbackOrigin = normalizeOrigin(envConfig?.callback_url);
+      const baseOrigin = normalizeOrigin(envConfig?.base_url);
+      if (callbackOrigin) origins.add(callbackOrigin);
+      if (baseOrigin) origins.add(baseOrigin);
+    });
+  }
+
+  const corsOrigins = Array.isArray(metadata.cors_origins)
+    ? metadata.cors_origins
+    : typeof metadata.cors_origins === 'string'
+      ? metadata.cors_origins.split(/[\n,]/).map((value: string) => value.trim()).filter(Boolean)
+      : [];
+
+  corsOrigins.forEach((origin: string) => {
+    const normalized = normalizeOrigin(origin);
+    if (normalized) origins.add(normalized);
+  });
+
+  return origins;
+}
+
+export function resolveTrustedApplicationCallbackUrl(options: {
+  requestedCallbackUrl?: string | null;
+  configuredCallbackUrl?: string | null;
+  configuredBaseUrl?: string | null;
+  applicationDomain?: string | null;
+  applicationMetadata?: Record<string, any> | null;
+}): string {
+  const normalizedRequested = normalizeUrl(options.requestedCallbackUrl);
+  const normalizedConfigured = normalizeUrl(options.configuredCallbackUrl);
+
+  if (!normalizedRequested) {
+    return normalizedConfigured;
+  }
+
+  const allowedExactUrls = new Set<string>();
+  const allowedOrigins = collectMetadataOrigins(options.applicationMetadata);
+
+  const addCandidate = (value: string | null | undefined) => {
+    const normalized = normalizeUrl(value);
+    if (!normalized) return;
+
+    allowedExactUrls.add(normalized);
+    const origin = normalizeOrigin(normalized);
+    if (origin) allowedOrigins.add(origin);
+  };
+
+  addCandidate(options.configuredCallbackUrl);
+  addCandidate(options.configuredBaseUrl);
+  addCandidate(options.applicationDomain);
+
+  const requestedOrigin = normalizeOrigin(normalizedRequested);
+
+  if (allowedExactUrls.has(normalizedRequested)) {
+    return normalizedRequested;
+  }
+
+  if (requestedOrigin && allowedOrigins.has(requestedOrigin)) {
+    return normalizedRequested;
+  }
+
+  return normalizedConfigured;
+}
+
 export async function resolveApplicationAuthUrl(
   supabase: any,
   applicationId: string,
@@ -44,6 +126,26 @@ export async function resolveApplicationAuthUrl(
   let baseUrl = '';
   let callbackUrl = '';
   let environmentName = '';
+  let applicationMetadata: Record<string, any> | null = null;
+
+  const { data: applicationRecord, error: applicationError } = await supabase
+    .from('applications')
+    .select('domain, metadata')
+    .eq('id', applicationId)
+    .maybeSingle();
+
+  if (applicationError) {
+    console.error('Error looking up application metadata for auth URL resolution:', applicationError);
+  } else {
+    applicationMetadata = applicationRecord?.metadata || null;
+  }
+
+  const metadataEnvironmentUrls = applicationMetadata?.environment_urls || {};
+  const getMetadataEnvironmentConfig = (envName?: string | null) => {
+    if (!envName) return null;
+    const config = metadataEnvironmentUrls?.[String(envName).toLowerCase()];
+    return config && typeof config === 'object' ? config : null;
+  };
 
   if (apiKeyEnvironment) {
     const { data: exactEnv, error: exactEnvError } = await supabase
@@ -59,9 +161,19 @@ export async function resolveApplicationAuthUrl(
     }
 
     if (exactEnv?.auth_url) {
-      baseUrl = normalizeUrl(exactEnv.auth_url);
-      callbackUrl = normalizeUrl(exactEnv.callback_url || (baseUrl ? `${baseUrl}/auth/callback` : ''));
+      const metadataEnvConfig = getMetadataEnvironmentConfig(exactEnv.name || apiKeyEnvironment);
+      baseUrl = normalizeUrl(metadataEnvConfig?.base_url || exactEnv.auth_url);
+      callbackUrl = normalizeUrl(metadataEnvConfig?.callback_url || exactEnv.callback_url || (baseUrl ? `${baseUrl}/callback` : ''));
       environmentName = exactEnv.name || '';
+    }
+  }
+
+  if (!baseUrl && apiKeyEnvironment) {
+    const metadataEnvConfig = getMetadataEnvironmentConfig(apiKeyEnvironment);
+    if (metadataEnvConfig?.base_url || metadataEnvConfig?.callback_url) {
+      baseUrl = normalizeUrl(metadataEnvConfig?.base_url);
+      callbackUrl = normalizeUrl(metadataEnvConfig?.callback_url || (baseUrl ? `${baseUrl}/callback` : ''));
+      environmentName = String(apiKeyEnvironment);
     }
   }
 
@@ -79,14 +191,24 @@ export async function resolveApplicationAuthUrl(
 
     const firstWithAuth = (anyEnvs || []).find((env: any) => normalizeUrl(env.auth_url));
     if (firstWithAuth) {
-      baseUrl = normalizeUrl(firstWithAuth.auth_url);
-      callbackUrl = normalizeUrl(firstWithAuth.callback_url || (baseUrl ? `${baseUrl}/auth/callback` : ''));
+      const metadataEnvConfig = getMetadataEnvironmentConfig(firstWithAuth.name || '');
+      baseUrl = normalizeUrl(metadataEnvConfig?.base_url || firstWithAuth.auth_url);
+      callbackUrl = normalizeUrl(metadataEnvConfig?.callback_url || firstWithAuth.callback_url || (baseUrl ? `${baseUrl}/callback` : ''));
       environmentName = firstWithAuth.name || '';
     }
   }
 
+  if (!baseUrl && metadataEnvironmentUrls && typeof metadataEnvironmentUrls === 'object') {
+    const fallbackEntry = Object.entries(metadataEnvironmentUrls).find(([, config]: [string, any]) => normalizeUrl(config?.base_url));
+    if (fallbackEntry) {
+      environmentName = fallbackEntry[0];
+      baseUrl = normalizeUrl((fallbackEntry[1] as any)?.base_url);
+      callbackUrl = normalizeUrl((fallbackEntry[1] as any)?.callback_url || (baseUrl ? `${baseUrl}/callback` : ''));
+    }
+  }
+
   if (!callbackUrl && baseUrl) {
-    callbackUrl = normalizeUrl(`${baseUrl}/auth/callback`);
+    callbackUrl = normalizeUrl(`${baseUrl}/callback`);
   }
 
   return { baseUrl, callbackUrl, environmentName };

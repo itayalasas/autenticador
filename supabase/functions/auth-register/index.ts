@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
 import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 import bcrypt from "npm:bcryptjs@2.4.3";
-import { buildRedirectUrl, normalizeUrl, resolveApplicationAuthUrl } from '../_shared/application-auth-url.ts';
+import { buildRedirectUrl, normalizeUrl, resolveApplicationAuthUrl, resolveTrustedApplicationCallbackUrl } from '../_shared/application-auth-url.ts';
 import { ensureSelectedPlanSubscription } from '../_shared/application-billing.ts';
 
 const corsHeaders = {
@@ -1134,11 +1134,18 @@ Deno.serve(async (req) => {
         console.error('Error creating verification token:', tokenError);
         // Continue without email verification if token creation fails
       } else {
-        const { baseUrl, callbackUrl: configuredCallbackUrl, environmentName } = await resolveApplicationAuthUrl(
+        const { baseUrl, callbackUrl: resolvedCallbackUrl, environmentName } = await resolveApplicationAuthUrl(
           supabase,
           application.id,
           (apiKeyData as any).environment || null
         );
+        const configuredCallbackUrl = resolveTrustedApplicationCallbackUrl({
+          requestedCallbackUrl: callback_url,
+          configuredCallbackUrl: resolvedCallbackUrl,
+          configuredBaseUrl: baseUrl,
+          applicationDomain: application.domain || null,
+          applicationMetadata: application.metadata || null
+        });
 
         if (!baseUrl) {
           console.error('❌ No auth_url configured for application environment; cannot build verification URL safely.');
@@ -1158,7 +1165,7 @@ Deno.serve(async (req) => {
         }
 
         if (normalizeUrl(callback_url) && configuredCallbackUrl && normalizeUrl(callback_url) !== configuredCallbackUrl) {
-          console.warn('⚠️ Ignoring untrusted callback_url during registration. Using configured callback URL instead.', {
+          console.warn('⚠️ Replacing requested callback_url during registration with trusted application callback URL.', {
             requested: normalizeUrl(callback_url),
             configured: configuredCallbackUrl,
             environment: environmentName || (apiKeyData as any).environment || null
@@ -1303,14 +1310,21 @@ Deno.serve(async (req) => {
       }
     };
 
-    const { callbackUrl: finalCallbackUrl, environmentName: finalEnvironmentName } = await resolveApplicationAuthUrl(
+    const { baseUrl: finalBaseUrl, callbackUrl: resolvedFinalCallbackUrl, environmentName: finalEnvironmentName } = await resolveApplicationAuthUrl(
       supabase,
       application.id,
       (apiKeyData as any).environment || null
     );
+    const finalCallbackUrl = resolveTrustedApplicationCallbackUrl({
+      requestedCallbackUrl: callback_url,
+      configuredCallbackUrl: resolvedFinalCallbackUrl,
+      configuredBaseUrl: finalBaseUrl,
+      applicationDomain: application.domain || null,
+      applicationMetadata: application.metadata || null
+    });
 
     if (normalizeUrl(callback_url) && finalCallbackUrl && normalizeUrl(callback_url) !== finalCallbackUrl) {
-      console.warn('⚠️ Ignoring untrusted callback_url for final registration redirect. Using configured callback URL instead.', {
+      console.warn('⚠️ Replacing requested callback_url for final registration redirect with trusted application callback URL.', {
         requested: normalizeUrl(callback_url),
         configured: finalCallbackUrl,
         environment: finalEnvironmentName || (apiKeyData as any).environment || null
@@ -1335,7 +1349,6 @@ Deno.serve(async (req) => {
       } else {
         response.data.callback_url = buildRedirectUrl(finalCallbackUrl, {
           code: authCode,
-          application_id,
           state: 'registered_and_logged_in'
         });
       }

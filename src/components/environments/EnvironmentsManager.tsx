@@ -5,10 +5,16 @@ import { subscriptionService } from '../../services/subscriptionService';
 import { netlifyService } from '../../services/netlifyService';
 import { githubService, type GitRepository, type GitHubRepo } from '../../services/githubService';
 import { connectorsService } from '../../services/connectorsService';
+import type { AzureContainerAppsConfig, DeployProvider } from '../../services/connectorsService';
 import { environmentVariablesService } from '../../services/environmentVariablesService';
 import { getStaticProjectFiles } from '../../utils/projectFilesHelper';
 import { getReactConfigFiles, getCommitMessage } from '../../utils/reactProjectHelper';
 import { getReactProjectFiles } from '../../utils/netlifyReactProjectHelper';
+import {
+  applyAzureContainerAppsDeploymentFiles,
+  buildAzureCredentialsSecretPayload,
+  buildDefaultContainerAppName,
+} from '../../utils/azureContainerAppsDeploymentHelper';
 import { deploymentService } from '../../services/deploymentService';
 import { deploymentSnapshotService } from '../../services/deploymentSnapshotService';
 import { environmentDeployBindingService, type EnvironmentDeployBinding } from '../../services/environmentDeployBindingService';
@@ -56,6 +62,17 @@ interface RepoSelectionOption {
   githubRepo?: GitHubRepo;
 }
 
+interface PendingDeployData {
+  files: Record<string, string>;
+  repo: GitRepository;
+  deployBranch: string;
+  environmentId: string;
+  environmentName: string;
+  environment: Environment;
+  applicationId: string;
+  apiKey: string;
+}
+
 export default function EnvironmentsManager() {
   const [applications, setApplications] = useState<any[]>([]);
   const [selectedApp, setSelectedApp] = useState('');
@@ -87,16 +104,7 @@ export default function EnvironmentsManager() {
   const [newSiteName, setNewSiteName] = useState('');
   const [netlifyAccessToken, setNetlifyAccessToken] = useState('');
   const [savingNetlifyConfig, setSavingNetlifyConfig] = useState(false);
-  const [pendingDeployData, setPendingDeployData] = useState<{
-    files: Record<string, string>;
-    repo: any;
-    deployBranch: string;
-    environmentId: string;
-    environmentName: string;
-    environment: any;
-    applicationId: string;
-    apiKey: string;
-  } | null>(null);
+  const [pendingDeployData, setPendingDeployData] = useState<PendingDeployData | null>(null);
   const [isDirectDeploying, setIsDirectDeploying] = useState(false);
   const [showDirectDeployButton, setShowDirectDeployButton] = useState(false);
   const [currentEnvironmentId, setCurrentEnvironmentId] = useState<string>('');
@@ -111,9 +119,15 @@ export default function EnvironmentsManager() {
   const [loadingRepoOptions, setLoadingRepoOptions] = useState(false);
   const [savingRepoBinding, setSavingRepoBinding] = useState(false);
   const [repoBindingForm, setRepoBindingForm] = useState({
+    deployProvider: 'netlify' as DeployProvider,
     repoKey: '',
     branch: 'main',
-    netlifySiteId: ''
+    netlifySiteId: '',
+    azureContainerAppName: '',
+    azureResourceGroup: '',
+    azureLocation: '',
+    azureContainerAppsEnvironment: '',
+    azureCreateIfMissing: true,
   });
   const [bindingsFilter, setBindingsFilter] = useState<'all' | 'development' | 'testing' | 'production'>('all');
   const consoleRef = useRef<HTMLDivElement>(null);
@@ -297,6 +311,12 @@ export default function EnvironmentsManager() {
 
   const handleOpenRepoBindingModal = async (environmentId: string) => {
     try {
+      const environment = environments.find(env => env.id === environmentId);
+      if (!environment) {
+        showNotification('error', 'Error', 'No se encontró el ambiente seleccionado.');
+        return;
+      }
+
       setLoadingRepoOptions(true);
       setLoadingRepoBindingNetlifySites(true);
       const savedRepos = await githubService.getSavedRepositories();
@@ -345,6 +365,13 @@ export default function EnvironmentsManager() {
       }
       setRepoBindingNetlifySites(netlifySitesOptions);
 
+      let azureDefaults: AzureContainerAppsConfig | null = null;
+      try {
+        azureDefaults = await connectorsService.getAzureContainerAppsConfig();
+      } catch (error) {
+        console.warn('Could not load Azure defaults for binding modal:', error);
+      }
+
       const envBinding = environmentBindingsMap[environmentId];
       const selectedRepo = envBinding?.git_repository_id
         ? savedRepos.find(repo => repo.id === envBinding.git_repository_id)
@@ -361,10 +388,18 @@ export default function EnvironmentsManager() {
             )
           : null;
 
+      const selectedApplication = applications.find(app => app.id === selectedApp);
+
       setRepoBindingForm({
+        deployProvider: envBinding?.deploy_provider || 'netlify',
         repoKey: selectedOption?.key || '',
         branch: envBinding?.branch || selectedRepo?.default_branch || 'main',
-        netlifySiteId: envBinding?.netlify_site_id || ''
+        netlifySiteId: envBinding?.netlify_site_id || '',
+        azureContainerAppName: envBinding?.azure_container_app_name || buildDefaultContainerAppName(selectedApplication?.name || 'auth-forms', environment.name),
+        azureResourceGroup: envBinding?.azure_resource_group || azureDefaults?.resource_group || '',
+        azureLocation: envBinding?.azure_location || azureDefaults?.location || '',
+        azureContainerAppsEnvironment: envBinding?.azure_containerapps_environment || azureDefaults?.containerapps_environment || '',
+        azureCreateIfMissing: envBinding?.azure_create_if_missing ?? true,
       });
 
       setShowRepoBindingModal(environmentId);
@@ -391,6 +426,13 @@ export default function EnvironmentsManager() {
       return;
     }
 
+    if (repoBindingForm.deployProvider === 'azure_container_apps') {
+      if (!repoBindingForm.azureResourceGroup.trim() || !repoBindingForm.azureLocation.trim()) {
+        showNotification('warning', 'Datos incompletos', 'Para Azure debes indicar al menos el Resource Group y la region.');
+        return;
+      }
+    }
+
     try {
       setSavingRepoBinding(true);
       let selectedRepo: GitRepository | null = null;
@@ -406,16 +448,34 @@ export default function EnvironmentsManager() {
         return;
       }
 
-      const selectedSite = repoBindingNetlifySites.find(site => site.id === repoBindingForm.netlifySiteId);
+      const selectedSite = repoBindingForm.deployProvider === 'netlify'
+        ? repoBindingNetlifySites.find(site => site.id === repoBindingForm.netlifySiteId)
+        : null;
       const savedBinding = await environmentDeployBindingService.upsertBinding({
         application_id: selectedApp,
         environment_id: showRepoBindingModal,
+        deploy_provider: repoBindingForm.deployProvider,
         git_repository_id: selectedRepo.id,
         repo_full_name: selectedRepo.repo_full_name,
         branch: repoBindingForm.branch || selectedRepo.default_branch || 'main',
-        netlify_site_id: selectedSite?.id || null,
-        netlify_site_name: selectedSite?.name || null,
-        netlify_site_url: selectedSite?.ssl_url || selectedSite?.url || null,
+        netlify_site_id: repoBindingForm.deployProvider === 'netlify' ? (selectedSite?.id || null) : null,
+        netlify_site_name: repoBindingForm.deployProvider === 'netlify' ? (selectedSite?.name || null) : null,
+        netlify_site_url: repoBindingForm.deployProvider === 'netlify' ? (selectedSite?.ssl_url || selectedSite?.url || null) : null,
+        azure_container_app_name: repoBindingForm.deployProvider === 'azure_container_apps'
+          ? (repoBindingForm.azureContainerAppName.trim() || null)
+          : null,
+        azure_resource_group: repoBindingForm.deployProvider === 'azure_container_apps'
+          ? (repoBindingForm.azureResourceGroup.trim() || null)
+          : null,
+        azure_location: repoBindingForm.deployProvider === 'azure_container_apps'
+          ? (repoBindingForm.azureLocation.trim() || null)
+          : null,
+        azure_containerapps_environment: repoBindingForm.deployProvider === 'azure_container_apps'
+          ? (repoBindingForm.azureContainerAppsEnvironment.trim() || null)
+          : null,
+        azure_create_if_missing: repoBindingForm.deployProvider === 'azure_container_apps'
+          ? repoBindingForm.azureCreateIfMissing
+          : true,
       });
 
       if (savedBinding) {
@@ -426,7 +486,13 @@ export default function EnvironmentsManager() {
       }
 
       setShowRepoBindingModal(null);
-      showNotification('success', 'Vínculo guardado', 'Repositorio, branch y sitio Netlify guardados para este ambiente.');
+      showNotification(
+        'success',
+        'Vínculo guardado',
+        repoBindingForm.deployProvider === 'azure_container_apps'
+          ? 'Repositorio, branch y configuración de Azure guardados para este ambiente.'
+          : 'Repositorio, branch y sitio Netlify guardados para este ambiente.'
+      );
     } catch (error) {
       console.error('Error saving environment repo binding:', error);
       showNotification('error', 'Error', 'No se pudo guardar la configuración del repositorio.');
@@ -436,7 +502,7 @@ export default function EnvironmentsManager() {
   };
 
   const handleDisconnectEnvironmentDeploy = async (env: Environment) => {
-    if (!confirm(`¿Desconectar Git/Netlify del ambiente "${env.name}"?`)) {
+    if (!confirm(`¿Desconectar el destino de publicación del ambiente "${env.name}"?`)) {
       return;
     }
 
@@ -451,9 +517,14 @@ export default function EnvironmentsManager() {
       const envMetadata = env.metadata || {};
       const {
         github_repo,
+        deployment_provider,
         netlify_site_id,
         netlify_site_name,
         netlify_site_url,
+        azure_container_app_name,
+        azure_resource_group,
+        azure_location,
+        azure_containerapps_environment,
         ...cleanMetadata
       } = envMetadata as any;
 
@@ -462,7 +533,7 @@ export default function EnvironmentsManager() {
       });
 
       await loadEnvironments(true);
-      showNotification('success', 'Desconectado', 'Se eliminó la asociación Git/Netlify para este ambiente.');
+      showNotification('success', 'Desconectado', 'Se eliminó la asociación de publicación para este ambiente.');
     } catch (error) {
       console.error('Error disconnecting environment deploy binding:', error);
       showNotification('error', 'Error', 'No se pudo desconectar la configuración del ambiente.');
@@ -646,6 +717,236 @@ export default function EnvironmentsManager() {
     }
   };
 
+  const handleDeployToAzureContainerApps = async ({
+    binding,
+    repo,
+    files,
+    deployBranch,
+    environment,
+    environmentId,
+    environmentName,
+    applicationId,
+    apiKey,
+    selectedApplication,
+    deploymentLogId,
+  }: {
+    binding: EnvironmentDeployBinding | null;
+    repo: GitRepository;
+    files: Record<string, string>;
+    deployBranch: string;
+    environment: Environment;
+    environmentId: string;
+    environmentName: string;
+    applicationId: string;
+    apiKey: string;
+    selectedApplication: any;
+    deploymentLogId: string | null;
+  }) => {
+    addLog('☁️ Paso 13: Preparando deploy a Azure Container Apps...', 'info');
+
+    const azureConfig = await connectorsService.getAzureContainerAppsConfig();
+    if (!azureConfig) {
+      throw new Error('Azure Container Apps no está configurado en Conectores.');
+    }
+
+    const containerAppName = binding?.azure_container_app_name
+      || buildDefaultContainerAppName(selectedApplication.name || selectedApplication.domain || 'auth-forms', environmentName);
+    const resourceGroup = binding?.azure_resource_group || azureConfig.resource_group;
+    const location = binding?.azure_location || azureConfig.location;
+    const containerAppsEnvironment = binding?.azure_containerapps_environment || azureConfig.containerapps_environment || `${containerAppName}-env`;
+    const createIfMissing = binding?.azure_create_if_missing ?? true;
+
+    addLog(`   Proveedor: Azure Container Apps`, 'success');
+    addLog(`   Container App: ${containerAppName}`, 'info');
+    addLog(`   Resource Group: ${resourceGroup}`, 'info');
+    addLog(`   Región: ${location}`, 'info');
+    addLog(`   ACA Environment: ${containerAppsEnvironment}`, 'info');
+    addLog(`   Branch: ${deployBranch}`, 'info');
+    addLog('', 'info');
+
+    const deployFiles = applyAzureContainerAppsDeploymentFiles(files, {
+      environmentName,
+      branch: deployBranch,
+      applicationDisplayName: selectedApplication.name || 'AuthSystem',
+      containerAppName,
+      resourceGroup,
+      location,
+      containerAppsEnvironment,
+      createIfMissing,
+    });
+
+    addLog(`📦 Archivos finales con overlay Azure: ${Object.keys(deployFiles).length}`, 'success');
+    addLog('🔐 Sincronizando secreto AZURE_CREDENTIALS en GitHub Actions...', 'info');
+
+    const secretsResult = await githubService.syncRepositorySecrets(repo.repo_full_name, {
+      AZURE_CREDENTIALS: buildAzureCredentialsSecretPayload(azureConfig),
+    });
+
+    if (!secretsResult.success) {
+      throw new Error(secretsResult.error || 'No se pudieron sincronizar los secretos de GitHub Actions.');
+    }
+
+    addLog('✅ Secreto AZURE_CREDENTIALS sincronizado', 'success');
+    addLog('📤 Subiendo workflow y código al repositorio...', 'info');
+
+    const commitResult = await githubService.commitAndPush(
+      repo.repo_full_name,
+      deployFiles,
+      getCommitMessage(applicationId, environmentName),
+      deployBranch
+    );
+
+    if (!commitResult.success) {
+      throw new Error(commitResult.error || 'No se pudo subir el deployment a GitHub.');
+    }
+
+    addLog(`✅ Commit publicado en ${repo.repo_full_name}`, 'success');
+    addLog(`   Commit: ${commitResult.sha?.substring(0, 7) || 'n/a'}`, 'info');
+    addLog('🤖 GitHub Actions creará o actualizará la Container App automáticamente.', 'info');
+    addLog('', 'info');
+
+    const baseUrl = (environment.auth_url || '').replace(/\/+$/, '');
+    const fallbackCallbackUrl = environment.callback_url || `https://${selectedApplication.domain}/callback`;
+    const redirectUri = encodeURIComponent(fallbackCallbackUrl);
+    const loginUrl = `${baseUrl}/login?app_id=${applicationId}&redirect_uri=${redirectUri}&api_key=${apiKey}`;
+    const registerUrl = `${baseUrl}/register?app_id=${applicationId}&redirect_uri=${redirectUri}&api_key=${apiKey}`;
+    const resetUrl = `${baseUrl}/reset-password?app_id=${applicationId}&redirect_uri=${redirectUri}&api_key=${apiKey}`;
+    const registerTenantUrl = selectedApplication?.auth_mode === 'tenant'
+      ? `${baseUrl}/register-tenant?app_id=${applicationId}&redirect_uri=${redirectUri}&api_key=${apiKey}`
+      : null;
+
+    await applicationService.updateEnvironment(environmentId, {
+      auth_url: environment.auth_url,
+      callback_url: fallbackCallbackUrl,
+      metadata: {
+        ...(environment.metadata || {}),
+        github_repo: repo.repo_full_name,
+        deployment_provider: 'azure_container_apps',
+        azure_container_app_name: containerAppName,
+        azure_resource_group: resourceGroup,
+        azure_location: location,
+        azure_containerapps_environment: containerAppsEnvironment,
+        last_commit: commitResult.sha,
+        last_deploy: new Date().toISOString(),
+        deployment_status: 'deployed',
+        api_key: apiKey,
+      }
+    });
+
+    const updatedBinding = await environmentDeployBindingService.upsertBinding({
+      application_id: selectedApp,
+      environment_id: environmentId,
+      deploy_provider: 'azure_container_apps',
+      git_repository_id: repo.id,
+      repo_full_name: repo.repo_full_name,
+      branch: deployBranch,
+      azure_container_app_name: containerAppName,
+      azure_resource_group: resourceGroup,
+      azure_location: location,
+      azure_containerapps_environment: containerAppsEnvironment,
+      azure_create_if_missing: createIfMissing,
+    });
+
+    if (updatedBinding) {
+      setEnvironmentBindingsMap(prev => ({
+        ...prev,
+        [environmentId]: updatedBinding,
+      }));
+    }
+
+    try {
+      const { data: currentApp, error: fetchError } = await supabase
+        .from('applications')
+        .select('metadata')
+        .eq('id', selectedApp)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      const authUrls: Record<string, any> = {
+        base_url: baseUrl,
+        callback_url: fallbackCallbackUrl,
+        login_url: loginUrl,
+        register_url: registerUrl,
+        reset_password_url: resetUrl,
+        deployed_at: new Date().toISOString(),
+        deployment_provider: 'azure_container_apps',
+        azure_container_app_name: containerAppName,
+      };
+
+      if (registerTenantUrl) {
+        authUrls.register_tenant_url = registerTenantUrl;
+      }
+
+      const updatedMetadata = {
+        ...(currentApp?.metadata || {}),
+        environment_urls: {
+          ...(currentApp?.metadata?.environment_urls || {}),
+          [environmentName.toLowerCase()]: authUrls,
+        }
+      };
+
+      const { error: updateError } = await supabase
+        .from('applications')
+        .update({
+          metadata: updatedMetadata,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', selectedApp);
+
+      if (updateError) throw updateError;
+
+      addLog('✅ URLs públicas actualizadas para Azure', 'success');
+    } catch (error: any) {
+      addLog(`⚠️ No se pudieron actualizar las URLs publicas: ${error.message}`, 'warning');
+    }
+
+    if (deploymentLogId) {
+      await supabase
+        .from('deployment_logs')
+        .update({
+          status: 'success',
+          completed_at: new Date().toISOString(),
+          logs: logsRef.current.map(log => ({
+            timestamp: log.timestamp,
+            level: log.level,
+            message: log.message
+          })),
+          metadata: {
+            environment_name: environmentName,
+            deployment_provider: 'azure_container_apps',
+            github_repo: repo.repo_full_name,
+            azure_container_app_name: containerAppName,
+            azure_resource_group: resourceGroup,
+            azure_location: location,
+            workflow_branch: deployBranch,
+            deployed_urls: {
+              login_url: loginUrl,
+              register_url: registerUrl,
+              reset_password_url: resetUrl,
+              ...(registerTenantUrl ? { register_tenant_url: registerTenantUrl } : {}),
+            }
+          }
+        })
+        .eq('id', deploymentLogId);
+    }
+
+    addLog('🎉 Workflow de Azure preparado y publicado.', 'success');
+    addLog(`🌐 Login: ${loginUrl}`, 'info');
+    if (registerTenantUrl) {
+      addLog(`🌐 Tenant: ${registerTenantUrl}`, 'info');
+    }
+    addLog('ℹ️ El despliegue efectivo ocurre en GitHub Actions sobre la branch vinculada.', 'info');
+
+    await loadApplications();
+    await loadEnvironments(true);
+    showNotification(
+      'success',
+      'Deploy enviado a Azure',
+      `Se actualizó el repositorio ${repo.repo_full_name}. GitHub Actions continuará el despliegue de ${containerAppName}.`
+    );
+  };
+
   const handleDeploy = async (environmentId: string, environmentName: string) => {
     let deploymentLogId: string | null = null;
 
@@ -761,7 +1062,7 @@ export default function EnvironmentsManager() {
       // Get base URL from environment (priority: environment.auth_url > fallback)
       // Always use the auth_url from the environment (which can be edited by user)
       let baseUrl = environment.auth_url || `https://auth-${environmentName}.${selectedApplication.domain}`;
-      const callbackUrl = environment.callback_url || `https://${selectedApplication.domain}/auth/callback`;
+      const callbackUrl = environment.callback_url || `https://${selectedApplication.domain}/callback`;
 
       // Ensure baseUrl doesn't end with slash to avoid double slashes
       baseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
@@ -895,14 +1196,26 @@ export default function EnvironmentsManager() {
       // =================================================================
       addLog('🔗 Paso 10: Verificando conectores...', 'info');
 
+      const environmentBinding = environmentBindingsMap[environmentId] || null;
+      const deployProvider = environmentBinding?.deploy_provider || 'netlify';
       const githubConfigured = await connectorsService.isGitHubConfigured();
       const githubConnection = await githubService.getActiveConnection();
-      const netlifyConfigured = await connectorsService.isNetlifyConfigured();
+      const netlifyConfigured = deployProvider === 'netlify'
+        ? await connectorsService.isNetlifyConfigured()
+        : false;
+      const azureConfigured = deployProvider === 'azure_container_apps'
+        ? await connectorsService.isAzureContainerAppsConfigured()
+        : false;
 
       if (!githubConfigured || !githubConnection) {
         addLog('', 'info');
         addLog('⚠️  GitHub no está configurado o conectado', 'warning');
-        addLog('📋 Para deployar a Netlify necesitas:', 'info');
+        addLog(
+          deployProvider === 'azure_container_apps'
+            ? '📋 Para deployar a Azure Container Apps necesitas:'
+            : '📋 Para deployar a Netlify necesitas:',
+          'info'
+        );
         addLog('   1. Configurar GitHub en "Conectores" (Client ID y Secret)', 'info');
         addLog('   2. Conectar tu cuenta de GitHub', 'info');
         addLog('   3. Crear o seleccionar un repositorio', 'info');
@@ -912,7 +1225,7 @@ export default function EnvironmentsManager() {
         return true;
       }
 
-      if (!netlifyConfigured) {
+      if (deployProvider === 'netlify' && !netlifyConfigured) {
         addLog('', 'info');
         addLog('⚠️  Netlify no está configurado', 'warning');
         addLog('📋 Configura tu Access Token de Netlify en "Conectores"', 'info');
@@ -921,8 +1234,22 @@ export default function EnvironmentsManager() {
         return true;
       }
 
+      if (deployProvider === 'azure_container_apps' && !azureConfigured) {
+        addLog('', 'info');
+        addLog('⚠️  Azure Container Apps no está configurado', 'warning');
+        addLog('📋 Configura las credenciales de Azure en "Conectores"', 'info');
+        addLog('', 'info');
+        addLog('✅ Edge Functions están funcionando correctamente', 'success');
+        return true;
+      }
+
       addLog('✅ GitHub conectado', 'success');
-      addLog('✅ Netlify configurado', 'success');
+      addLog(
+        deployProvider === 'azure_container_apps'
+          ? '✅ Azure Container Apps configurado'
+          : '✅ Netlify configurado',
+        'success'
+      );
       addLog('', 'info');
 
       // =================================================================
@@ -1000,8 +1327,12 @@ export default function EnvironmentsManager() {
       // =================================================================
       // PASO 13: SELECCIONAR SITIO DE NETLIFY
       // =================================================================
-      addLog('🌐 Paso 13: Preparando deploy a Netlify...', 'info');
-      const environmentBinding = environmentBindingsMap[environmentId];
+      addLog(
+        deployProvider === 'azure_container_apps'
+          ? '🌐 Paso 13: Preparando deploy a Azure Container Apps...'
+          : '🌐 Paso 13: Preparando deploy a Netlify...',
+        'info'
+      );
 
       // Guardar datos para continuar (manual o automático)
       const deployData = {
@@ -1018,6 +1349,26 @@ export default function EnvironmentsManager() {
         apiKey
       };
       setPendingDeployData(deployData);
+
+      if (deployProvider === 'azure_container_apps') {
+        await handleDeployToAzureContainerApps({
+          binding: environmentBinding,
+          repo,
+          files,
+          deployBranch,
+          environment: {
+            ...environment,
+            metadata: currentEnvironmentMetadata
+          },
+          environmentId,
+          environmentName,
+          applicationId,
+          apiKey,
+          selectedApplication,
+          deploymentLogId,
+        });
+        return true;
+      }
 
       // Si ya hay sitio vinculado al ambiente, reutilizarlo automáticamente
       if (environmentBinding?.netlify_site_id) {
@@ -1554,7 +1905,7 @@ export default function EnvironmentsManager() {
         }
 
         // Preparar las URLs de autenticación
-        const callbackUrl = environment.callback_url || `${baseUrl}/auth/callback`;
+        const callbackUrl = environment.callback_url || `https://${selectedApplication.domain}/callback`;
         const redirectUri = encodeURIComponent(callbackUrl);
         const urlParams = `?app_id=${app.application_id}&redirect_uri=${redirectUri}&api_key=${apiKey}`;
 
@@ -1890,7 +2241,7 @@ export default function EnvironmentsManager() {
 
           await applicationService.updateEnvironment(pendingDeployData.environmentId, {
             auth_url: siteUrl, // ✅ Actualizar auth_url con el sitio de Netlify
-            callback_url: pendingDeployData.environment.callback_url || `https://${pendingDeployData.environment.name}/auth/callback`,
+            callback_url: pendingDeployData.environment.callback_url || `https://${selectedApplication.domain}/callback`,
             metadata: {
               ...pendingDeployData.environment.metadata,
               github_repo: pendingDeployData.repo.repo_full_name,
@@ -1939,7 +2290,7 @@ export default function EnvironmentsManager() {
           addLog('', 'info');
           addLog('📋 Los formularios estarán disponibles en:', 'info');
 
-          const redirectUri = encodeURIComponent(pendingDeployData.environment.callback_url || `https://${pendingDeployData.environment.name}/auth/callback`);
+          const redirectUri = encodeURIComponent(pendingDeployData.environment.callback_url || `https://${selectedApplication.domain}/callback`);
 
           const loginUrl = `${siteUrl}/login?app_id=${pendingDeployData.applicationId}&redirect_uri=${redirectUri}&api_key=${pendingDeployData.apiKey}`;
           const registerUrl = `${siteUrl}/register?app_id=${pendingDeployData.applicationId}&redirect_uri=${redirectUri}&api_key=${pendingDeployData.apiKey}`;
@@ -2319,6 +2670,22 @@ export default function EnvironmentsManager() {
     }
   };
 
+  const getDeployProvider = (environmentId: string): DeployProvider => {
+    return environmentBindingsMap[environmentId]?.deploy_provider || 'netlify';
+  };
+
+  const getDeployProviderLabel = (provider: DeployProvider) => {
+    return provider === 'azure_container_apps' ? 'Azure Container Apps' : 'Netlify';
+  };
+
+  const getBindingDestinationLabel = (binding?: EnvironmentDeployBinding | null) => {
+    if (!binding) return '—';
+    if (binding.deploy_provider === 'azure_container_apps') {
+      return binding.azure_container_app_name || 'Crear durante deploy';
+    }
+    return binding.netlify_site_name || 'Seleccionar durante deploy';
+  };
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     addLog(`📋 Copied to clipboard: ${text}`, 'success');
@@ -2384,20 +2751,17 @@ export default function EnvironmentsManager() {
         </div>
         <div className="flex items-center space-x-3">
           <button
-            onClick={async () => {
-              const isConfigured = await netlifyService.isConfigured();
-              if (!isConfigured) {
-                setShowNetlifyConfig(true);
-              } else {
-                addLog('✅ Netlify ya está configurado', 'success');
-                addLog('💡 Puedes hacer deploy directamente', 'info');
-                setShowConsole(true);
-              }
+            onClick={() => {
+              showNotification(
+                'info',
+                'Conectores de publicación',
+                'Configura GitHub, Netlify y Azure Container Apps desde el menú Conectores. Desde Ambientes solo eliges el proveedor y el destino por ambiente.'
+              );
             }}
             className="bg-purple-100 text-purple-700 px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors hover:bg-purple-200 border border-purple-300"
           >
             <Cloud className="w-5 h-5" />
-            <span>Configurar Netlify</span>
+            <span>Revisar Conectores</span>
           </button>
           <button
             onClick={() => setShowCreateModal(true)}
@@ -2434,7 +2798,7 @@ export default function EnvironmentsManager() {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">Matriz de Bindings de Deploy</h3>
-                <p className="text-sm text-gray-600">Asocia cada ambiente a su repo, branch y sitio Netlify</p>
+                <p className="text-sm text-gray-600">Asocia cada ambiente a su repo, branch y destino de publicación</p>
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-sm text-gray-600">Filtrar:</label>
@@ -2458,7 +2822,8 @@ export default function EnvironmentsManager() {
                     <th className="py-2 pr-4">Ambiente</th>
                     <th className="py-2 pr-4">Repositorio</th>
                     <th className="py-2 pr-4">Branch</th>
-                    <th className="py-2 pr-4">Netlify</th>
+                    <th className="py-2 pr-4">Proveedor</th>
+                    <th className="py-2 pr-4">Destino</th>
                     <th className="py-2 pr-4">Estado</th>
                     <th className="py-2">Acciones</th>
                   </tr>
@@ -2475,7 +2840,8 @@ export default function EnvironmentsManager() {
                         <td className="py-3 pr-4 font-medium text-gray-900 capitalize">{env.name}</td>
                         <td className="py-3 pr-4 text-gray-700">{binding?.repo_full_name || '—'}</td>
                         <td className="py-3 pr-4 text-gray-700">{binding?.branch || '—'}</td>
-                        <td className="py-3 pr-4 text-gray-700">{binding?.netlify_site_name || '—'}</td>
+                        <td className="py-3 pr-4 text-gray-700">{binding ? getDeployProviderLabel(binding.deploy_provider) : '—'}</td>
+                        <td className="py-3 pr-4 text-gray-700">{getBindingDestinationLabel(binding)}</td>
                         <td className="py-3 pr-4">
                           {isConfigured ? (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-green-100 text-green-700 border border-green-200">
@@ -2537,13 +2903,13 @@ export default function EnvironmentsManager() {
                           <h3 className="font-semibold text-gray-900 capitalize">{env.name}</h3>
                           <p className="text-sm text-gray-600">{env.domain}</p>
                           <div className="mt-1">
-                            {environmentBindingsMap[env.id]?.netlify_site_id ? (
+                            {environmentBindingsMap[env.id]?.repo_full_name ? (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-green-100 text-green-700 border border-green-200">
-                                Auto Netlify: activado
+                                Auto {getDeployProviderLabel(getDeployProvider(env.id))}: activado
                               </span>
                             ) : (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600 border border-gray-200">
-                                Auto Netlify: desactivado
+                                Publicación automática: desactivada
                               </span>
                             )}
                           </div>
@@ -2735,11 +3101,9 @@ export default function EnvironmentsManager() {
                             Repo deploy: {environmentBindingsMap[env.id].repo_full_name}
                             {environmentBindingsMap[env.id].branch ? ` (${environmentBindingsMap[env.id].branch})` : ''}
                           </p>
-                          {environmentBindingsMap[env.id]?.netlify_site_name && (
-                            <p className="text-xs text-blue-600 truncate">
-                              Netlify: {environmentBindingsMap[env.id].netlify_site_name}
-                            </p>
-                          )}
+                          <p className="text-xs text-blue-600 truncate">
+                            {getDeployProviderLabel(getDeployProvider(env.id))}: {getBindingDestinationLabel(environmentBindingsMap[env.id])}
+                          </p>
                         </div>
                       )}
                     </div>
@@ -2837,7 +3201,7 @@ export default function EnvironmentsManager() {
                                 className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center space-x-2"
                               >
                                 <Unlink className="w-4 h-4" />
-                                <span>Desconectar Git/Netlify</span>
+                                <span>Desconectar publicación</span>
                               </button>
                               <hr className="my-1" />
                               <button
@@ -3446,7 +3810,7 @@ try {
 
         return (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <div className="bg-white rounded-lg p-6 w-full max-w-xl">
               <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
                 <Github className="w-5 h-5" />
                 <span>Configurar Repo Deploy - {environment.name}</span>
@@ -3465,11 +3829,11 @@ try {
                         ? selectedOption.savedRepo?.default_branch || 'main'
                         : selectedOption?.githubRepo?.default_branch || 'main';
 
-                      setRepoBindingForm({
+                      setRepoBindingForm((prev) => ({
+                        ...prev,
                         repoKey: e.target.value,
                         branch: branch || 'main',
-                        netlifySiteId: repoBindingForm.netlifySiteId
-                      });
+                      }));
                     }}
                     disabled={loadingRepoOptions}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
@@ -3488,6 +3852,23 @@ try {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Proveedor de publicación
+                  </label>
+                  <select
+                    value={repoBindingForm.deployProvider}
+                    onChange={(e) => setRepoBindingForm((prev) => ({
+                      ...prev,
+                      deployProvider: e.target.value as DeployProvider,
+                    }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="netlify">Netlify</option>
+                    <option value="azure_container_apps">Azure Container Apps</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
                     Branch
                   </label>
                   <input
@@ -3499,31 +3880,102 @@ try {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Sitio Netlify (opcional)
-                  </label>
-                  <select
-                    value={repoBindingForm.netlifySiteId}
-                    onChange={(e) => setRepoBindingForm(prev => ({ ...prev, netlifySiteId: e.target.value }))}
-                    disabled={loadingRepoBindingNetlifySites}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
-                  >
-                    <option value="">Seleccionar durante deploy</option>
-                    {repoBindingNetlifySites.map((site) => (
-                      <option key={site.id} value={site.id}>
-                        {site.name}
-                      </option>
-                    ))}
-                  </select>
-                  {repoBindingNetlifySites.length === 0 && !loadingRepoBindingNetlifySites && (
-                    <p className="text-xs text-gray-500 mt-1">No hay sitios cargados o Netlify no está configurado.</p>
-                  )}
-                </div>
+                {repoBindingForm.deployProvider === 'netlify' ? (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Sitio Netlify (opcional)
+                      </label>
+                      <select
+                        value={repoBindingForm.netlifySiteId}
+                        onChange={(e) => setRepoBindingForm(prev => ({ ...prev, netlifySiteId: e.target.value }))}
+                        disabled={loadingRepoBindingNetlifySites}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
+                      >
+                        <option value="">Seleccionar durante deploy</option>
+                        {repoBindingNetlifySites.map((site) => (
+                          <option key={site.id} value={site.id}>
+                            {site.name}
+                          </option>
+                        ))}
+                      </select>
+                      {repoBindingNetlifySites.length === 0 && !loadingRepoBindingNetlifySites && (
+                        <p className="text-xs text-gray-500 mt-1">No hay sitios cargados o Netlify no está configurado.</p>
+                      )}
+                    </div>
 
-                <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded p-2">
-                  Este vínculo reutiliza repo/branch y, si lo eliges, también el sitio Netlify en próximos deploys.
-                </div>
+                    <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded p-2">
+                      Este vínculo reutiliza repo, branch y, si lo eliges, también el sitio Netlify en próximos deploys.
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="sm:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Nombre de Container App
+                        </label>
+                        <input
+                          type="text"
+                          value={repoBindingForm.azureContainerAppName}
+                          onChange={(e) => setRepoBindingForm(prev => ({ ...prev, azureContainerAppName: e.target.value }))}
+                          placeholder="auth-sendcraft-production"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Resource Group
+                        </label>
+                        <input
+                          type="text"
+                          value={repoBindingForm.azureResourceGroup}
+                          onChange={(e) => setRepoBindingForm(prev => ({ ...prev, azureResourceGroup: e.target.value }))}
+                          placeholder="rg-authsystem-prod"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Región
+                        </label>
+                        <input
+                          type="text"
+                          value={repoBindingForm.azureLocation}
+                          onChange={(e) => setRepoBindingForm(prev => ({ ...prev, azureLocation: e.target.value }))}
+                          placeholder="eastus"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Container Apps Environment
+                        </label>
+                        <input
+                          type="text"
+                          value={repoBindingForm.azureContainerAppsEnvironment}
+                          onChange={(e) => setRepoBindingForm(prev => ({ ...prev, azureContainerAppsEnvironment: e.target.value }))}
+                          placeholder="authsystem-shared-env"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                      </div>
+                    </div>
+
+                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={repoBindingForm.azureCreateIfMissing}
+                        onChange={(e) => setRepoBindingForm(prev => ({ ...prev, azureCreateIfMissing: e.target.checked }))}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      Crear automáticamente la Container App y el Container Apps Environment si no existen
+                    </label>
+
+                    <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded p-2">
+                      Este vínculo reutiliza repo, branch y la configuración de Azure para que cada push a la branch despliegue los formularios en la Container App.
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="flex items-center space-x-3 pt-5">
@@ -3597,7 +4049,7 @@ try {
                     value={editFormData.callback_url}
                     onChange={(e) => setEditFormData(prev => ({ ...prev, callback_url: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="https://miapp.com/auth/callback"
+                    placeholder="https://miapp.com/callback"
                   />
                 </div>
 
@@ -3720,7 +4172,7 @@ try {
                   value={newEnvironment.callback_url}
                   onChange={(e) => setNewEnvironment(prev => ({ ...prev, callback_url: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="https://miapp.com/auth/callback"
+                  placeholder="https://miapp.com/callback"
                 />
               </div>
 

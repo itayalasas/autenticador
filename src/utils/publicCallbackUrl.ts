@@ -13,6 +13,17 @@ export function normalizePublicUrl(raw: string | null | undefined): string {
   return withScheme.replace(/\/$/, '');
 }
 
+function normalizePublicOrigin(raw: string | null | undefined): string {
+  const normalized = normalizePublicUrl(raw);
+  if (!normalized) return '';
+
+  try {
+    return new URL(normalized).origin.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
 export function buildPublicRedirectUrl(
   baseUrl: string,
   params: Record<string, string | number | boolean | null | undefined>,
@@ -54,6 +65,42 @@ function getEnvironmentEntries(environmentUrls: Record<string, any> | null | und
     .filter((entry) => !!entry.callbackUrl);
 }
 
+function getEnvironmentOrigins(environmentUrls: Record<string, any> | null | undefined): string[] {
+  if (!environmentUrls || typeof environmentUrls !== 'object') {
+    return [];
+  }
+
+  const origins = new Set<string>();
+
+  Object.values(environmentUrls).forEach((envConfig: any) => {
+    const callbackOrigin = normalizePublicOrigin(envConfig?.callback_url);
+    const baseOrigin = normalizePublicOrigin(envConfig?.base_url);
+    if (callbackOrigin) origins.add(callbackOrigin);
+    if (baseOrigin) origins.add(baseOrigin);
+  });
+
+  return Array.from(origins);
+}
+
+function getAllowedOrigins(allowedOrigins: string[] | string | null | undefined): string[] {
+  if (!allowedOrigins) return [];
+
+  const rawValues = Array.isArray(allowedOrigins)
+    ? allowedOrigins
+    : String(allowedOrigins)
+        .split(/[\n,]/)
+        .map((value) => value.trim())
+        .filter(Boolean);
+
+  return Array.from(
+    new Set(
+      rawValues
+        .map((value) => normalizePublicOrigin(value))
+        .filter(Boolean)
+    )
+  );
+}
+
 export function getCanonicalCallbackUrl(
   environmentUrls: Record<string, any> | null | undefined,
   preferredEnvironment?: string | null,
@@ -76,16 +123,29 @@ export function getTrustedCallbackUrl(
   environmentUrls: Record<string, any> | null | undefined,
   requestedUrl: string | null | undefined,
   preferredEnvironment?: string | null,
+  allowedOrigins?: string[] | string | null,
 ): string | null {
   const normalizedRequested = normalizePublicUrl(requestedUrl);
+  const requestedOrigin = normalizePublicOrigin(requestedUrl);
   const envEntries = getEnvironmentEntries(environmentUrls);
-  if (!envEntries.length) return null;
+  const trustedOrigins = new Set<string>([
+    ...getEnvironmentOrigins(environmentUrls),
+    ...getAllowedOrigins(allowedOrigins)
+  ]);
 
   if (normalizedRequested) {
     const requestedEntry = envEntries.find((entry) => entry.callbackUrl === normalizedRequested);
     if (requestedEntry?.callbackUrl) {
       return requestedEntry.callbackUrl;
     }
+
+    if (requestedOrigin && trustedOrigins.has(requestedOrigin)) {
+      return normalizedRequested;
+    }
+  }
+
+  if (!envEntries.length) {
+    return null;
   }
 
   return getCanonicalCallbackUrl(environmentUrls, preferredEnvironment);
