@@ -56,6 +56,13 @@ Deno.serve(async (req) => {
       ''
     ).trim();
 
+    const checkoutSessionId = String(
+      url.searchParams.get('checkout_session_id') ||
+      url.searchParams.get('checkoutSessionId') ||
+      (body as any).checkout_session_id ||
+      ''
+    ).trim();
+
     const externalReference = String(
       url.searchParams.get('external_reference') ||
       url.searchParams.get('externalReference') ||
@@ -65,7 +72,16 @@ Deno.serve(async (req) => {
 
     let checkoutSession: any = null;
 
-    if (externalReference) {
+    if (checkoutSessionId) {
+      const { data } = await supabase
+        .from('subscription_checkout_sessions')
+        .select('*')
+        .eq('id', checkoutSessionId)
+        .maybeSingle();
+      checkoutSession = data || null;
+    }
+
+    if (!checkoutSession && externalReference) {
       const { data } = await supabase
         .from('subscription_checkout_sessions')
         .select('*')

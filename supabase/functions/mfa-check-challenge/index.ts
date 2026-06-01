@@ -148,8 +148,6 @@ Deno.serve(async (req) => {
       .update({ consumed_at: new Date().toISOString() })
       .eq('id', challenge.id);
 
-    const finalResponse = (challenge as any)?.metadata?.final_response || {};
-
     return new Response(JSON.stringify({
       success: true,
       data: {
@@ -159,7 +157,6 @@ Deno.serve(async (req) => {
         token_type: 'Bearer',
         expires_in: 86400,
         callback_url,
-        ...finalResponse,
       }
     }), {
       status: 200,

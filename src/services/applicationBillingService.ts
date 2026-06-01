@@ -53,6 +53,16 @@ export interface CreateBillingFeatureInput {
   active?: boolean;
 }
 
+export interface CancelManagedSubscriptionInput {
+  application_id: string;
+  api_key: string;
+  subscription_id?: string;
+  provider_subscription_id?: string;
+  tenant_id?: string;
+  app_user_id?: string;
+  cancel_reason?: string;
+}
+
 type RawPlanFeatureRelation = {
   id?: string;
   value?: string | number | boolean | null;
@@ -465,6 +475,22 @@ export const applicationBillingService = {
 
     if (!data?.success) {
       throw new Error(data?.error?.message || 'No se pudo sincronizar el plan con Mercado Pago');
+    }
+
+    return data.data;
+  },
+
+  async cancelManagedSubscription(input: CancelManagedSubscriptionInput) {
+    const { data, error } = await supabase.functions.invoke('subscription-cancel', {
+      body: input,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data?.success) {
+      throw new Error(data?.error?.message || 'No se pudo cancelar la suscripcion');
     }
 
     return data.data;

@@ -420,6 +420,31 @@ app.all('/api/application/subscription/session', async (req, res) => {
   }
 });
 
+app.post('/api/application/subscription/cancel', async (req, res) => {
+  try {
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/subscription-cancel`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.VITE_SUPABASE_ANON_KEY || ''}`,
+      },
+      body: JSON.stringify(req.body || {})
+    });
+
+    const result = await response.json();
+    return res.status(response.status).json(result);
+  } catch (error) {
+    console.error('Subscription cancel proxy error:', error);
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: 'PROXY_ERROR',
+        message: 'No se pudo cancelar la suscripcion'
+      }
+    });
+  }
+});
+
 app.all('/api/application/subscription/return', async (req, res) => {
   try {
     const targetUrl = new URL(`${SUPABASE_URL}/functions/v1/mercadopago-return`);
@@ -1340,7 +1365,26 @@ app.post('/api/auth/verify', validateApiKey, async (req, res) => {
 
     // Verify JWT token
     try {
-      const decoded = jwt.verify(token, JWT_SECRET);
+      const candidateSecrets = [
+        req.application?.jwt_secret,
+        JWT_SECRET,
+      ].filter((value, index, array) => typeof value === 'string' && value.trim() && array.indexOf(value) === index);
+
+      let decoded = null;
+      let lastJwtError = null;
+
+      for (const candidateSecret of candidateSecrets) {
+        try {
+          decoded = jwt.verify(token, candidateSecret);
+          break;
+        } catch (candidateError) {
+          lastJwtError = candidateError;
+        }
+      }
+
+      if (!decoded) {
+        throw lastJwtError || new Error('Invalid token');
+      }
       
       // Verify application matches
       if (decoded.app_id !== application_id) {

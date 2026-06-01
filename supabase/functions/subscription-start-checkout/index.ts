@@ -1,9 +1,13 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
 import { createLocalPlanSubscription, getActivePlans } from '../_shared/application-billing.ts';
-import { buildRedirectUrl } from '../_shared/application-auth-url.ts';
+import { buildRedirectUrl, normalizeUrl, resolveApplicationAuthUrl } from '../_shared/application-auth-url.ts';
 import { resolveTrustedBillingReturnUrl } from '../_shared/billing-return-url.ts';
-import { mercadoPagoRequest, normalizeMercadoPagoConfig } from '../_shared/mercadopago.ts';
+import {
+  buildMercadoPagoPendingSubscriptionPayload,
+  mercadoPagoRequest,
+  normalizeMercadoPagoConfig,
+} from '../_shared/mercadopago.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -16,7 +20,7 @@ interface StartCheckoutRequest {
   application_id: string;
   api_key: string;
   plan_id: string;
-  return_url: string;
+  return_url?: string;
   email?: string;
   tenant_id?: string;
   app_user_id?: string;
@@ -28,6 +32,44 @@ function jsonResponse(body: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
+}
+
+async function resolveMercadoPagoReturnHandlerUrl(params: {
+  request: Request;
+  supabase: any;
+  applicationInternalId: string;
+  apiKeyEnvironment?: string | null;
+  configuredBackUrl?: string | null;
+}) {
+  const { request, supabase, applicationInternalId, apiKeyEnvironment } = params;
+
+  const supabaseUrl = normalizeUrl(Deno.env.get('SUPABASE_URL') || '');
+  if (supabaseUrl) {
+    return `${supabaseUrl}/functions/v1/mercadopago-return`;
+  }
+
+  const resolvedAuth = await resolveApplicationAuthUrl(
+    supabase,
+    applicationInternalId,
+    apiKeyEnvironment || null,
+  );
+
+  const normalizedAuthBase = normalizeUrl(resolvedAuth.baseUrl);
+  if (normalizedAuthBase) {
+    return `${normalizedAuthBase}/api/application/subscription/return`;
+  }
+
+  const requestUrl = new URL(request.url);
+  const requestOrigin = normalizeUrl(requestUrl.origin);
+  if (requestOrigin) {
+    if (/supabase\.co$/i.test(requestUrl.hostname)) {
+      return `${requestOrigin}/functions/v1/mercadopago-return`;
+    }
+
+    return `${requestOrigin}/api/application/subscription/return`;
+  }
+
+  return '';
 }
 
 Deno.serve(async (req) => {
@@ -60,12 +102,12 @@ Deno.serve(async (req) => {
     const tenantId = String(body.tenant_id || '').trim() || null;
     const appUserId = String(body.app_user_id || '').trim() || null;
 
-    if (!applicationId || !apiKey || !planId || !returnUrl) {
+    if (!applicationId || !apiKey || !planId) {
       return jsonResponse({
         success: false,
         error: {
           code: 'MISSING_FIELDS',
-          message: 'application_id, api_key, plan_id and return_url are required',
+          message: 'application_id, api_key y plan_id son requeridos',
         },
       }, 400);
     }
@@ -88,7 +130,7 @@ Deno.serve(async (req) => {
 
     const { data: apiKeyData } = await supabase
       .from('api_keys')
-      .select('application_id, is_active')
+      .select('application_id, is_active, environment')
       .eq('key_hash', apiKey)
       .eq('is_active', true)
       .maybeSingle();
@@ -113,7 +155,9 @@ Deno.serve(async (req) => {
       }, 403);
     }
 
-    const trustedReturnUrl = await resolveTrustedBillingReturnUrl(supabase, application, returnUrl);
+    const billingConfig = normalizeMercadoPagoConfig(application.billing_config || {});
+    const requestedReturnUrl = returnUrl || billingConfig.backUrl || '';
+    const trustedReturnUrl = await resolveTrustedBillingReturnUrl(supabase, application, requestedReturnUrl);
     if (!trustedReturnUrl) {
       return jsonResponse({
         success: false,
@@ -124,7 +168,6 @@ Deno.serve(async (req) => {
       }, 422);
     }
 
-    const billingConfig = normalizeMercadoPagoConfig(application.billing_config || {});
     if (!billingConfig.enabled) {
       return jsonResponse({
         success: false,
@@ -149,8 +192,7 @@ Deno.serve(async (req) => {
     }
 
     const price = Number(plan.price || 0);
-    const trialDays = Number(plan.trial_days || 0);
-    const canProvisionWithoutCheckout = price === 0 || trialDays > 0;
+    const canProvisionWithoutCheckout = price === 0;
 
     if (!canProvisionWithoutCheckout) {
       if (!billingConfig.accessToken) {
@@ -163,25 +205,24 @@ Deno.serve(async (req) => {
         }, 422);
       }
 
-      if (!billingConfig.backUrl) {
+      const resolvedProviderBackUrl = await resolveMercadoPagoReturnHandlerUrl({
+        request: req,
+        supabase,
+        applicationInternalId: application.id,
+        apiKeyEnvironment: apiKeyData.environment || null,
+      });
+
+      if (!resolvedProviderBackUrl) {
         return jsonResponse({
           success: false,
           error: {
             code: 'MERCADOPAGO_BACK_URL_MISSING',
-            message: 'Debes configurar la URL de retorno de Mercado Pago en Planes y Suscripciones',
+            message: 'No pudimos resolver automaticamente la URL de retorno de Mercado Pago para este ambiente',
           },
         }, 422);
       }
 
-      if (!plan.provider_plan_id) {
-        return jsonResponse({
-          success: false,
-          error: {
-            code: 'PLAN_NOT_SYNCED',
-            message: 'El plan aun no esta sincronizado con Mercado Pago',
-          },
-        }, 422);
-      }
+      billingConfig.backUrl = resolvedProviderBackUrl;
     }
 
     const sessionId = crypto.randomUUID();
@@ -265,19 +306,21 @@ Deno.serve(async (req) => {
       });
     }
 
+    const providerBackUrl = billingConfig.backUrl;
+
     const providerResponse = await mercadoPagoRequest(
       billingConfig,
       'POST',
       '/preapproval',
       {
-        body: {
-          preapproval_plan_id: plan.provider_plan_id,
+        body: buildMercadoPagoPendingSubscriptionPayload(plan, {
+          backUrl: providerBackUrl,
+          externalReference,
+          payerEmail,
           reason: plan.name,
-          external_reference: externalReference,
-          payer_email: payerEmail || undefined,
-          back_url: billingConfig.backUrl,
+          includeFreeTrial: false,
           status: 'pending',
-        },
+        }),
       },
     );
 
@@ -290,6 +333,11 @@ Deno.serve(async (req) => {
         provider_status: providerResponse?.status || 'pending',
         provider_metadata: providerResponse || {},
         status: 'checkout_created',
+        metadata: {
+          ...sessionMetadata,
+          checkout_mode: 'mercadopago_pending_payment',
+          provider_back_url: providerBackUrl,
+        },
       })
       .eq('id', sessionId);
 

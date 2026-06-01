@@ -4,6 +4,9 @@ import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 import bcrypt from "npm:bcryptjs@2.4.3";
 import { buildRedirectUrl, normalizeUrl, resolveApplicationAuthUrl, resolveTrustedApplicationCallbackUrl } from '../_shared/application-auth-url.ts';
 import { ensureSelectedPlanSubscription } from '../_shared/application-billing.ts';
+import { buildEnvironmentScopedMetadata, normalizeEnvironmentName } from '../_shared/environment-access.ts';
+import { resolveRoleAccess } from '../_shared/role-access.ts';
+import { issueAuthTokens, resolveApplicationJwtSecret } from '../_shared/auth-jwt.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -870,6 +873,9 @@ Deno.serve(async (req) => {
       }
     }
 
+    const registrationEnvironment = normalizeEnvironmentName((apiKeyData as any).environment || null);
+    const scopedUserMetadata = buildEnvironmentScopedMetadata(metadata || {}, registrationEnvironment);
+
     const { data: newUser, error: createError } = await supabase
       .from('app_users')
       .insert({
@@ -878,7 +884,7 @@ Deno.serve(async (req) => {
         name,
         password_hash: passwordHash,
         status: userStatus,
-        metadata: metadata || {},
+        metadata: scopedUserMetadata,
         ...(tenantId ? { tenant_id: tenantId } : {})
       })
       .select()
@@ -1039,6 +1045,8 @@ Deno.serve(async (req) => {
           tenantId,
           appUserId: newUser.id,
           payerEmail: email,
+          context: 'initial_registration',
+          source: 'user_registration_trial',
         });
 
         console.log('internal billing provisioning result:', {
@@ -1111,7 +1119,9 @@ Deno.serve(async (req) => {
           registration_method: 'email_password',
           application_name: application.name,
           user_status: userStatus,
-          requires_verification: requireEmailVerification
+          requires_verification: requireEmailVerification,
+          environment: registrationEnvironment,
+          allowed_environments: scopedUserMetadata?.environment_access?.allowed_environments || []
         }
       });
       if (logError) console.error('Error logging registration:', logError);
@@ -1216,7 +1226,8 @@ Deno.serve(async (req) => {
           message: 'Usuario registrado exitosamente. Por favor verifica tu email antes de continuar.',
           user_id: newUser.id,
           email_verification_required: true,
-          next_step: 'verify_email'
+          next_step: 'verify_email',
+          environment: registrationEnvironment
         }
       };
       
@@ -1245,7 +1256,10 @@ Deno.serve(async (req) => {
 
     // Get user role for token generation
     let roles = ['user'];
-    let permissions = ['read'];
+    let permissions: any = ['read'];
+    let roleName = 'user';
+    let rolePermissions: Record<string, string[]> = {};
+    let rolePermissionsHierarchy: Record<string, any> = {};
 
     if (newUser.role_id && roleToAssign) {
       roles = [roleToAssign.name];
@@ -1264,26 +1278,40 @@ Deno.serve(async (req) => {
       }
     }
 
-    const now = Math.floor(Date.now() / 1000);
+    if (newUser.role_id) {
+      const resolvedRoleAccess = await resolveRoleAccess(supabase, newUser.role_id);
+      roleName = resolvedRoleAccess.roleName || roles[0] || 'user';
+      rolePermissions = resolvedRoleAccess.rolePermissions;
+      rolePermissionsHierarchy = resolvedRoleAccess.rolePermissionsHierarchy;
+      roles = roleName ? [roleName] : roles;
+    } else if (roles[0]) {
+      roleName = roles[0];
+    }
+
+    const jwtSecret = await resolveApplicationJwtSecret(supabase, application.id, application.jwt_secret);
     const accessTokenPayload: Record<string, any> = {
       sub: newUser.id,
       email: newUser.email,
       name: newUser.name,
       app_id: application_id,
+      app_name: application.name,
+      app_domain: application.domain,
+      role: roleName,
       roles: roles,
-      permissions: permissions,
-      iat: now,
-      exp: now + (24 * 60 * 60),
+      permissions: Object.keys(rolePermissions).length > 0 ? rolePermissions : permissions,
+      permissions_hierarchy: rolePermissionsHierarchy,
       iss: 'AuthSystem',
-      aud: application.domain
+      aud: application.domain,
+      user_metadata: newUser.metadata || {},
+      user_created_at: newUser.created_at,
+      environment: registrationEnvironment,
     };
 
     if (tenantId) {
       accessTokenPayload.tenant_id = tenantId;
     }
 
-    const accessToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify(accessTokenPayload))}.signature`;
-    const refreshToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify({...accessTokenPayload, type: 'refresh', exp: now + (30 * 24 * 60 * 60)}))}.signature`;
+    const { accessToken, refreshToken } = await issueAuthTokens(jwtSecret, accessTokenPayload);
 
     const response = {
       success: true,
@@ -1291,22 +1319,7 @@ Deno.serve(async (req) => {
         access_token: accessToken,
         refresh_token: refreshToken,
         token_type: 'Bearer',
-        expires_in: 86400,
-        user: {
-          id: newUser.id,
-          email: newUser.email,
-          name: newUser.name,
-          roles: roles,
-          permissions: permissions,
-          metadata: newUser.metadata || {},
-          created_at: newUser.created_at,
-          ...(tenantId ? { tenant_id: tenantId } : {})
-        },
-        application: {
-          id: application_id,
-          name: application.name,
-          domain: application.domain
-        }
+        expires_in: 86400
       }
     };
 

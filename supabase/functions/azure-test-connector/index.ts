@@ -12,10 +12,12 @@ interface AzureConnectorPayload {
   tenant_id: string;
   subscription_id: string;
   client_id: string;
-  client_secret: string;
+  client_secret?: string;
   resource_group?: string;
   location?: string;
   containerapps_environment?: string;
+  oidc_audience?: string;
+  auth_mode?: 'service_principal' | 'oidc';
 }
 
 function extractGuid(value: string | undefined | null): string {
@@ -32,6 +34,8 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 function normalizePayload(payload: AzureConnectorPayload): AzureConnectorPayload {
+  const authMode = payload?.auth_mode === 'oidc' ? 'oidc' : 'service_principal';
+
   return {
     tenant_id: extractGuid(payload?.tenant_id),
     subscription_id: extractGuid(payload?.subscription_id),
@@ -40,6 +44,8 @@ function normalizePayload(payload: AzureConnectorPayload): AzureConnectorPayload
     resource_group: String(payload?.resource_group || '').trim() || undefined,
     location: String(payload?.location || '').trim() || undefined,
     containerapps_environment: String(payload?.containerapps_environment || '').trim() || undefined,
+    oidc_audience: String(payload?.oidc_audience || '').trim() || 'api://AzureADTokenExchange',
+    auth_mode: authMode,
   };
 }
 
@@ -80,14 +86,38 @@ Deno.serve(async (req) => {
     const rawPayload = await req.json().catch(() => ({}));
     const payload = normalizePayload(rawPayload as AzureConnectorPayload);
 
-    if (!payload.tenant_id || !payload.subscription_id || !payload.client_id || !payload.client_secret) {
+    const requiresClientSecret = payload.auth_mode !== 'oidc';
+
+    if (
+      !payload.tenant_id ||
+      !payload.subscription_id ||
+      !payload.client_id ||
+      !payload.resource_group ||
+      !payload.location ||
+      (requiresClientSecret && !payload.client_secret)
+    ) {
       return jsonResponse({
         success: false,
         error: {
           code: 'INVALID_INPUT',
-          message: 'tenant_id, subscription_id, client_id y client_secret son requeridos',
+          message: requiresClientSecret
+            ? 'tenant_id, subscription_id, client_id, resource_group, location y client_secret son requeridos'
+            : 'tenant_id, subscription_id, client_id, resource_group y location son requeridos para OIDC',
         },
       }, 400);
+    }
+
+    if (!requiresClientSecret) {
+      return jsonResponse({
+        success: true,
+        message: 'Azure Container Apps configurado para OIDC correctamente',
+        data: {
+          subscription_id: payload.subscription_id,
+          resource_group: payload.resource_group || null,
+          containerapps_environment: payload.containerapps_environment || null,
+          auth_mode: 'oidc',
+        },
+      });
     }
 
     const tokenResponse = await fetch(`https://login.microsoftonline.com/${payload.tenant_id}/oauth2/v2.0/token`, {

@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
 import {
   buildMercadoPagoPlanPayload,
+  MercadoPagoApiError,
   mercadoPagoRequest,
   normalizeMercadoPagoConfig,
 } from '../_shared/mercadopago.ts';
@@ -129,20 +130,67 @@ Deno.serve(async (req) => {
       }, 422);
     }
 
-    const backUrl = billingConfig.backUrl || `https://${Deno.env.get('PUBLIC_APP_DOMAIN') || 'authsystem.local'}`;
+    const backUrl = `${Deno.env.get('SUPABASE_URL') ?? ''}/functions/v1/mercadopago-return`;
     const payload = buildMercadoPagoPlanPayload(plan, backUrl);
 
     const providerPlanId = plan.provider_plan_id || null;
-    const providerResponse = providerPlanId
-      ? await mercadoPagoRequest(billingConfig, 'PUT', `/preapproval_plan/${providerPlanId}`, { body: payload })
-      : await mercadoPagoRequest(billingConfig, 'POST', '/preapproval_plan', { body: payload });
+    let providerResponse: any = null;
+    let recreatedProviderPlan = false;
+
+    if (providerPlanId) {
+      try {
+        providerResponse = await mercadoPagoRequest(
+          billingConfig,
+          'PUT',
+          `/preapproval_plan/${providerPlanId}`,
+          { body: payload },
+        );
+      } catch (error) {
+        if (error instanceof MercadoPagoApiError && error.status === 404) {
+          console.warn(
+            'mercadopago-sync-plan: provider_plan_id no existe con las credenciales actuales, recreando plan',
+            {
+              applicationPlanId: planId,
+              previousProviderPlanId: providerPlanId,
+            },
+          );
+
+          providerResponse = await mercadoPagoRequest(
+            billingConfig,
+            'POST',
+            '/preapproval_plan',
+            { body: payload },
+          );
+          recreatedProviderPlan = true;
+        } else {
+          throw error;
+        }
+      }
+    } else {
+      providerResponse = await mercadoPagoRequest(
+        billingConfig,
+        'POST',
+        '/preapproval_plan',
+        { body: payload },
+      );
+    }
+
+    const nextProviderMetadata = {
+      ...(plan.provider_metadata || {}),
+      ...(providerResponse || {}),
+      authsystem_sync: {
+        recreated_provider_plan: recreatedProviderPlan,
+        previous_provider_plan_id: recreatedProviderPlan ? providerPlanId : null,
+        synced_at: new Date().toISOString(),
+      },
+    };
 
     const updatePayload = {
       provider: 'mercadopago',
       provider_plan_id: providerResponse.id || providerPlanId,
       provider_status: providerResponse.status || 'active',
       provider_init_point: providerResponse.init_point || null,
-      provider_metadata: providerResponse,
+      provider_metadata: nextProviderMetadata,
       updated_at: new Date().toISOString(),
     };
 
@@ -165,6 +213,8 @@ Deno.serve(async (req) => {
           id: providerResponse.id || null,
           status: providerResponse.status || null,
           init_point: providerResponse.init_point || null,
+          recreated_provider_plan: recreatedProviderPlan,
+          previous_provider_plan_id: recreatedProviderPlan ? providerPlanId : null,
         },
       },
     });
@@ -179,4 +229,3 @@ Deno.serve(async (req) => {
     }, 500);
   }
 });
-

@@ -714,16 +714,16 @@ export default function ApplicationPlansManager({
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">URL de retorno de Mercado Pago</label>
+              <label className="mb-2 block text-sm font-medium text-slate-700">URL final de retorno del frontend</label>
               <input
                 type="url"
                 value={config.mercado_pago_back_url || ''}
                 onChange={(event) => handleConfigChange('mercado_pago_back_url', event.target.value)}
-                placeholder="https://auth.tudominio.com/api/application/subscription/return"
+                placeholder="https://tuapp.com/subscription/result"
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               />
               <p className="mt-2 text-xs text-slate-500">
-                Debe apuntar a AuthSystem. Desde ahi sincronizamos la suscripcion y devolvemos al usuario a la web de origen.
+                AuthSystem la usara como retorno final hacia tu app. El back_url real de Mercado Pago se resuelve internamente por la Edge Function.
               </p>
             </div>
 

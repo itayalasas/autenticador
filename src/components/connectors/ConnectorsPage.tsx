@@ -24,6 +24,8 @@ export default function ConnectorsPage() {
     resource_group: '',
     location: '',
     containerapps_environment: '',
+    oidc_audience: 'api://AzureADTokenExchange',
+    auth_mode: 'service_principal',
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
@@ -43,6 +45,9 @@ export default function ConnectorsPage() {
     loadSummary();
     loadConnectedRepos();
   }, []);
+
+  const isAzureOidc = azureConfig.auth_mode === 'oidc';
+  const requiresAzureClientSecret = !isAzureOidc;
 
   const showNotification = (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => {
     setNotification({
@@ -86,6 +91,8 @@ export default function ConnectorsPage() {
           resource_group: azure.resource_group || '',
           location: azure.location || '',
           containerapps_environment: azure.containerapps_environment || '',
+          oidc_audience: azure.oidc_audience || 'api://AzureADTokenExchange',
+          auth_mode: azure.auth_mode || 'service_principal',
         });
       }
     } catch (error) {
@@ -178,6 +185,8 @@ export default function ConnectorsPage() {
         resource_group: azureConfig.resource_group.trim(),
         location: azureConfig.location.trim(),
         containerapps_environment: azureConfig.containerapps_environment?.trim() || '',
+        oidc_audience: azureConfig.oidc_audience?.trim() || 'api://AzureADTokenExchange',
+        auth_mode: azureConfig.auth_mode || 'service_principal',
       });
       await loadSummary();
       showNotification('success', 'Configuracion Guardada', 'La configuracion de Azure Container Apps se ha guardado exitosamente.');
@@ -201,6 +210,8 @@ export default function ConnectorsPage() {
             resource_group: azureConfig.resource_group.trim(),
             location: azureConfig.location.trim(),
             containerapps_environment: azureConfig.containerapps_environment?.trim() || '',
+            oidc_audience: azureConfig.oidc_audience?.trim() || 'api://AzureADTokenExchange',
+            auth_mode: azureConfig.auth_mode || 'service_principal',
           })
         : await connectorsService.testConnection(connector);
       setTestResults(prev => ({ ...prev, [connector]: result }));
@@ -243,6 +254,8 @@ export default function ConnectorsPage() {
           resource_group: '',
           location: '',
           containerapps_environment: '',
+          oidc_audience: 'api://AzureADTokenExchange',
+          auth_mode: 'service_principal',
         });
       }
 
@@ -627,13 +640,48 @@ export default function ConnectorsPage() {
               <span>Credenciales requeridas</span>
             </h4>
             <ol className="text-sm text-sky-800 space-y-1 list-decimal list-inside">
-              <li>Crea o reutiliza un Service Principal con permisos sobre el resource group donde se desplegaran las apps.</li>
-              <li>Guarda Tenant ID, Subscription ID, Client ID y Client Secret.</li>
+              <li>OIDC es la opción recomendada: usa Client ID, Tenant ID y Subscription ID sin guardar client secret en GitHub Actions.</li>
+              <li>Si mantienes Service Principal, guarda también el Client Secret como respaldo legacy.</li>
               <li>Configura el Resource Group y la region base para los ambientes.</li>
               <li>El Container Apps Environment por defecto es opcional: si lo dejas vacio se genera en el primer deploy y luego se reutiliza en los redeploys.</li>
               <li>Un administrador de la suscripcion debe tener registrados una sola vez los proveedores Microsoft.App y Microsoft.OperationalInsights antes del primer deploy.</li>
               <li>El primer deploy crea el Container Apps Environment sin Log Analytics por defecto, para no requerir permisos extra sobre Operational Insights.</li>
             </ol>
+          </div>
+
+          <div className="bg-white border border-sky-200 rounded-lg p-4">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div>
+                <h4 className="font-semibold text-gray-900">Modo de autenticación</h4>
+                <p className="text-sm text-gray-600 mt-1">
+                  OIDC usa las credenciales públicas de Azure en GitHub Actions y evita depender de un client secret.
+                </p>
+              </div>
+              <div className="inline-flex rounded-xl border border-sky-200 overflow-hidden bg-sky-50">
+                <button
+                  type="button"
+                  onClick={() => setAzureConfig({ ...azureConfig, auth_mode: 'oidc' })}
+                  className={`px-4 py-2 text-sm font-medium transition-colors ${
+                    isAzureOidc
+                      ? 'bg-sky-600 text-white'
+                      : 'text-sky-700 hover:bg-sky-100'
+                  }`}
+                >
+                  OIDC (recomendado)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAzureConfig({ ...azureConfig, auth_mode: 'service_principal' })}
+                  className={`px-4 py-2 text-sm font-medium transition-colors border-l border-sky-200 ${
+                    !isAzureOidc
+                      ? 'bg-sky-600 text-white'
+                      : 'text-sky-700 hover:bg-sky-100'
+                  }`}
+                >
+                  Service Principal (legacy)
+                </button>
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -674,7 +722,7 @@ export default function ConnectorsPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Client Secret *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Client Secret (legacy)</label>
               <input
                 type="password"
                 value={azureConfig.client_secret}
@@ -682,6 +730,23 @@ export default function ConnectorsPage() {
                 placeholder="Azure client secret"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                Solo se usa si mantienes Service Principal. En OIDC puedes dejarlo vacío.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">OIDC Audience</label>
+              <input
+                type="text"
+                value={azureConfig.oidc_audience || ''}
+                onChange={(e) => setAzureConfig({ ...azureConfig, oidc_audience: e.target.value })}
+                placeholder="api://AzureADTokenExchange"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Se usa en azure/login cuando activas OIDC.
+              </p>
             </div>
 
             <div>
@@ -729,7 +794,7 @@ export default function ConnectorsPage() {
                 !azureConfig.tenant_id ||
                 !azureConfig.subscription_id ||
                 !azureConfig.client_id ||
-                !azureConfig.client_secret ||
+                (requiresAzureClientSecret && !azureConfig.client_secret) ||
                 !azureConfig.resource_group ||
                 !azureConfig.location
               }

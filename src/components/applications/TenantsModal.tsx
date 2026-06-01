@@ -13,6 +13,7 @@ import {
   Check,
 } from 'lucide-react';
 import { tenantService, Tenant } from '../../services/tenantService';
+import { supabase } from '../../lib/supabase';
 
 interface TenantsModalProps {
   isOpen: boolean;
@@ -35,7 +36,10 @@ type EditForm = {
   name: string;
   slug: string;
   domain: string;
+  metadata: Record<string, any>;
 };
+
+const DEFAULT_ENVIRONMENT_OPTIONS = ['development', 'testing', 'production'] as const;
 
 export default function TenantsModal({
   isOpen,
@@ -53,17 +57,111 @@ export default function TenantsModal({
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'suspended'>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<EditForm>({ name: '', slug: '', domain: '' });
+  const [editForm, setEditForm] = useState<EditForm>({ name: '', slug: '', domain: '', metadata: {} });
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [availableEnvironments, setAvailableEnvironments] = useState<string[]>([]);
 
   useEffect(() => {
-    if (isOpen && applicationId) loadTenants();
+    if (isOpen && applicationId) {
+      loadTenants();
+      loadAvailableEnvironments();
+    }
     if (!isOpen) {
       setEditingId(null);
       setSearchTerm('');
       setStatusFilter('all');
     }
   }, [isOpen, applicationId]);
+
+  const normalizeEnvironmentName = (value: unknown): string | null => {
+    if (typeof value !== 'string') return null;
+    const normalized = value.trim().toLowerCase();
+    return normalized || null;
+  };
+
+  const formatEnvironmentLabel = (environment: string) => {
+    switch (environment) {
+      case 'development':
+        return 'Desarrollo';
+      case 'testing':
+        return 'Testing';
+      case 'production':
+        return 'Producción';
+      default:
+        return environment;
+    }
+  };
+
+  const getAllowedEnvironmentsFromMetadata = (metadata?: Record<string, any>) => {
+    const raw = metadata?.environment_access?.allowed_environments;
+    if (!Array.isArray(raw)) return [];
+    return Array.from(
+      new Set(
+        raw
+          .map((value) => normalizeEnvironmentName(value))
+          .filter((value): value is string => Boolean(value))
+      )
+    );
+  };
+
+  const hasExplicitEnvironmentAccess = (metadata?: Record<string, any>) =>
+    Array.isArray(metadata?.environment_access?.allowed_environments);
+
+  const updateMetadataEnvironmentAccess = (metadata: Record<string, any>, allowedEnvironments: string[]) => {
+    const nextMetadata: Record<string, any> = { ...(metadata || {}) };
+    const currentEnvironmentAccess =
+      nextMetadata.environment_access &&
+      typeof nextMetadata.environment_access === 'object' &&
+      !Array.isArray(nextMetadata.environment_access)
+        ? { ...(nextMetadata.environment_access as Record<string, any>) }
+        : {};
+
+    nextMetadata.environment_access = {
+      ...currentEnvironmentAccess,
+      allowed_environments: Array.from(new Set(allowedEnvironments.map((value) => value.toLowerCase()))),
+    };
+
+    return nextMetadata;
+  };
+
+  const toggleEnvironmentForMetadata = (
+    metadata: Record<string, any>,
+    environment: string,
+    checked: boolean
+  ) => {
+    const current = getAllowedEnvironmentsFromMetadata(metadata);
+    const next = checked
+      ? Array.from(new Set([...current, environment]))
+      : current.filter((value) => value !== environment);
+
+    return updateMetadataEnvironmentAccess(metadata, next);
+  };
+
+  const loadAvailableEnvironments = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('environments')
+        .select('name')
+        .eq('application_id', applicationId)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      const envs = Array.from(
+        new Set([
+          ...(data || [])
+            .map((env) => normalizeEnvironmentName(env.name))
+            .filter((value): value is string => Boolean(value)),
+          ...DEFAULT_ENVIRONMENT_OPTIONS,
+        ])
+      );
+
+      setAvailableEnvironments(envs);
+    } catch (error) {
+      console.error('Error loading tenant environments:', error);
+      setAvailableEnvironments([...DEFAULT_ENVIRONMENT_OPTIONS]);
+    }
+  };
 
   const loadTenants = async () => {
     try {
@@ -80,7 +178,7 @@ export default function TenantsModal({
 
   const startEdit = (tenant: Tenant) => {
     setEditingId(tenant.id);
-    setEditForm({ name: tenant.name, slug: tenant.slug, domain: tenant.domain || '' });
+    setEditForm({ name: tenant.name, slug: tenant.slug, domain: tenant.domain || '', metadata: tenant.metadata || {} });
   };
 
   const cancelEdit = () => {
@@ -102,6 +200,7 @@ export default function TenantsModal({
         name: editForm.name.trim(),
         slug: editForm.slug.trim(),
         domain: editForm.domain.trim() || null,
+        metadata: editForm.metadata || {},
       });
       onShowSuccess('Empresa actualizada', `La empresa "${editForm.name}" fue actualizada.`);
       setEditingId(null);
@@ -193,6 +292,64 @@ export default function TenantsModal({
       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${map[status]}`}>
         {label[status]}
       </span>
+    );
+  };
+
+  const renderEnvironmentAccessEditor = (metadata: Record<string, any>, onMetadataChange: (next: Record<string, any>) => void) => {
+    const allowedEnvironments = getAllowedEnvironmentsFromMetadata(metadata);
+    const hasExplicitAccess = hasExplicitEnvironmentAccess(metadata);
+
+    return (
+      <div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50/70 p-4">
+        <div>
+          <label className="block text-xs font-medium text-gray-800 mb-1">Acceso base por ambiente</label>
+          <p className="text-xs text-gray-600">
+            Este acceso aplica como base del tenant. Si un usuario no tiene override propio, heredará esta regla al iniciar sesión.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {availableEnvironments.map((environment) => {
+            const checked = allowedEnvironments.includes(environment);
+            return (
+              <label
+                key={`tenant-env-${environment}`}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm transition-colors ${
+                  checked
+                    ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                    : 'border-gray-200 bg-white text-gray-700 hover:border-emerald-200'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => onMetadataChange(toggleEnvironmentForMetadata(metadata, environment, e.target.checked))}
+                  className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                <span>{formatEnvironmentLabel(environment)}</span>
+              </label>
+            );
+          })}
+        </div>
+
+        <div className="text-xs">
+          {hasExplicitAccess ? (
+            allowedEnvironments.length > 0 ? (
+              <p className="text-emerald-700">
+                Base explícita para este tenant: {allowedEnvironments.map(formatEnvironmentLabel).join(', ')}.
+              </p>
+            ) : (
+              <p className="text-amber-700">
+                El tenant quedó con regla explícita pero sin ambientes permitidos. Los usuarios sin override propio quedarán bloqueados.
+              </p>
+            )
+          ) : (
+            <p className="text-gray-600">
+              Sin regla base explícita. Los usuarios sin configuración propia seguirán en modo legacy.
+            </p>
+          )}
+        </div>
+      </div>
     );
   };
 
@@ -304,6 +461,9 @@ export default function TenantsModal({
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                           />
                         </div>
+                        {renderEnvironmentAccessEditor(editForm.metadata, (nextMetadata) =>
+                          setEditForm((f) => ({ ...f, metadata: nextMetadata }))
+                        )}
                         <div className="flex gap-2 pt-1">
                           <button
                             onClick={() => saveEdit(tenant)}
@@ -352,6 +512,30 @@ export default function TenantsModal({
                                 <Calendar className="w-3 h-3" />
                                 {new Date(tenant.created_at).toLocaleDateString()}
                               </span>
+                            </div>
+                            <div className="mt-2">
+                              {hasExplicitEnvironmentAccess(tenant.metadata || {}) ? (
+                                getAllowedEnvironmentsFromMetadata(tenant.metadata || {}).length > 0 ? (
+                                  <div className="flex flex-wrap gap-1">
+                                    {getAllowedEnvironmentsFromMetadata(tenant.metadata || {}).map((environment) => (
+                                      <span
+                                        key={`${tenant.id}-${environment}`}
+                                        className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700"
+                                      >
+                                        {formatEnvironmentLabel(environment)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">
+                                    Sin acceso base
+                                  </span>
+                                )
+                              ) : (
+                                <span className="inline-flex rounded-full border border-gray-200 bg-gray-50 px-2 py-1 text-xs font-medium text-gray-600">
+                                  Legacy / sin base explícita
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>

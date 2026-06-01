@@ -286,6 +286,21 @@ function buildCallbackStorageKey(prefix: string, applicationId: string, code: st
   return prefix + ':' + (applicationId || 'unknown') + ':' + code;
 }
 
+function decodeBase64Url(value: string) {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+  return atob(padded);
+}
+
+function decodeJwtClaims(token: string) {
+  const tokenParts = token.split('.');
+  if (tokenParts.length !== 3) {
+    throw new Error('Formato de token inválido');
+  }
+
+  return JSON.parse(decodeBase64Url(tokenParts[1]));
+}
+
 export default function CallbackHandler() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -348,12 +363,28 @@ export default function CallbackHandler() {
         const data = result.data || {};
         sessionStorage.setItem('auth_token', data.access_token || '');
         sessionStorage.setItem('refresh_token', data.refresh_token || '');
-        if (data.user) {
-          sessionStorage.setItem('user_data', JSON.stringify(data.user));
-        }
-        if (data.application) {
-          sessionStorage.setItem('application_data', JSON.stringify(data.application));
-        }
+        const claims = decodeJwtClaims(String(data.access_token || ''));
+        sessionStorage.setItem('user_data', JSON.stringify({
+          id: claims.sub || '',
+          email: claims.email || '',
+          name: claims.name || '',
+          role: claims.role || 'user',
+          roles: Array.isArray(claims.roles) ? claims.roles : (claims.role ? [claims.role] : ['user']),
+          permissions: claims.permissions || {},
+          permissions_hierarchy: claims.permissions_hierarchy || {},
+          metadata: claims.user_metadata || {},
+          tenant: claims.tenant || null,
+          subscription: claims.subscription || null,
+          license: claims.license || null,
+          has_access: claims.has_access,
+          available_plans: claims.available_plans || [],
+        }));
+        sessionStorage.setItem('application_data', JSON.stringify({
+          id: claims.app_id || applicationId || '',
+          name: claims.app_name || '',
+          domain: claims.app_domain || '',
+          environment: claims.environment || null,
+        }));
 
         sessionStorage.setItem(processedKey, '1');
         sessionStorage.removeItem(processingKey);
@@ -530,6 +561,67 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
     );
   }
 
+  const decodeBase64Url = (value: string) => {
+    const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+    return atob(padded);
+  };
+
+  const decodeJwtClaims = (token: string) => {
+    const tokenParts = String(token || '').split('.');
+    if (tokenParts.length !== 3) {
+      throw new Error('Formato de token invÃ¡lido');
+    }
+
+    return JSON.parse(decodeBase64Url(tokenParts[1]));
+  };
+
+  const storeAuthSessionFromTokens = (tokenData: any) => {
+    if (!tokenData?.access_token) return null;
+
+    const claims = decodeJwtClaims(tokenData.access_token);
+    const roles = Array.isArray(claims.roles)
+      ? claims.roles
+      : claims.role
+        ? [claims.role]
+        : ['user'];
+
+    sessionStorage.setItem('auth_token', tokenData.access_token);
+    sessionStorage.setItem('refresh_token', tokenData.refresh_token || '');
+    sessionStorage.setItem('user_data', JSON.stringify({
+      id: claims.sub || '',
+      email: claims.email || '',
+      name: claims.name || '',
+      role: claims.role || roles[0] || 'user',
+      roles,
+      permissions: claims.permissions || {},
+      permissions_hierarchy: claims.permissions_hierarchy || {},
+      metadata: claims.user_metadata || {},
+      created_at: claims.user_created_at || null,
+      tenant_id: claims.tenant_id || null,
+      tenant_name: claims.tenant_name || null,
+      tenant: claims.tenant || null,
+      subscription: claims.subscription || null,
+      license: claims.license || null,
+      has_access: claims.has_access,
+      available_plans: claims.available_plans || null,
+      environment: claims.environment || null,
+      last_login: new Date().toISOString()
+    }));
+    sessionStorage.setItem('application_data', JSON.stringify({
+      id: claims.app_id || appId,
+      name: claims.app_name || '',
+      domain: claims.app_domain || '',
+      environment: claims.environment || null
+    }));
+
+    if (typeof claims.exp === 'number') {
+      sessionStorage.setItem('token_expires_at', new Date(claims.exp * 1000).toISOString());
+    }
+
+    return claims;
+  };
+
   const handleAuthSubmit = async (formData: any) => {
     try {
       const urlParams = new URLSearchParams(window.location.search);
@@ -637,11 +729,7 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
         }
 
         if (loginData?.access_token) {
-          sessionStorage.setItem('auth_token', loginData.access_token);
-          sessionStorage.setItem('refresh_token', loginData.refresh_token);
-          if (loginData?.user) {
-            sessionStorage.setItem('user_data', JSON.stringify(loginData.user));
-          }
+          storeAuthSessionFromTokens(loginData);
         }
       };
 

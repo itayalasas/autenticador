@@ -7,6 +7,7 @@ import { ipService } from '../../services/ipService';
 import { getSupabaseAnonKey, getSupabaseUrl } from '../../lib/supabaseRuntime';
 import { applyFaviconToDocument } from '../../utils/favicon';
 import { getTrustedCallbackUrl } from '../../utils/publicCallbackUrl';
+import { storeTokenResponseAuthData } from '../../utils/authHelpers';
 import { AuthSystemBadge } from '../ui/BrandedComponents';
 
 interface PublicAuthFormsProps {
@@ -483,11 +484,7 @@ function PublicAuthForms({
         }
 
         if (loginData?.access_token) {
-          sessionStorage.setItem('auth_token', loginData.access_token);
-          sessionStorage.setItem('refresh_token', loginData.refresh_token);
-          if (loginData?.user) {
-            sessionStorage.setItem('user_data', JSON.stringify(loginData.user));
-          }
+          storeTokenResponseAuthData(loginData, applicationId);
           console.log('💾 Tokens guardados en sessionStorage');
         }
       };
@@ -764,8 +761,7 @@ function PublicAuthForms({
           window.location.href = checkResult.data.callback_url;
         }, 800);
       } else if (checkResult.data?.access_token) {
-        sessionStorage.setItem('auth_token', checkResult.data.access_token);
-        sessionStorage.setItem('refresh_token', checkResult.data.refresh_token);
+        storeTokenResponseAuthData(checkResult.data, applicationId);
       }
 
       if (onSuccess) {

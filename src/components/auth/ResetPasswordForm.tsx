@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Eye, EyeOff, Lock, CheckCircle, AlertCircle, Mail, ArrowLeft } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { requireSupabaseAnonKey, requireSupabaseUrl } from '../../lib/supabaseRuntime';
+import { storeTokenResponseAuthData } from '../../utils/authHelpers';
 import { getTrustedCallbackUrl } from '../../utils/publicCallbackUrl';
 import { applicationService } from '../../services/applicationService';
 import { AuthSystemBadge } from '../ui/BrandedComponents';
@@ -303,11 +304,7 @@ export default function ResetPasswordForm() {
           window.location.href = redirectTarget;
         }, 2000);
       } else if (data.data?.access_token) {
-        sessionStorage.setItem('auth_token', data.data.access_token);
-        sessionStorage.setItem('refresh_token', data.data.refresh_token);
-        if (data.data?.user) {
-          sessionStorage.setItem('user_data', JSON.stringify(data.data.user));
-        }
+        storeTokenResponseAuthData(data.data, application?.application_id || appId || undefined);
 
         setTimeout(() => {
           if (application) {

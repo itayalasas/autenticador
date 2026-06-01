@@ -10,6 +10,8 @@ import { useNotification } from '../../hooks/useNotification';
 import ConfirmationModal from '../ui/ConfirmationModal';
 import NotificationModal from '../ui/NotificationModal';
 
+const DEFAULT_ENVIRONMENT_OPTIONS = ['development', 'testing', 'production'] as const;
+
 type UserCreateForm = {
   email: string;
   name: string;
@@ -35,6 +37,7 @@ export default function UsersManager() {
   const [users, setUsers] = useState<AppUser[]>([]);
   const [applicationRoles, setApplicationRoles] = useState<ApplicationRole[]>([]);
   const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [availableEnvironments, setAvailableEnvironments] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -82,8 +85,81 @@ export default function UsersManager() {
       loadUsers();
       loadApplicationRoles();
       loadTenants();
+      loadAvailableEnvironments();
     }
   }, [selectedApp]);
+
+  const normalizeEnvironmentName = (value: unknown): string | null => {
+    if (typeof value !== 'string') return null;
+    const normalized = value.trim().toLowerCase();
+    return normalized || null;
+  };
+
+  const formatEnvironmentLabel = (environment: string) => {
+    switch (environment) {
+      case 'development':
+        return 'Desarrollo';
+      case 'testing':
+        return 'Testing';
+      case 'production':
+        return 'Producción';
+      default:
+        return environment;
+    }
+  };
+
+  const getAllowedEnvironmentsFromMetadata = (metadata?: Record<string, any>) => {
+    const raw = metadata?.environment_access?.allowed_environments;
+    if (!Array.isArray(raw)) return [];
+    return Array.from(
+      new Set(
+        raw
+          .map((value) => normalizeEnvironmentName(value))
+          .filter((value): value is string => Boolean(value))
+      )
+    );
+  };
+
+  const hasExplicitEnvironmentAccess = (metadata?: Record<string, any>) =>
+    Array.isArray(metadata?.environment_access?.allowed_environments);
+
+  const updateMetadataEnvironmentAccess = (metadata: Record<string, any>, allowedEnvironments: string[]) => {
+    const nextMetadata: Record<string, any> = { ...(metadata || {}) };
+    const currentEnvironmentAccess =
+      nextMetadata.environment_access &&
+      typeof nextMetadata.environment_access === 'object' &&
+      !Array.isArray(nextMetadata.environment_access)
+        ? { ...(nextMetadata.environment_access as Record<string, any>) }
+        : {};
+
+    nextMetadata.environment_access = {
+      ...currentEnvironmentAccess,
+      allowed_environments: Array.from(new Set(allowedEnvironments.map((value) => value.toLowerCase()))),
+    };
+
+    return nextMetadata;
+  };
+
+  const getEnvironmentAccessInfo = (metadata?: Record<string, any>) => {
+    const envAccess = metadata?.environment_access;
+    return {
+      createdFromEnvironment: normalizeEnvironmentName(envAccess?.created_from_environment),
+      lastRegisteredEnvironment: normalizeEnvironmentName(envAccess?.last_registered_environment),
+    };
+  };
+
+  const toggleEnvironmentForMetadata = (
+    metadata: Record<string, any>,
+    environment: string,
+    checked: boolean
+  ) => {
+    const current = getAllowedEnvironmentsFromMetadata(metadata);
+    const next = checked
+      ? Array.from(new Set([...current, environment]))
+      : current.filter((value) => value !== environment);
+
+    return updateMetadataEnvironmentAccess(metadata, next);
+  };
 
   const loadTenants = async () => {
     try {
@@ -96,6 +172,38 @@ export default function UsersManager() {
     } catch (error) {
       console.error('Error loading tenants:', error);
       setTenants([]);
+    }
+  };
+
+  const loadAvailableEnvironments = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('environments')
+        .select('name, is_active')
+        .eq('application_id', selectedApp)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        throw error;
+      }
+
+      const envsFromTable = Array.from(
+        new Set(
+          (data || [])
+            .map((env) => normalizeEnvironmentName(env.name))
+            .filter((value): value is string => Boolean(value))
+        )
+      );
+
+      const envsFromMetadata = Object.keys(selectedApplication?.metadata?.environment_urls || {})
+        .map((env) => normalizeEnvironmentName(env))
+        .filter((value): value is string => Boolean(value));
+
+      const merged = Array.from(new Set([...envsFromTable, ...envsFromMetadata, ...DEFAULT_ENVIRONMENT_OPTIONS]));
+      setAvailableEnvironments(merged);
+    } catch (error) {
+      console.error('Error loading environments:', error);
+      setAvailableEnvironments([...DEFAULT_ENVIRONMENT_OPTIONS]);
     }
   };
 
@@ -362,6 +470,83 @@ export default function UsersManager() {
     }
   };
 
+  const renderEnvironmentAccessEditor = (
+    metadata: Record<string, any>,
+    onMetadataChange: (nextMetadata: Record<string, any>) => void,
+    mode: 'create' | 'edit'
+  ) => {
+    const allowedEnvironments = getAllowedEnvironmentsFromMetadata(metadata);
+    const hasExplicitAccess = hasExplicitEnvironmentAccess(metadata);
+
+    return (
+      <div className="space-y-3 rounded-lg border border-sky-200 bg-sky-50/70 p-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-800 mb-1">
+            Acceso por ambiente
+          </label>
+          <p className="text-xs text-gray-600">
+            Define en qué ambientes puede autenticarse este usuario. Si no configuras nada, conservará el comportamiento legacy.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {availableEnvironments.map((environment) => {
+            const checked = allowedEnvironments.includes(environment);
+            return (
+              <label
+                key={`${mode}-${environment}`}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm transition-colors ${
+                  checked
+                    ? 'border-blue-300 bg-blue-100 text-blue-800'
+                    : 'border-gray-200 bg-white text-gray-700 hover:border-blue-200'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) =>
+                    onMetadataChange(toggleEnvironmentForMetadata(metadata, environment, e.target.checked))
+                  }
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span>{formatEnvironmentLabel(environment)}</span>
+              </label>
+            );
+          })}
+        </div>
+
+        <div className="text-xs">
+          {hasExplicitAccess ? (
+            allowedEnvironments.length > 0 ? (
+              <p className="text-blue-700">
+                Este usuario tiene control explícito. Ambientes permitidos: {allowedEnvironments.map(formatEnvironmentLabel).join(', ')}.
+              </p>
+            ) : (
+              <p className="text-amber-700">
+                Este usuario quedó con configuración explícita pero sin ambientes permitidos. Así no podrá iniciar sesión en ningún ambiente.
+              </p>
+            )
+          ) : (
+            <p className="text-gray-600">
+              Sin configuración explícita. Si el tenant tiene una base por ambiente, este usuario la heredará; si no, seguirá con la compatibilidad actual.
+            </p>
+          )}
+        </div>
+
+        {(getEnvironmentAccessInfo(metadata).createdFromEnvironment || getEnvironmentAccessInfo(metadata).lastRegisteredEnvironment) && (
+          <div className="rounded-md bg-white/80 px-3 py-2 text-xs text-gray-600 border border-sky-100">
+            {getEnvironmentAccessInfo(metadata).createdFromEnvironment && (
+              <p>Creado desde: <span className="font-medium text-gray-800">{formatEnvironmentLabel(getEnvironmentAccessInfo(metadata).createdFromEnvironment!)}</span></p>
+            )}
+            {getEnvironmentAccessInfo(metadata).lastRegisteredEnvironment && (
+              <p>Último ambiente de alta: <span className="font-medium text-gray-800">{formatEnvironmentLabel(getEnvironmentAccessInfo(metadata).lastRegisteredEnvironment!)}</span></p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -481,6 +666,9 @@ export default function UsersManager() {
                         </th>
                       )}
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Ambientes
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Estado
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -540,6 +728,42 @@ export default function UsersManager() {
                             )}
                           </td>
                         )}
+                        <td className="px-6 py-4">
+                          {hasExplicitEnvironmentAccess(user.metadata || {}) ? (
+                            getAllowedEnvironmentsFromMetadata(user.metadata || {}).length > 0 ? (
+                              <div className="space-y-2">
+                                <div className="flex flex-wrap gap-1">
+                                  {getAllowedEnvironmentsFromMetadata(user.metadata || {}).map((environment) => (
+                                    <span
+                                      key={`${user.id}-${environment}`}
+                                      className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700"
+                                    >
+                                      {formatEnvironmentLabel(environment)}
+                                    </span>
+                                  ))}
+                                </div>
+                                {(getEnvironmentAccessInfo(user.metadata || {}).createdFromEnvironment || getEnvironmentAccessInfo(user.metadata || {}).lastRegisteredEnvironment) && (
+                                  <div className="text-xs text-gray-500 space-y-1">
+                                    {getEnvironmentAccessInfo(user.metadata || {}).createdFromEnvironment && (
+                                      <div>Creado: {formatEnvironmentLabel(getEnvironmentAccessInfo(user.metadata || {}).createdFromEnvironment!)}</div>
+                                    )}
+                                    {getEnvironmentAccessInfo(user.metadata || {}).lastRegisteredEnvironment && (
+                                      <div>Último alta: {formatEnvironmentLabel(getEnvironmentAccessInfo(user.metadata || {}).lastRegisteredEnvironment!)}</div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">
+                                Sin acceso
+                              </span>
+                            )
+                          ) : (
+                            <span className="inline-flex rounded-full border border-gray-200 bg-gray-50 px-2 py-1 text-xs font-medium text-gray-600">
+                              Legacy / sin restricción
+                            </span>
+                          )}
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(user.status)}`}>
                             {user.status === 'active' ? 'Activo' : user.status === 'inactive' ? 'Inactivo' : 'Pendiente'}
@@ -823,6 +1047,14 @@ export default function UsersManager() {
               </div>
 
               <div>
+                {renderEnvironmentAccessEditor(
+                  newUser.metadata,
+                  (nextMetadata) => setNewUser((prev) => ({ ...prev, metadata: nextMetadata })),
+                  'create'
+                )}
+              </div>
+
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Información Adicional (JSON)
                 </label>
@@ -1003,6 +1235,14 @@ export default function UsersManager() {
                     ))
                   )}
                 </div>
+              </div>
+
+              <div>
+                {renderEnvironmentAccessEditor(
+                  editUser.metadata,
+                  (nextMetadata) => setEditUser((prev) => ({ ...prev, metadata: nextMetadata })),
+                  'edit'
+                )}
               </div>
 
               <div>

@@ -3,7 +3,9 @@ import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
 import bcrypt from "npm:bcryptjs@2.4.3";
 import { buildRedirectUrl, normalizeUrl, resolveApplicationAuthUrl, resolveTrustedApplicationCallbackUrl } from '../_shared/application-auth-url.ts';
 import { resolveApplicationBillingAccess } from '../_shared/application-billing.ts';
+import { evaluateUserEnvironmentAccess, normalizeEnvironmentName } from '../_shared/environment-access.ts';
 import { resolveRoleAccess, type PermissionNode } from '../_shared/role-access.ts';
+import { issueAuthTokens, resolveApplicationJwtSecret } from '../_shared/auth-jwt.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -531,6 +533,70 @@ Deno.serve(async (req) => {
       )
     }
 
+    const requestedEnvironment = normalizeEnvironmentName(
+      resolvedEnvironmentName || (apiKeyData as any).environment || null
+    );
+    let tenantRecordForEnvironmentAccess: Record<string, any> | null = null;
+
+    if (!Array.isArray(user.metadata?.environment_access?.allowed_environments) && application.auth_mode === 'tenant' && user.tenant_id) {
+      const { data: tenantDataForEnvironmentAccess } = await supabase
+        .from('tenants')
+        .select('id, name, slug, domain, metadata')
+        .eq('id', user.tenant_id)
+        .maybeSingle();
+
+      if (tenantDataForEnvironmentAccess) {
+        tenantRecordForEnvironmentAccess = tenantDataForEnvironmentAccess;
+      }
+    }
+
+    const environmentAccess = evaluateUserEnvironmentAccess({
+      requestedEnvironment,
+      userMetadata: user.metadata || {},
+      tenantMetadata: tenantRecordForEnvironmentAccess?.metadata || null
+    });
+
+    if (!environmentAccess.allowed) {
+      console.log('Environment access denied for user:', user.email, 'environment:', requestedEnvironment);
+
+      const { error: environmentLogError } = await supabase.from('auth_logs').insert({
+        application_id: application.id,
+        app_user_id: user.id,
+        event_type: 'failed_login',
+        ip_address: ipAddress,
+        user_agent: req.headers.get('user-agent') || 'unknown',
+        success: false,
+        error_message: `Acceso denegado al ambiente ${requestedEnvironment}`,
+        metadata: {
+          email,
+          user_name: user.name,
+          error_type: 'environment_access_denied',
+          application_name: application.name,
+          requested_environment: requestedEnvironment,
+          allowed_environments: environmentAccess.allowedEnvironments,
+          access_source: environmentAccess.source
+        }
+      });
+
+      if (environmentLogError) {
+        console.error('Error logging environment access denial:', environmentLogError);
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'ENVIRONMENT_ACCESS_DENIED',
+            message: `Este usuario no tiene acceso al ambiente ${requestedEnvironment || 'solicitado'}`
+          }
+        }),
+        {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      )
+    }
+
     let roleName = 'user';
     let rolePermissions: { [menuSlug: string]: string[] } = {};
     let rolePermissionsHierarchy: { [menuSlug: string]: PermissionNode } = {};
@@ -563,7 +629,10 @@ Deno.serve(async (req) => {
         application_name: application.name,
         role: roleName,
         permissions: rolePermissions,
-        permissions_hierarchy: rolePermissionsHierarchy
+        permissions_hierarchy: rolePermissionsHierarchy,
+        environment: requestedEnvironment,
+        allowed_environments: environmentAccess.allowedEnvironments,
+        access_source: environmentAccess.source
       }
     });
 
@@ -575,18 +644,22 @@ Deno.serve(async (req) => {
 
     // Resolve tenant early so we can pass it to the validation API
     let tenantIdForValidation: string | null = null;
-    let tenantNameForValidation: string | null = null;
-    let tenantRecordForValidation: Record<string, any> | null = null;
+    let tenantNameForValidation: string | null = tenantRecordForEnvironmentAccess?.name || null;
+    let tenantRecordForValidation: Record<string, any> | null = tenantRecordForEnvironmentAccess;
     if (application.auth_mode === 'tenant' && user.tenant_id) {
       tenantIdForValidation = user.tenant_id;
-      const { data: tenantDataEarly } = await supabase
-        .from('tenants')
-        .select('id, name, slug, domain, metadata')
-        .eq('id', user.tenant_id)
-        .maybeSingle();
-      if (tenantDataEarly) {
-        tenantNameForValidation = tenantDataEarly.name;
-        tenantRecordForValidation = tenantDataEarly;
+      if (!tenantRecordForValidation) {
+        const { data: tenantDataEarly } = await supabase
+          .from('tenants')
+          .select('id, name, slug, domain, metadata')
+          .eq('id', user.tenant_id)
+          .maybeSingle();
+        if (tenantDataEarly) {
+          tenantNameForValidation = tenantDataEarly.name;
+          tenantRecordForValidation = tenantDataEarly;
+        }
+      } else {
+        tenantNameForValidation = tenantRecordForValidation.name || null;
       }
     }
 
@@ -692,19 +765,26 @@ Deno.serve(async (req) => {
     const tenantId: string | null = tenantIdForValidation;
     const tenantName: string | null = tenantNameForValidation;
 
-    const now = Math.floor(Date.now() / 1000)
+    const jwtSecret = await resolveApplicationJwtSecret(supabase, application.id, application.jwt_secret);
     const accessTokenPayload: Record<string, any> = {
       sub: user.id,
       email: user.email,
       name: user.name,
       app_id: application_id,
+      app_name: application.name,
+      app_domain: application.domain,
       role: roleName,
+      roles: roleName ? [roleName] : [],
       permissions: rolePermissions,
       permissions_hierarchy: rolePermissionsHierarchy,
-      iat: now,
-      exp: now + (24 * 60 * 60),
       iss: 'AuthSystem',
-      aud: application.domain
+      aud: application.domain,
+      user_metadata: user.metadata || {},
+      user_created_at: user.created_at,
+    }
+
+    if (requestedEnvironment) {
+      accessTokenPayload.environment = requestedEnvironment;
     }
 
     if (tenantId) {
@@ -720,8 +800,7 @@ Deno.serve(async (req) => {
       accessTokenPayload.available_plans = validationData.available_plans;
     }
 
-    const accessToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify(accessTokenPayload))}.signature`
-    const refreshToken = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify({...accessTokenPayload, type: 'refresh', exp: now + (30 * 24 * 60 * 60)}))}.signature`
+    const { accessToken, refreshToken } = await issueAuthTokens(jwtSecret, accessTokenPayload)
 
     const appTwoFactorEnabled = application?.metadata?.enable_two_factor === true;
     const planFeatures = (validationData?.subscription?.entitlements?.features || []) as Array<any>;
@@ -757,49 +836,6 @@ Deno.serve(async (req) => {
         const verificationNumber = String(Math.floor(Math.random() * 99) + 1).padStart(2, '0');
         const challengeExpiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
-        let preparedTenantPayload: any = validationData?.tenant || null;
-        if (preparedTenantPayload && tenantId) {
-          const { count: activeUsersCount } = await supabase
-            .from('app_users')
-            .select('id', { count: 'exact', head: true })
-            .eq('application_id', application.id)
-            .eq('tenant_id', tenantId)
-            .eq('status', 'active');
-
-          preparedTenantPayload = {
-            ...preparedTenantPayload,
-            active_users_count: activeUsersCount || 0
-          };
-        }
-
-        const finalResponsePayload = {
-          user: {
-            id: user.id,
-            email: user.email,
-            name: user.name,
-            role: roleName,
-            permissions: rolePermissions,
-            permissions_hierarchy: rolePermissionsHierarchy,
-            metadata: user.metadata || {},
-            created_at: user.created_at,
-            ...(tenantId ? { tenant_id: tenantId, tenant_name: tenantName } : {})
-          },
-          application: {
-            id: application_id,
-            name: application.name,
-            domain: application.domain
-          },
-          ...(validationData && validationData.success
-            ? {
-                tenant: preparedTenantPayload,
-                subscription: validationData.subscription,
-                license: validationData.license,
-                has_access: validationData.has_access,
-                available_plans: validationData.available_plans
-              }
-            : {})
-        };
-
         const { data: challengeRow, error: challengeError } = await supabase
           .from('mfa_login_challenges')
           .insert({
@@ -817,7 +853,6 @@ Deno.serve(async (req) => {
               user_name: user.name,
               ip_address: ipAddress,
               verification_number: verificationNumber,
-              final_response: finalResponsePayload,
             }
           })
           .select('id, expires_at')
@@ -992,45 +1027,7 @@ Deno.serve(async (req) => {
         access_token: accessToken,
         refresh_token: refreshToken,
         token_type: 'Bearer',
-        expires_in: 86400,
-        user: {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: roleName,
-          permissions: rolePermissions,
-          permissions_hierarchy: rolePermissionsHierarchy,
-          metadata: user.metadata || {},
-          created_at: user.created_at,
-          ...(tenantId ? { tenant_id: tenantId, tenant_name: tenantName } : {})
-        },
-        application: {
-          id: application_id,
-          name: application.name,
-          domain: application.domain
-        }
-      }
-    }
-
-    if (validationData && validationData.success) {
-      response.data.tenant = validationData.tenant;
-      response.data.subscription = validationData.subscription;
-      response.data.license = validationData.license;
-      response.data.has_access = validationData.has_access;
-      response.data.available_plans = validationData.available_plans;
-
-      if (response.data.tenant && tenantId) {
-        const { count: activeUsersCount } = await supabase
-          .from('app_users')
-          .select('id', { count: 'exact', head: true })
-          .eq('application_id', application.id)
-          .eq('tenant_id', tenantId)
-          .eq('status', 'active');
-
-        response.data.tenant = {
-          ...response.data.tenant,
-          active_users_count: activeUsersCount || 0
-        };
+        expires_in: 86400
       }
     }
 

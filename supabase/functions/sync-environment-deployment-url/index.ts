@@ -136,7 +136,24 @@ Deno.serve(async (req) => {
     }
 
     const expectedToken = String(environment.metadata?.deploy_callback_token || '').trim();
-    if (!expectedToken || expectedToken !== deployToken) {
+    const previousTokens = Array.isArray(environment.metadata?.deploy_callback_previous_tokens)
+      ? environment.metadata.deploy_callback_previous_tokens
+          .filter((token: unknown) => typeof token === 'string' && token.trim().length > 0)
+          .map((token: string) => token.trim())
+      : [];
+    const acceptedTokens = [expectedToken, ...previousTokens].filter(Boolean);
+    const tokenMatches = acceptedTokens.includes(deployToken);
+
+    if (!tokenMatches) {
+      console.warn('sync-environment-deployment-url token mismatch', {
+        environmentId,
+        hasExpectedToken: Boolean(expectedToken),
+        expectedTokenPreview: expectedToken ? `${expectedToken.slice(0, 6)}...${expectedToken.slice(-6)}` : null,
+        receivedTokenPreview: deployToken ? `${deployToken.slice(0, 6)}...${deployToken.slice(-6)}` : null,
+        expectedLength: expectedToken.length,
+        receivedLength: deployToken.length,
+        acceptedTokenCount: acceptedTokens.length,
+      });
       return jsonResponse({
         success: false,
         error: {

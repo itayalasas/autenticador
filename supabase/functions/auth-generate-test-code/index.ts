@@ -1,6 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
 import { buildRedirectUrl, resolveApplicationAuthUrl } from '../_shared/application-auth-url.ts';
+import { issueAuthTokens, resolveApplicationJwtSecret } from '../_shared/auth-jwt.ts';
+import { resolveRoleAccess } from '../_shared/role-access.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -125,7 +127,7 @@ Deno.serve(async (req) => {
 
     const { data: application, error: appError } = await supabase
       .from('applications')
-      .select('id, name, application_id, domain')
+      .select('id, name, application_id, domain, jwt_secret')
       .eq('application_id', application_id)
       .maybeSingle();
 
@@ -157,7 +159,7 @@ Deno.serve(async (req) => {
 
     const { data: user, error: userError } = await supabase
       .from('app_users')
-      .select('id, email, name, status, metadata, created_at')
+      .select('id, email, name, status, metadata, created_at, role_id, tenant_id')
       .eq('application_id', application.id)
       .eq('email', email)
       .maybeSingle();
@@ -188,27 +190,58 @@ Deno.serve(async (req) => {
       );
     }
 
-    const now = Math.floor(Date.now() / 1000);
+    let roleName = 'user';
+    let rolePermissions: Record<string, string[]> = {};
+    let rolePermissionsHierarchy: Record<string, any> = {};
+    if (user.role_id) {
+      const resolvedRoleAccess = await resolveRoleAccess(supabase, user.role_id);
+      roleName = resolvedRoleAccess.roleName || 'user';
+      rolePermissions = resolvedRoleAccess.rolePermissions;
+      rolePermissionsHierarchy = resolvedRoleAccess.rolePermissionsHierarchy;
+    }
+
+    let tenantName: string | null = null;
+    if (user.tenant_id) {
+      const { data: tenant } = await supabase
+        .from('tenants')
+        .select('name')
+        .eq('id', user.tenant_id)
+        .maybeSingle();
+      tenantName = tenant?.name || null;
+    }
+
+    const jwtSecret = await resolveApplicationJwtSecret(supabase, application.id, application.jwt_secret);
     const accessTokenPayload: Record<string, unknown> = {
       sub: user.id,
       email: user.email,
       name: user.name,
       app_id: application.application_id,
-      iat: now,
-      exp: now + (24 * 60 * 60),
+      app_name: application.name,
+      app_domain: application.domain,
+      role: roleName,
+      roles: roleName ? [roleName] : ['user'],
+      permissions: rolePermissions,
+      permissions_hierarchy: rolePermissionsHierarchy,
       iss: 'AuthSystem',
       aud: application.domain,
+      user_metadata: user.metadata || {},
+      user_created_at: user.created_at,
+      environment: (apiKeyData as any).environment || null,
       source: 'auth-generate-test-code',
     };
 
-    const refreshTokenPayload: Record<string, unknown> = {
-      ...accessTokenPayload,
-      type: 'refresh',
-      exp: now + (30 * 24 * 60 * 60),
-    };
+    if (user.tenant_id) {
+      accessTokenPayload.tenant_id = user.tenant_id;
+    }
 
-    const access_token = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify(accessTokenPayload))}.signature`;
-    const refresh_token = `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify(refreshTokenPayload))}.signature`;
+    if (tenantName) {
+      accessTokenPayload.tenant_name = tenantName;
+    }
+
+    const { accessToken: access_token, refreshToken: refresh_token } = await issueAuthTokens(
+      jwtSecret,
+      accessTokenPayload,
+    );
 
     const code = crypto.randomUUID();
     const boundedTtl = Math.max(60, Math.min(900, ttl_seconds ?? 300));

@@ -117,7 +117,10 @@ Deno.serve(async (req) => {
         enabled: Boolean(application.billing_config?.enabled),
         success: true,
         has_access: true,
-        available_plans: plans.map((plan: any) => buildAvailablePlan(plan, { backUrl: billingConfig.backUrl || null })),
+        available_plans: plans.map((plan: any) => buildAvailablePlan(plan, {
+          backUrl: billingConfig.backUrl || null,
+          managedCheckout: true,
+        })),
         subscription: null,
         license: {
           source: 'internal',
@@ -138,8 +141,13 @@ Deno.serve(async (req) => {
         checkout: {
           provider: 'mercadopago',
           managed_by_authsystem: true,
+          start_proxy_endpoint: '/api/application/subscription/start-checkout',
           start_endpoint: '/functions/v1/subscription-start-checkout',
+          status_proxy_endpoint: '/api/application/subscription/session',
           status_endpoint: '/functions/v1/subscription-checkout-status',
+          cancel_proxy_endpoint: '/api/application/subscription/cancel',
+          cancel_endpoint: '/functions/v1/subscription-cancel',
+          cancellation_mode: 'immediate',
         },
         has_access: billingState.has_access,
         subscription: billingState.subscription,

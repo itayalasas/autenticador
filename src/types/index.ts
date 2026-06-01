@@ -73,6 +73,8 @@ export interface AzureContainerAppsConfig {
   resource_group: string;
   location: string;
   containerapps_environment?: string;
+  oidc_audience?: string;
+  auth_mode?: 'service_principal' | 'oidc';
 }
 
 export type BillingFeatureValueType = 'boolean' | 'number' | 'text';
@@ -386,6 +388,7 @@ export interface ApplicationPlanSubscription {
   current_period_start?: string | null;
   current_period_end?: string | null;
   trial_end?: string | null;
+  can_cancel?: boolean;
   provider_metadata?: Record<string, any>;
   metadata?: Record<string, any>;
   created_at?: string;

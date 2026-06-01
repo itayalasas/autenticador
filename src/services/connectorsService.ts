@@ -29,6 +29,8 @@ interface AzureContainerAppsConfig {
   resource_group: string;
   location: string;
   containerapps_environment?: string;
+  oidc_audience?: string;
+  auth_mode?: 'service_principal' | 'oidc';
 }
 
 class ConnectorsService {
@@ -39,6 +41,8 @@ class ConnectorsService {
   }
 
   private normalizeAzureContainerAppsConfig(config: AzureContainerAppsConfig): AzureContainerAppsConfig {
+    const authMode = config.auth_mode === 'oidc' ? 'oidc' : 'service_principal';
+
     return {
       tenant_id: this.extractGuid(config.tenant_id),
       subscription_id: this.extractGuid(config.subscription_id),
@@ -47,6 +51,8 @@ class ConnectorsService {
       resource_group: config.resource_group.trim(),
       location: config.location.trim(),
       containerapps_environment: config.containerapps_environment?.trim() || undefined,
+      oidc_audience: config.oidc_audience?.trim() || 'api://AzureADTokenExchange',
+      auth_mode: authMode,
     };
   }
 
@@ -222,13 +228,14 @@ class ConnectorsService {
 
   async isAzureContainerAppsConfigured(): Promise<boolean> {
     const config = await this.getAzureContainerAppsConfig();
+    const requiresClientSecret = config?.auth_mode !== 'oidc';
     return !!(
       config?.tenant_id &&
       config?.subscription_id &&
       config?.client_id &&
-      config?.client_secret &&
       config?.resource_group &&
-      config?.location
+      config?.location &&
+      (!requiresClientSecret || config?.client_secret)
     );
   }
 
@@ -237,11 +244,26 @@ class ConnectorsService {
     message: string;
   }> {
     const azureConfig = this.normalizeAzureContainerAppsConfig(config);
+    const requiresClientSecret = azureConfig.auth_mode !== 'oidc';
 
-    if (!azureConfig.tenant_id || !azureConfig.subscription_id || !azureConfig.client_id || !azureConfig.client_secret) {
+    if (
+      !azureConfig.tenant_id ||
+      !azureConfig.subscription_id ||
+      !azureConfig.client_id ||
+      !azureConfig.resource_group ||
+      !azureConfig.location ||
+      (requiresClientSecret && !azureConfig.client_secret)
+    ) {
       return {
         success: false,
         message: 'Faltan credenciales de Azure',
+      };
+    }
+
+    if (!requiresClientSecret) {
+      return {
+        success: true,
+        message: 'Azure Container Apps configurado para OIDC correctamente',
       };
     }
 
@@ -373,10 +395,25 @@ class ConnectorsService {
 
         case 'azure_container_apps': {
           const azureConfig = config.config_data as AzureContainerAppsConfig;
-          if (!azureConfig.tenant_id || !azureConfig.subscription_id || !azureConfig.client_id || !azureConfig.client_secret) {
+          const requiresClientSecret = azureConfig.auth_mode !== 'oidc';
+          if (
+            !azureConfig.tenant_id ||
+            !azureConfig.subscription_id ||
+            !azureConfig.client_id ||
+            !azureConfig.resource_group ||
+            !azureConfig.location ||
+            (requiresClientSecret && !azureConfig.client_secret)
+          ) {
             return {
               success: false,
               message: 'Faltan credenciales de Azure',
+            };
+          }
+
+          if (!requiresClientSecret) {
+            return {
+              success: true,
+              message: 'Azure Container Apps configurado para OIDC correctamente',
             };
           }
 

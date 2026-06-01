@@ -11,6 +11,8 @@ interface AzureContainerAppsDeploymentOptions {
   location: string;
   containerAppsEnvironment?: string | null;
   createIfMissing?: boolean;
+  azureAuthMode?: 'service_principal' | 'oidc';
+  azureOidcAudience?: string | null;
 }
 
 function escapeYamlValue(value: string): string {
@@ -19,6 +21,14 @@ function escapeYamlValue(value: string): string {
 
 function sanitizeEnvironmentName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+}
+
+function normalizeEnvironmentSecretSegment(name: string): string {
+  return name
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '') || 'ENVIRONMENT';
 }
 
 function hashString(value: string): string {
@@ -60,6 +70,14 @@ export function buildAzureCredentialsSecretPayload(config: AzureContainerAppsCon
   });
 }
 
+export function buildAzureOidcSecretPayload(config: AzureContainerAppsConfig): Record<string, string> {
+  return {
+    AZURE_CLIENT_ID: config.client_id,
+    AZURE_TENANT_ID: config.tenant_id,
+    AZURE_SUBSCRIPTION_ID: config.subscription_id,
+  };
+}
+
 export function buildDefaultContainerAppName(applicationName: string, environmentName: string): string {
   const appSlug = applicationName
     .toLowerCase()
@@ -67,6 +85,10 @@ export function buildDefaultContainerAppName(applicationName: string, environmen
     .replace(/^-+|-+$/g, '');
 
   return normalizeAzureName(`${appSlug || 'auth-forms'}-${sanitizeEnvironmentName(environmentName)}`, `auth-${sanitizeEnvironmentName(environmentName)}`);
+}
+
+export function buildDeployCallbackSecretName(environmentName: string): string {
+  return `AUTHSYSTEM_DEPLOY_CALLBACK_TOKEN_${normalizeEnvironmentSecretSegment(environmentName)}`;
 }
 
 export function buildDefaultAzureContainerRegistryName(
@@ -112,8 +134,26 @@ export function applyAzureContainerAppsDeploymentFiles(
     options.resourceGroup
   );
   const deploymentCallbackUrl = `${supabaseUrl.replace(/\/+$/, '')}/functions/v1/sync-environment-deployment-url`;
+  const deployCallbackSecretName = buildDeployCallbackSecretName(options.environmentName);
   const createIfMissing = options.createIfMissing !== false;
   const workflowFileName = `.github/workflows/deploy-auth-forms-${envName}.yml`;
+  const useOidc = options.azureAuthMode === 'oidc';
+  const oidcAudience = escapeYamlValue(options.azureOidcAudience?.trim() || 'api://AzureADTokenExchange');
+  const workflowPermissions = useOidc
+    ? `    permissions:\n      contents: read\n      id-token: write`
+    : `    permissions:\n      contents: read`;
+  const azureLoginStep = useOidc
+    ? `      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: \${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: \${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: \${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          audience: '${oidcAudience}'`
+    : `      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: \${{ secrets.AZURE_CREDENTIALS }}`;
 
   files['server.mjs'] = `import express from 'express';
 import path from 'node:path';
@@ -124,9 +164,66 @@ const port = Number(process.env.PORT || 8080);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const distDir = path.join(__dirname, 'dist');
+const supabaseUrl = String(process.env.VITE_SUPABASE_URL || '').replace(/\\/+$/, '');
+const supabaseAnonKey = String(process.env.VITE_SUPABASE_ANON_KEY || '');
 
-app.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'authsystem-public-forms' });
+app.use(express.json({ limit: '2mb' }));
+
+function firstHeaderValue(value) {
+  if (Array.isArray(value)) {
+    return value[0] || '';
+  }
+  return value || '';
+}
+
+function ensureSupabaseConfig(res) {
+  if (supabaseUrl && supabaseAnonKey) {
+    return true;
+  }
+
+  res.status(500).json({
+    success: false,
+    error: {
+      code: 'SUPABASE_NOT_CONFIGURED',
+      message: 'Supabase no esta configurado en este deployment',
+    },
+  });
+  return false;
+}
+
+function edgeHeaders(extra = {}) {
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': \`Bearer \${supabaseAnonKey}\`,
+    ...extra,
+  };
+}
+
+async function parseJsonResponse(response) {
+  const raw = await response.text();
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch (_error) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_EDGE_RESPONSE',
+        message: raw,
+      },
+    };
+  }
+}
+
+app.get(['/health', '/api/health'], (_req, res) => {
+  res.json({
+    ok: true,
+    service: 'authsystem-public-forms',
+    has_supabase_proxy: Boolean(supabaseUrl && supabaseAnonKey),
+  });
 });
 
 app.get('/get-env', (_req, res) => {
@@ -137,6 +234,174 @@ app.get('/get-env', (_req, res) => {
       VITE_ENV_CONFIG_URL: '/get-env',
     }
   });
+});
+
+app.all('/api/application/plans', async (req, res) => {
+  if (!ensureSupabaseConfig(res)) return;
+
+  try {
+    const requestBody = req.method === 'GET'
+      ? req.query
+      : (req.body || {});
+
+    const response = await fetch(\`\${supabaseUrl}/functions/v1/application-plans\`, {
+      method: 'POST',
+      headers: edgeHeaders(),
+      body: JSON.stringify(requestBody),
+    });
+
+    const result = await parseJsonResponse(response);
+    return res.status(response.status).json(result);
+  } catch (error) {
+    console.error('Application plans proxy error:', error);
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: 'PROXY_ERROR',
+        message: 'No se pudo consultar el listado de planes',
+      },
+    });
+  }
+});
+
+app.post('/api/application/subscription/start-checkout', async (req, res) => {
+  if (!ensureSupabaseConfig(res)) return;
+
+  try {
+    const response = await fetch(\`\${supabaseUrl}/functions/v1/subscription-start-checkout\`, {
+      method: 'POST',
+      headers: edgeHeaders(),
+      body: JSON.stringify(req.body || {}),
+    });
+
+    const result = await parseJsonResponse(response);
+    return res.status(response.status).json(result);
+  } catch (error) {
+    console.error('Subscription checkout start proxy error:', error);
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: 'PROXY_ERROR',
+        message: 'No se pudo iniciar el checkout de la suscripcion',
+      },
+    });
+  }
+});
+
+app.all('/api/application/subscription/session', async (req, res) => {
+  if (!ensureSupabaseConfig(res)) return;
+
+  try {
+    const requestBody = req.method === 'GET'
+      ? req.query
+      : (req.body || {});
+
+    const response = await fetch(\`\${supabaseUrl}/functions/v1/subscription-checkout-status\`, {
+      method: 'POST',
+      headers: edgeHeaders(),
+      body: JSON.stringify(requestBody),
+    });
+
+    const result = await parseJsonResponse(response);
+    return res.status(response.status).json(result);
+  } catch (error) {
+    console.error('Subscription checkout session proxy error:', error);
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: 'PROXY_ERROR',
+        message: 'No se pudo consultar el estado del checkout',
+      },
+    });
+  }
+});
+
+app.post('/api/application/subscription/cancel', async (req, res) => {
+  if (!ensureSupabaseConfig(res)) return;
+
+  try {
+    const response = await fetch(\`\${supabaseUrl}/functions/v1/subscription-cancel\`, {
+      method: 'POST',
+      headers: edgeHeaders(),
+      body: JSON.stringify(req.body || {}),
+    });
+
+    const result = await parseJsonResponse(response);
+    return res.status(response.status).json(result);
+  } catch (error) {
+    console.error('Subscription cancel proxy error:', error);
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: 'PROXY_ERROR',
+        message: 'No se pudo cancelar la suscripcion',
+      },
+    });
+  }
+});
+
+app.all('/api/application/subscription/return', async (req, res) => {
+  if (!ensureSupabaseConfig(res)) return;
+
+  try {
+    const targetUrl = new URL(\`\${supabaseUrl}/functions/v1/mercadopago-return\`);
+    Object.entries(req.query || {}).forEach(([key, value]) => {
+      if (value === undefined || value === null) return;
+      targetUrl.searchParams.set(key, String(value));
+    });
+
+    const response = await fetch(targetUrl.toString(), {
+      method: req.method,
+      headers: edgeHeaders(),
+      body: req.method === 'GET' ? undefined : JSON.stringify(req.body || {}),
+      redirect: 'manual',
+    });
+
+    const location = response.headers.get('location');
+    if (location) {
+      return res.redirect(response.status, location);
+    }
+
+    const contentType = response.headers.get('content-type') || 'text/html; charset=utf-8';
+    const payload = await response.text();
+    return res.status(response.status).type(contentType).send(payload);
+  } catch (error) {
+    console.error('Mercado Pago return proxy error:', error);
+    return res.status(500).send('No se pudo procesar el retorno de Mercado Pago');
+  }
+});
+
+app.post('/api/webhooks/mercadopago', async (req, res) => {
+  if (!ensureSupabaseConfig(res)) return;
+
+  try {
+    const targetUrl = new URL(\`\${supabaseUrl}/functions/v1/mercadopago-webhook\`);
+    Object.entries(req.query || {}).forEach(([key, value]) => {
+      if (value === undefined || value === null) return;
+      targetUrl.searchParams.set(key, String(value));
+    });
+
+    const response = await fetch(targetUrl.toString(), {
+      method: 'POST',
+      headers: edgeHeaders({
+        'x-signature': firstHeaderValue(req.headers['x-signature']),
+        'x-request-id': firstHeaderValue(req.headers['x-request-id']),
+      }),
+      body: JSON.stringify(req.body || {}),
+    });
+
+    const result = await parseJsonResponse(response);
+    return res.status(response.status).json(result);
+  } catch (error) {
+    console.error('Mercado Pago webhook proxy error:', error);
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: 'PROXY_ERROR',
+        message: 'No se pudo procesar el webhook de Mercado Pago',
+      },
+    });
+  }
 });
 
 app.use(express.static(distDir, {
@@ -190,17 +455,13 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+${workflowPermissions}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Login to Azure
-        uses: azure/login@v2
-        with:
-          creds: \${{ secrets.AZURE_CREDENTIALS }}
+${azureLoginStep}
 
       - name: Install Container Apps extension
         uses: azure/cli@v2
@@ -336,6 +597,11 @@ jobs:
         with:
           inlineScript: |
             set -e
+            DEPLOY_CALLBACK_TOKEN="${'${{ secrets.'}${deployCallbackSecretName}${' }}'}"
+            if [ -z "$DEPLOY_CALLBACK_TOKEN" ]; then
+              echo "::error::No se encontro el secreto ${deployCallbackSecretName} en GitHub Actions"
+              exit 1
+            fi
             FQDN=$(az containerapp show --name '${escapeYamlValue(containerAppName)}' --resource-group '${escapeYamlValue(options.resourceGroup)}' --query properties.configuration.ingress.fqdn -o tsv)
             DEPLOY_BASE_URL="https://$FQDN"
             if [ -z "$FQDN" ]; then
@@ -357,7 +623,7 @@ jobs:
 
             CALLBACK_RESPONSE=$(curl -sS -w "\\n%{http_code}" -X POST '${escapeYamlValue(deploymentCallbackUrl)}' \
               -H "Content-Type: application/json" \
-              -H "x-deploy-token: ${'${{ secrets.AUTHSYSTEM_DEPLOY_CALLBACK_TOKEN }}'}" \
+              -H "x-deploy-token: $DEPLOY_CALLBACK_TOKEN" \
               --data-binary @sync-deployment-url.json)
 
             CALLBACK_HTTP_CODE=$(echo "$CALLBACK_RESPONSE" | tail -n 1)

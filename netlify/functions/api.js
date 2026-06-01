@@ -378,6 +378,273 @@ exports.handler = async (event, context) => {
       }
     }
 
+    // Managed subscription checkout start - Proxy to Edge Function
+    if (path.endsWith('/application/subscription/start-checkout') && method === 'POST') {
+      console.log('💳 Subscription checkout start endpoint called - proxying to Edge Function');
+
+      let requestBody;
+      try {
+        requestBody = event.body ? JSON.parse(event.body) : {};
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            success: false,
+            error: {
+              code: 'INVALID_JSON',
+              message: 'Request body must be valid JSON'
+            }
+          })
+        };
+      }
+
+      try {
+        const result = await callEdgeFunction('subscription-start-checkout', requestBody);
+
+        return {
+          statusCode: result.statusCode,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify(result.body)
+        };
+      } catch (error) {
+        console.error('❌ Error proxying subscription checkout start request:', error);
+        return {
+          statusCode: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            success: false,
+            error: {
+              code: 'PROXY_ERROR',
+              message: 'Error connecting to subscription checkout service: ' + error.message
+            }
+          })
+        };
+      }
+    }
+
+    // Managed subscription checkout session - Proxy to Edge Function
+    if (path.endsWith('/application/subscription/session') && (method === 'GET' || method === 'POST')) {
+      console.log(`🧾 Subscription checkout session endpoint called (${method}) - proxying to Edge Function`);
+
+      let requestBody = {};
+      try {
+        requestBody = method === 'GET'
+          ? (event.queryStringParameters || {})
+          : (event.body ? JSON.parse(event.body) : {});
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            success: false,
+            error: {
+              code: 'INVALID_JSON',
+              message: 'Request body must be valid JSON'
+            }
+          })
+        };
+      }
+
+      try {
+        const result = await callEdgeFunction('subscription-checkout-status', requestBody);
+
+        return {
+          statusCode: result.statusCode,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify(result.body)
+        };
+      } catch (error) {
+        console.error('❌ Error proxying subscription checkout session request:', error);
+        return {
+          statusCode: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            success: false,
+            error: {
+              code: 'PROXY_ERROR',
+              message: 'Error connecting to subscription checkout status service: ' + error.message
+            }
+          })
+        };
+      }
+    }
+
+    // Managed subscription cancel - Proxy to Edge Function
+    if (path.endsWith('/application/subscription/cancel') && method === 'POST') {
+      console.log('🛑 Subscription cancel endpoint called - proxying to Edge Function');
+
+      let requestBody;
+      try {
+        requestBody = event.body ? JSON.parse(event.body) : {};
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            success: false,
+            error: {
+              code: 'INVALID_JSON',
+              message: 'Request body must be valid JSON'
+            }
+          })
+        };
+      }
+
+      try {
+        const result = await callEdgeFunction('subscription-cancel', requestBody);
+
+        return {
+          statusCode: result.statusCode,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify(result.body)
+        };
+      } catch (error) {
+        console.error('❌ Error proxying subscription cancel request:', error);
+        return {
+          statusCode: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            success: false,
+            error: {
+              code: 'PROXY_ERROR',
+              message: 'Error connecting to subscription cancellation service: ' + error.message
+            }
+          })
+        };
+      }
+    }
+
+    // Mercado Pago return endpoint - Proxy to Edge Function
+    if (path.endsWith('/application/subscription/return') && (method === 'GET' || method === 'POST')) {
+      console.log(`↩️ Mercado Pago return endpoint called (${method}) - proxying to Edge Function`);
+
+      let requestBody = {};
+      try {
+        requestBody = method === 'GET'
+          ? {}
+          : (event.body ? JSON.parse(event.body) : {});
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            success: false,
+            error: {
+              code: 'INVALID_JSON',
+              message: 'Request body must be valid JSON'
+            }
+          })
+        };
+      }
+
+      try {
+        const targetUrl = new URL(`${supabaseUrl}/functions/v1/mercadopago-return`);
+        Object.entries(event.queryStringParameters || {}).forEach(([key, value]) => {
+          if (value === undefined || value === null) return;
+          targetUrl.searchParams.set(key, String(value));
+        });
+
+        const response = await fetch(targetUrl.toString(), {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${supabaseAnonKey}`
+          },
+          body: method === 'GET' ? undefined : JSON.stringify(requestBody),
+          redirect: 'manual'
+        });
+
+        const location = response.headers.get('location');
+        if (location) {
+          return {
+            statusCode: response.status,
+            headers: {
+              ...corsHeaders,
+              Location: location
+            },
+            body: ''
+          };
+        }
+
+        const contentType = response.headers.get('content-type') || 'text/html; charset=utf-8';
+        const payload = await response.text();
+        return {
+          statusCode: response.status,
+          headers: { ...corsHeaders, 'Content-Type': contentType },
+          body: payload
+        };
+      } catch (error) {
+        console.error('❌ Error proxying Mercado Pago return request:', error);
+        return {
+          statusCode: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'text/plain; charset=utf-8' },
+          body: 'No se pudo procesar el retorno de Mercado Pago'
+        };
+      }
+    }
+
+    // Mercado Pago webhook endpoint - Proxy to Edge Function
+    if (path.endsWith('/webhooks/mercadopago') && method === 'POST') {
+      console.log('📬 Mercado Pago webhook endpoint called - proxying to Edge Function');
+
+      let requestBody = {};
+      try {
+        requestBody = event.body ? JSON.parse(event.body) : {};
+      } catch (parseError) {
+        return {
+          statusCode: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            success: false,
+            error: {
+              code: 'INVALID_JSON',
+              message: 'Request body must be valid JSON'
+            }
+          })
+        };
+      }
+
+      try {
+        const targetUrl = new URL(`${supabaseUrl}/functions/v1/mercadopago-webhook`);
+        Object.entries(event.queryStringParameters || {}).forEach(([key, value]) => {
+          if (value === undefined || value === null) return;
+          targetUrl.searchParams.set(key, String(value));
+        });
+
+        const response = await fetch(targetUrl.toString(), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${supabaseAnonKey}`,
+            'x-signature': event.headers?.['x-signature'] || event.headers?.['X-Signature'] || '',
+            'x-request-id': event.headers?.['x-request-id'] || event.headers?.['X-Request-Id'] || '',
+          },
+          body: JSON.stringify(requestBody)
+        });
+
+        const result = await response.json();
+        return {
+          statusCode: response.status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify(result)
+        };
+      } catch (error) {
+        console.error('❌ Error proxying Mercado Pago webhook request:', error);
+        return {
+          statusCode: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            success: false,
+            error: {
+              code: 'PROXY_ERROR',
+              message: 'Error connecting to Mercado Pago webhook service: ' + error.message
+            }
+          })
+        };
+      }
+    }
+
     // Application info endpoint - Proxy to Edge Function
     if (path.endsWith('/application/info') && method === 'GET') {
       console.log('📱 Application info endpoint called (GET) - proxying to Edge Function');

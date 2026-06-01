@@ -9,17 +9,53 @@ export interface AuthTokenData {
     id: string;
     email: string;
     name: string;
+    role?: string;
     roles: string[];
-    permissions: string[];
+    permissions: unknown;
+    permissions_hierarchy?: Record<string, any>;
     metadata: Record<string, any>;
+    created_at?: string;
     last_login: string;
+    tenant_id?: string;
+    tenant_name?: string;
+    tenant?: unknown;
+    subscription?: unknown;
+    license?: unknown;
+    has_access?: boolean;
+    available_plans?: unknown;
+    environment?: string;
   };
   application: {
     id: string;
     name: string;
     domain: string;
+    environment?: string;
   };
   expires_in: number;
+}
+
+export interface DecodedAuthClaims extends Record<string, any> {
+  sub?: string;
+  email?: string;
+  name?: string;
+  role?: string;
+  roles?: string[];
+  permissions?: unknown;
+  permissions_hierarchy?: Record<string, any>;
+  app_id?: string;
+  app_name?: string;
+  app_domain?: string;
+  user_metadata?: Record<string, any>;
+  user_created_at?: string;
+  tenant_id?: string;
+  tenant_name?: string;
+  tenant?: unknown;
+  subscription?: unknown;
+  license?: unknown;
+  has_access?: boolean;
+  available_plans?: unknown;
+  environment?: string;
+  exp?: number;
 }
 
 export interface CallbackExchangeParams {
@@ -63,26 +99,76 @@ export function parseCallbackParams(_url: string): AuthTokenData | null {
   return null;
 }
 
-function normalizePermissions(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => (typeof item === 'string' ? item : String(item)))
-      .filter(Boolean);
+function decodeBase64Url(value: string): string {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+  return atob(padded);
+}
+
+export function decodeJwtClaims(token: string): DecodedAuthClaims {
+  const tokenParts = token.split('.');
+  if (tokenParts.length !== 3) {
+    throw new Error('Formato de token invalido');
   }
 
-  if (value && typeof value === 'object') {
-    return Object.entries(value as Record<string, unknown>).flatMap(([menuSlug, actions]) => {
-      if (!Array.isArray(actions)) {
-        return [];
-      }
+  const payload = decodeBase64Url(tokenParts[1]);
+  const claims = JSON.parse(payload);
 
-      return actions
-        .map((action) => `${menuSlug}:${typeof action === 'string' ? action : String(action)}`)
-        .filter(Boolean);
-    });
+  if (!claims || typeof claims !== 'object') {
+    throw new Error('Claims del token invalidos');
   }
 
-  return ['read'];
+  return claims as DecodedAuthClaims;
+}
+
+export function buildAuthDataFromTokenResponse(data: any, fallbackApplicationId?: string): AuthTokenData {
+  const claims = decodeJwtClaims(String(data?.access_token || ''));
+  const userRoles = Array.isArray(claims.roles)
+    ? claims.roles
+    : claims.role
+      ? [claims.role]
+      : ['user'];
+  const expiresIn = typeof claims.exp === 'number'
+    ? Math.max(0, claims.exp - Math.floor(Date.now() / 1000))
+    : Number(data?.expires_in || 86400);
+
+  return {
+    access_token: String(data?.access_token || ''),
+    refresh_token: String(data?.refresh_token || ''),
+    user: {
+      id: claims.sub || '',
+      email: claims.email || '',
+      name: claims.name || '',
+      role: claims.role || userRoles[0] || 'user',
+      roles: userRoles,
+      permissions: claims.permissions || {},
+      permissions_hierarchy: claims.permissions_hierarchy || {},
+      metadata: claims.user_metadata || {},
+      created_at: claims.user_created_at || undefined,
+      last_login: new Date().toISOString(),
+      tenant_id: claims.tenant_id || undefined,
+      tenant_name: claims.tenant_name || undefined,
+      tenant: claims.tenant || undefined,
+      subscription: claims.subscription || undefined,
+      license: claims.license || undefined,
+      has_access: typeof claims.has_access === 'boolean' ? claims.has_access : undefined,
+      available_plans: claims.available_plans || undefined,
+      environment: claims.environment || undefined,
+    },
+    application: {
+      id: claims.app_id || fallbackApplicationId || '',
+      name: claims.app_name || '',
+      domain: claims.app_domain || '',
+      environment: claims.environment || undefined,
+    },
+    expires_in: expiresIn,
+  };
+}
+
+export function storeTokenResponseAuthData(data: any, fallbackApplicationId?: string): AuthTokenData {
+  const authData = buildAuthDataFromTokenResponse(data, fallbackApplicationId);
+  storeAuthData(authData);
+  return authData;
 }
 
 /**
@@ -105,36 +191,10 @@ export async function exchangeCallbackCode(params: CallbackExchangeParams): Prom
   const result = await response.json().catch(() => null);
 
   if (!response.ok || !result?.success) {
-    throw new Error(result?.error?.message || 'No se pudo completar el intercambio de código');
+    throw new Error(result?.error?.message || 'No se pudo completar el intercambio de codigo');
   }
 
-  const data = result.data || {};
-  const user = data.user || {};
-  const application = data.application || {};
-
-  return {
-    access_token: data.access_token,
-    refresh_token: data.refresh_token,
-    user: {
-      id: user.id || '',
-      email: user.email || '',
-      name: user.name || '',
-      roles: Array.isArray(user.roles)
-        ? user.roles
-        : user.role
-          ? [user.role]
-          : ['user'],
-      permissions: normalizePermissions(user.permissions),
-      metadata: user.metadata || {},
-      last_login: new Date().toISOString()
-    },
-    application: {
-      id: application.id || params.application_id || '',
-      name: application.name || '',
-      domain: application.domain || ''
-    },
-    expires_in: Number(data.expires_in || 86400)
-  };
+  return buildAuthDataFromTokenResponse(result.data || {}, params.application_id);
 }
 
 function getAuthStorage(): Storage | null {
@@ -194,15 +254,27 @@ export function getStoredAuthData(): AuthTokenData | null {
         id: parsedUser?.id || '',
         email: parsedUser?.email || '',
         name: parsedUser?.name || '',
+        role: parsedUser?.role || (Array.isArray(parsedUser?.roles) ? parsedUser.roles[0] : 'user'),
         roles: Array.isArray(parsedUser?.roles) ? parsedUser.roles : ['user'],
-        permissions: Array.isArray(parsedUser?.permissions) ? parsedUser.permissions : [],
+        permissions: parsedUser?.permissions ?? {},
+        permissions_hierarchy: parsedUser?.permissions_hierarchy || {},
         metadata: parsedUser?.metadata || {},
-        last_login: parsedUser?.last_login || new Date().toISOString()
+        created_at: parsedUser?.created_at || undefined,
+        last_login: parsedUser?.last_login || new Date().toISOString(),
+        tenant_id: parsedUser?.tenant_id || undefined,
+        tenant_name: parsedUser?.tenant_name || undefined,
+        tenant: parsedUser?.tenant || undefined,
+        subscription: parsedUser?.subscription || undefined,
+        license: parsedUser?.license || undefined,
+        has_access: typeof parsedUser?.has_access === 'boolean' ? parsedUser.has_access : undefined,
+        available_plans: parsedUser?.available_plans || undefined,
+        environment: parsedUser?.environment || undefined,
       },
       application: {
         id: parsedApplication?.id || '',
         name: parsedApplication?.name || '',
-        domain: parsedApplication?.domain || ''
+        domain: parsedApplication?.domain || '',
+        environment: parsedApplication?.environment || undefined,
       },
       expires_in: expiresIn
     };
@@ -239,15 +311,20 @@ export function isAuthenticated(): boolean {
  */
 export async function verifyToken(token: string, applicationId: string, apiKey: string): Promise<boolean> {
   try {
-    const response = await fetch('/api/auth/verify', {
+    const supabaseUrl = requireSupabaseUrl();
+    const anonKey = requireSupabaseAnonKey();
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/auth-verify-token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-API-Key': apiKey
+        'Authorization': `Bearer ${anonKey}`,
+        'apikey': anonKey
       },
       body: JSON.stringify({
         token,
-        application_id: applicationId
+        application_id: applicationId,
+        api_key: apiKey
       })
     });
 

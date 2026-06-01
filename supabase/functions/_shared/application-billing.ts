@@ -7,6 +7,7 @@ import {
 } from './mercadopago.ts';
 
 const ACTIVE_SUBSCRIPTION_STATUSES = ['active', 'authorized', 'trialing'];
+const CANCELLABLE_SUBSCRIPTION_STATUSES = ['pending', 'authorized', 'active', 'trialing', 'paused'];
 
 type BillingFeatureCatalogRecord = {
   id?: string;
@@ -123,10 +124,17 @@ function deriveBillingCycle(plan: ApplicationBillingPlanRecord) {
 
 export function buildAvailablePlan(
   plan: ApplicationBillingPlanRecord,
-  options: { backUrl?: string | null; currentPlanId?: string | null; currentPlanPrice?: number } = {},
+  options: {
+    backUrl?: string | null;
+    currentPlanId?: string | null;
+    currentPlanPrice?: number;
+    managedCheckout?: boolean;
+  } = {},
 ) {
   const price = Number(plan.price || 0);
-  const checkoutUrl = plan.provider_init_point || (plan.provider_metadata as any)?.init_point || null;
+  const providerCheckoutUrl = plan.provider_init_point || (plan.provider_metadata as any)?.init_point || null;
+  const managedCheckout = options.managedCheckout === true;
+  const checkoutUrl = managedCheckout ? null : providerCheckoutUrl;
   const intervalCount = Number(plan.interval_count || 1);
   const entitlements = normalizeEntitlements(plan);
 
@@ -154,6 +162,9 @@ export function buildAvailablePlan(
     provider_plan_id: plan.provider_plan_id || null,
     provider_status: plan.provider_status || null,
     plan_token: plan.provider_plan_id || plan.id,
+    managed_checkout: managedCheckout,
+    requires_checkout_session: managedCheckout,
+    provider_checkout_url: providerCheckoutUrl,
     checkout_url: checkoutUrl,
     subscribe_url: checkoutUrl,
     is_upgrade: Boolean(
@@ -272,6 +283,154 @@ async function getScopedSubscription(
   return data || null;
 }
 
+async function getScopedTrialUsage(params: {
+  supabase: any;
+  applicationId: string;
+  tenantId?: string | null;
+  appUserId?: string | null;
+}) {
+  const { supabase, applicationId, tenantId, appUserId } = params;
+
+  if (tenantId) {
+    const { data: tenant, error } = await supabase
+      .from('tenants')
+      .select('id, metadata')
+      .eq('id', tenantId)
+      .maybeSingle();
+
+    if (error && error.code !== 'PGRST116') throw error;
+
+    const metadata = tenant?.metadata && typeof tenant.metadata === 'object'
+      ? { ...(tenant.metadata as Record<string, any>) }
+      : {};
+    const billing = metadata.billing && typeof metadata.billing === 'object'
+      ? { ...(metadata.billing as Record<string, any>) }
+      : {};
+
+    let consumed = billing.trial_consumed === true;
+
+    if (!consumed) {
+      const { data: previousTrial } = await supabase
+        .from('application_plan_subscriptions')
+        .select('id, trial_end, application_plan_id, created_at')
+        .eq('application_id', applicationId)
+        .eq('tenant_id', tenantId)
+        .not('trial_end', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (previousTrial) {
+        consumed = true;
+        billing.trial_consumed_at = billing.trial_consumed_at || previousTrial.created_at || null;
+        billing.trial_plan_id = billing.trial_plan_id || previousTrial.application_plan_id || null;
+        billing.trial_ended_at = billing.trial_ended_at || previousTrial.trial_end || null;
+      }
+    }
+
+    return {
+      scope: 'tenant' as const,
+      id: tenantId,
+      metadata,
+      billing,
+      consumed,
+    };
+  }
+
+  if (appUserId) {
+    const { data: appUser, error } = await supabase
+      .from('app_users')
+      .select('id, metadata')
+      .eq('id', appUserId)
+      .maybeSingle();
+
+    if (error && error.code !== 'PGRST116') throw error;
+
+    const metadata = appUser?.metadata && typeof appUser.metadata === 'object'
+      ? { ...(appUser.metadata as Record<string, any>) }
+      : {};
+    const billing = metadata.billing && typeof metadata.billing === 'object'
+      ? { ...(metadata.billing as Record<string, any>) }
+      : {};
+
+    let consumed = billing.trial_consumed === true;
+
+    if (!consumed) {
+      const { data: previousTrial } = await supabase
+        .from('application_plan_subscriptions')
+        .select('id, trial_end, application_plan_id, created_at')
+        .eq('application_id', applicationId)
+        .eq('app_user_id', appUserId)
+        .not('trial_end', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (previousTrial) {
+        consumed = true;
+        billing.trial_consumed_at = billing.trial_consumed_at || previousTrial.created_at || null;
+        billing.trial_plan_id = billing.trial_plan_id || previousTrial.application_plan_id || null;
+        billing.trial_ended_at = billing.trial_ended_at || previousTrial.trial_end || null;
+      }
+    }
+
+    return {
+      scope: 'app_user' as const,
+      id: appUserId,
+      metadata,
+      billing,
+      consumed,
+    };
+  }
+
+  return {
+    scope: 'none' as const,
+    id: null,
+    metadata: {},
+    billing: {},
+    consumed: false,
+  };
+}
+
+async function markTrialConsumedForScope(params: {
+  supabase: any;
+  scope: 'tenant' | 'app_user' | 'none';
+  id?: string | null;
+  metadata: Record<string, any>;
+  billing: Record<string, any>;
+  planId: string;
+  trialEnd: string | null;
+  source?: string;
+}) {
+  const { supabase, scope, id, metadata, billing, planId, trialEnd, source } = params;
+  if (!id || scope === 'none') return;
+
+  const updatedMetadata = {
+    ...metadata,
+    billing: {
+      ...billing,
+      trial_consumed: true,
+      trial_consumed_at: billing.trial_consumed_at || new Date().toISOString(),
+      trial_plan_id: planId,
+      trial_ended_at: trialEnd,
+      trial_source: source || 'initial_plan_trial',
+    },
+  };
+
+  if (scope === 'tenant') {
+    await supabase
+      .from('tenants')
+      .update({ metadata: updatedMetadata })
+      .eq('id', id);
+    return;
+  }
+
+  await supabase
+    .from('app_users')
+    .update({ metadata: updatedMetadata })
+    .eq('id', id);
+}
+
 async function upsertProviderSubscription(params: {
   supabase: any;
   applicationId: string;
@@ -296,10 +455,14 @@ async function upsertProviderSubscription(params: {
   const currentStatus = mapMercadoPagoSubscriptionStatus(providerSubscription.status);
   const { data: existing } = await supabase
     .from('application_plan_subscriptions')
-    .select('id')
+    .select('id, metadata')
     .eq('provider', 'mercadopago')
     .eq('provider_subscription_id', providerSubscription.id)
     .maybeSingle();
+
+  const existingMetadata = existing?.metadata && typeof existing.metadata === 'object'
+    ? { ...(existing.metadata as Record<string, any>) }
+    : {};
 
   const payload = {
     application_id: applicationId,
@@ -318,6 +481,7 @@ async function upsertProviderSubscription(params: {
     trial_end: providerSubscription.auto_recurring?.free_trial ? providerSubscription.auto_recurring?.start_date || null : null,
     provider_metadata: providerSubscription,
     metadata: {
+      ...existingMetadata,
       source: source || 'mercadopago_sync',
       last_synced_at: new Date().toISOString(),
     },
@@ -487,10 +651,10 @@ export async function createLocalPlanSubscription(params: {
   const hasTrial = trialDays > 0;
 
   const currentPeriodStart = now.toISOString();
-  const currentPeriodEnd = calculatePeriodEnd(plan, now);
   const trialEnd = hasTrial
     ? new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000).toISOString()
     : null;
+  const currentPeriodEnd = trialEnd || calculatePeriodEnd(plan, now);
 
   const status = hasTrial ? 'trialing' : (price === 0 ? 'active' : 'pending');
 
@@ -591,8 +755,19 @@ export async function ensureSelectedPlanSubscription(params: {
   tenantId?: string | null;
   appUserId?: string | null;
   payerEmail?: string | null;
+  context?: 'initial_registration' | 'runtime_access';
+  source?: string;
 }) {
-  const { supabase, application, selectedPlanId, tenantId, appUserId, payerEmail } = params;
+  const {
+    supabase,
+    application,
+    selectedPlanId,
+    tenantId,
+    appUserId,
+    payerEmail,
+    context = 'runtime_access',
+    source,
+  } = params;
   const config = normalizeMercadoPagoConfig(application.billing_config || {});
   if (!config.enabled || !config.autoAssignDefaultPlan) {
     return null;
@@ -605,18 +780,43 @@ export async function ensureSelectedPlanSubscription(params: {
 
   if (!targetPlan) return null;
 
-  const canProvisionAutomatically = Number(targetPlan.price || 0) === 0 || Number(targetPlan.trial_days || 0) > 0;
+  const price = Number(targetPlan.price || 0);
+  const trialDays = Number(targetPlan.trial_days || 0);
+  const hasTrial = trialDays > 0;
+  const trialUsage = await getScopedTrialUsage({
+    supabase,
+    applicationId: application.id,
+    tenantId,
+    appUserId,
+  });
+  const allowInitialTrial = context === 'initial_registration' && hasTrial && !trialUsage.consumed;
+  const canProvisionAutomatically = price === 0 || allowInitialTrial;
   if (!canProvisionAutomatically) return null;
 
-  return createLocalPlanSubscription({
+  const subscription = await createLocalPlanSubscription({
     supabase,
     applicationId: application.id,
     plan: targetPlan,
     tenantId,
     appUserId,
     payerEmail,
-    source: 'default_plan_assignment',
+    source: source || (allowInitialTrial ? 'initial_plan_trial' : 'default_plan_assignment'),
   });
+
+  if (allowInitialTrial) {
+    await markTrialConsumedForScope({
+      supabase,
+      scope: trialUsage.scope,
+      id: trialUsage.id,
+      metadata: trialUsage.metadata,
+      billing: trialUsage.billing,
+      planId: targetPlan.id,
+      trialEnd: subscription?.trial_end || null,
+      source: source || 'initial_plan_trial',
+    });
+  }
+
+  return subscription;
 }
 
 export async function resolveApplicationBillingAccess(params: {
@@ -628,7 +828,10 @@ export async function resolveApplicationBillingAccess(params: {
   const { supabase, application, appUser, tenantId } = params;
   const billingConfig = normalizeMercadoPagoConfig(application.billing_config || {});
   const plans = await getActivePlans(supabase, application.id);
-  const baseAvailablePlans = plans.map((plan) => buildAvailablePlan(plan, { backUrl: billingConfig.backUrl || null }));
+  const baseAvailablePlans = plans.map((plan) => buildAvailablePlan(plan, {
+    backUrl: billingConfig.backUrl || null,
+    managedCheckout: true,
+  }));
 
   if (!billingConfig.enabled) {
     return {
@@ -679,6 +882,8 @@ export async function resolveApplicationBillingAccess(params: {
       tenantId,
       appUserId: appUser.id,
       payerEmail: appUser.email || null,
+      context: 'runtime_access',
+      source: 'runtime_access_resolution',
     });
     if (provisioned) {
       subscription = provisioned;
@@ -691,12 +896,20 @@ export async function resolveApplicationBillingAccess(params: {
       backUrl: billingConfig.backUrl || null,
       currentPlanId: planRecord?.id || null,
       currentPlanPrice: Number(planRecord?.price || 0),
+      managedCheckout: true,
     })
   );
   const entitlements = planRecord ? normalizeEntitlements(planRecord) : { features: [] };
   const periodEnd = subscription?.current_period_end ? new Date(subscription.current_period_end) : null;
+  const trialEnd = subscription?.trial_end ? new Date(subscription.trial_end) : null;
+  const effectiveEnd = String(subscription?.status || '').toLowerCase() === 'trialing' && trialEnd
+    ? trialEnd
+    : periodEnd;
   const subscriptionActive = subscription
-    ? isBillableSubscriptionActive(subscription.status) && (!periodEnd || periodEnd >= new Date())
+    ? isBillableSubscriptionActive(subscription.status) && (!effectiveEnd || effectiveEnd >= new Date())
+    : false;
+  const subscriptionCancellable = subscription
+    ? isBillableSubscriptionCancellable(subscription.status)
     : false;
 
   const hasAccess = plans.length === 0
@@ -722,6 +935,7 @@ export async function resolveApplicationBillingAccess(params: {
           current_period_end: subscription.current_period_end || null,
           next_payment_date: subscription.next_payment_date || null,
           trial_end: subscription.trial_end || null,
+          can_cancel: subscriptionCancellable,
           entitlements,
           metadata: subscription.metadata || {},
         }
@@ -735,4 +949,8 @@ export async function resolveApplicationBillingAccess(params: {
       plan_required: billingConfig.requirePlanForAccess,
     },
   };
+}
+
+export function isBillableSubscriptionCancellable(status: string | null | undefined) {
+  return CANCELLABLE_SUBSCRIPTION_STATUSES.includes((status || '').toLowerCase());
 }

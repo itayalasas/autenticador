@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
 import { ensureSelectedPlanSubscription } from '../_shared/application-billing.ts';
+import { buildEnvironmentScopedMetadata, normalizeEnvironmentName } from '../_shared/environment-access.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -139,7 +140,8 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const tenantMetadata: Record<string, any> = { ...(metadata || {}) };
+    const tenantEnvironment = normalizeEnvironmentName((apiKeyData as any).environment || null);
+    const tenantMetadata: Record<string, any> = buildEnvironmentScopedMetadata(metadata || {}, tenantEnvironment);
     if (plan_id) tenantMetadata.plan_id = plan_id;
 
     // Create the tenant
@@ -182,6 +184,8 @@ Deno.serve(async (req: Request) => {
           selectedPlanId: syncPlanId || null,
           tenantId: tenant.id,
           payerEmail: null,
+          context: 'initial_registration',
+          source: 'tenant_registration_trial',
         });
 
         subscriptionSync.attempted = !!syncPlanId;
@@ -244,6 +248,7 @@ Deno.serve(async (req: Request) => {
           slug: tenant.slug,
           domain: tenant.domain,
           status: tenant.status,
+          environment: tenantEnvironment,
           metadata: tenant.metadata,
           created_at: tenant.created_at,
           application: {

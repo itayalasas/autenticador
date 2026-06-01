@@ -10,6 +10,23 @@ export interface MercadoPagoBillingConfig {
   requirePlanForAccess: boolean;
 }
 
+export class MercadoPagoApiError extends Error {
+  status: number;
+  responseBody: unknown;
+
+  constructor(status: number, responseBody: unknown, fallbackMessage?: string) {
+    const resolvedMessage =
+      typeof responseBody === 'object' && responseBody && 'message' in responseBody
+        ? `Mercado Pago ${status}: ${String((responseBody as { message?: unknown }).message || fallbackMessage || 'Unknown error')}`
+        : `Mercado Pago ${status}: ${fallbackMessage || 'Unknown error'}`;
+
+    super(resolvedMessage);
+    this.name = 'MercadoPagoApiError';
+    this.status = status;
+    this.responseBody = responseBody;
+  }
+}
+
 export interface ApplicationBillingPlanRecord {
   application_billing_plan_features?: Array<{
     id?: string;
@@ -128,6 +145,56 @@ export function buildMercadoPagoPlanPayload(
   };
 }
 
+export function buildMercadoPagoPendingSubscriptionPayload(
+  plan: ApplicationBillingPlanRecord,
+  options: {
+    backUrl: string;
+    externalReference: string;
+    payerEmail?: string | null;
+    reason?: string | null;
+    includeFreeTrial?: boolean;
+    status?: 'pending' | 'authorized';
+  },
+) {
+  const price = Number(plan.price || 0);
+  const intervalCount = Number(plan.interval_count || 1);
+  const trialDays = Number(plan.trial_days || 0);
+  const repetitions = plan.repetitions ? Number(plan.repetitions) : undefined;
+  const billingDay = plan.billing_day ? Number(plan.billing_day) : undefined;
+
+  const autoRecurring: Record<string, unknown> = {
+    frequency: intervalCount,
+    frequency_type: `${plan.interval}s`,
+    transaction_amount: price,
+    currency_id: plan.currency || 'UYU',
+  };
+
+  if (repetitions && repetitions > 0) {
+    autoRecurring.repetitions = repetitions;
+  }
+
+  if (billingDay && billingDay >= 1 && billingDay <= 28) {
+    autoRecurring.billing_day = billingDay;
+    autoRecurring.billing_day_proportional = false;
+  }
+
+  if (options.includeFreeTrial === true && trialDays > 0) {
+    autoRecurring.free_trial = {
+      frequency: trialDays,
+      frequency_type: 'days',
+    };
+  }
+
+  return {
+    reason: String(options.reason || plan.name || 'Subscription').trim(),
+    external_reference: options.externalReference,
+    payer_email: options.payerEmail || undefined,
+    auto_recurring: autoRecurring,
+    back_url: options.backUrl,
+    status: options.status || 'pending',
+  };
+}
+
 export async function mercadoPagoRequest(
   config: MercadoPagoBillingConfig,
   method: 'GET' | 'POST' | 'PUT',
@@ -166,11 +233,7 @@ export async function mercadoPagoRequest(
   }
 
   if (!response.ok) {
-    throw new Error(
-      typeof data === 'object' && data?.message
-        ? `Mercado Pago ${response.status}: ${data.message}`
-        : `Mercado Pago ${response.status}: ${text || 'Unknown error'}`
-    );
+    throw new MercadoPagoApiError(response.status, data, text || 'Unknown error');
   }
 
   return data;

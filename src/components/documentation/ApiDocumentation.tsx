@@ -172,15 +172,22 @@ if (data.success) {
   localStorage.setItem('access_token', data.data.access_token);
   localStorage.setItem('refresh_token', data.data.refresh_token);
 
-  // Guardar información del usuario y permisos
-  localStorage.setItem('user', JSON.stringify(data.data.user));
+  const claims = JSON.parse(atob(data.data.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
 
-  console.log('Login exitoso:', data.data.user);
-  console.log('Rol del usuario:', data.data.user.role);
-  console.log('Permisos:', data.data.user.permissions);
+  localStorage.setItem('user', JSON.stringify({
+    id: claims.sub,
+    email: claims.email,
+    name: claims.name,
+    role: claims.role,
+    permissions: claims.permissions,
+    permissions_hierarchy: claims.permissions_hierarchy
+  }));
 
-  // Ejemplo: Verificar si el usuario puede crear en dashboard
-  if (data.data.user.permissions.dashboard?.includes('create')) {
+  console.log('Login exitoso:', claims.email);
+  console.log('Rol del usuario:', claims.role);
+  console.log('Permisos:', claims.permissions);
+
+  if (claims.permissions?.dashboard?.includes('create')) {
     console.log('Usuario puede crear en dashboard');
   }
 } else {
@@ -684,8 +691,10 @@ const response = await fetch('${baseUrl}/functions/v1/auth-register', {
 const data = await response.json();
 
 if (data.success) {
-  console.log('Registro exitoso:', data.data.user);
   localStorage.setItem('access_token', data.data.access_token);
+  localStorage.setItem('refresh_token', data.data.refresh_token);
+  const claims = JSON.parse(atob(data.data.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+  console.log('Registro exitoso:', claims.email);
 } else {
   console.error('Error:', data.error.message);
 }`,

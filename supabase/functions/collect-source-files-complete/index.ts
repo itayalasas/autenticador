@@ -724,13 +724,40 @@ function PublicAuthForms({
 
           // Guardar tokens en localStorage para desarrollo
           if (result.data.access_token) {
+            const tokenParts = String(result.data.access_token || '').split('.');
+            const normalized = (tokenParts[1] || '').replace(/-/g, '+').replace(/_/g, '/');
+            const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+            const claims = tokenParts.length === 3 ? JSON.parse(atob(padded)) : {};
+
             localStorage.setItem('auth_token', result.data.access_token);
             localStorage.setItem('refresh_token', result.data.refresh_token);
-            localStorage.setItem('user_data', JSON.stringify(result.data.user));
+            localStorage.setItem('user_data', JSON.stringify({
+              id: claims.sub || '',
+              email: claims.email || '',
+              name: claims.name || '',
+              role: claims.role || 'user',
+              roles: Array.isArray(claims.roles) ? claims.roles : (claims.role ? [claims.role] : ['user']),
+              permissions: claims.permissions || {},
+              permissions_hierarchy: claims.permissions_hierarchy || {},
+              metadata: claims.user_metadata || {},
+              created_at: claims.user_created_at || null,
+              tenant: claims.tenant || null,
+              subscription: claims.subscription || null,
+              license: claims.license || null,
+              has_access: claims.has_access,
+              available_plans: claims.available_plans || [],
+              environment: claims.environment || null,
+            }));
+            localStorage.setItem('application_data', JSON.stringify({
+              id: claims.app_id || APPLICATION_ID,
+              name: claims.app_name || '',
+              domain: claims.app_domain || '',
+              environment: claims.environment || null,
+            }));
 
             console.log('💾 Tokens guardados en localStorage:', {
               access_token: result.data.access_token.substring(0, 20) + '...',
-              user: result.data.user
+              user_email: claims.email || null
             });
           }
         }
@@ -2633,7 +2660,7 @@ export const applicationService = {
       const ipToCheck = clientIp || await this.getClientIP();
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      const apiUrl = \\`\\${supabaseUrl}/functions/v1/check-ip-status\\`;
+      const apiUrl = \`\\${supabaseUrl}/functions/v1/check-ip-status\`;
 
       console.log('🔍 Checking IP status for:', ipToCheck);
 
@@ -2641,7 +2668,7 @@ export const applicationService = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': \\`Bearer \\${supabaseAnonKey}\\`,
+          'Authorization': \`Bearer \\${supabaseAnonKey}\`,
           'apikey': supabaseAnonKey
         },
         body: JSON.stringify({ client_ip: ipToCheck })

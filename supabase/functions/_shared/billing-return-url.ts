@@ -21,6 +21,8 @@ function collectMetadataUrls(application: Record<string, any>) {
   };
 
   addUrl(application?.domain);
+  addUrl(application?.billing_config?.mercado_pago_back_url);
+  addUrl(application?.billing_config?.back_url);
 
   const allowedCallbackUrls = Array.isArray(metadata.allowed_callback_urls)
     ? metadata.allowed_callback_urls

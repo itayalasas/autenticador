@@ -13,6 +13,8 @@ import { getReactProjectFiles } from '../../utils/netlifyReactProjectHelper';
 import {
   applyAzureContainerAppsDeploymentFiles,
   buildAzureCredentialsSecretPayload,
+  buildDeployCallbackSecretName,
+  buildAzureOidcSecretPayload,
   buildDefaultContainerAppName,
 } from '../../utils/azureContainerAppsDeploymentHelper';
 import { deploymentService } from '../../services/deploymentService';
@@ -916,6 +918,8 @@ export default function EnvironmentsManager() {
     if (!azureConfig) {
       throw new Error('Azure Container Apps no está configurado en Conectores.');
     }
+    const azureAuthMode = azureConfig.auth_mode === 'oidc' ? 'oidc' : 'service_principal';
+    const azureOidcAudience = azureConfig.oidc_audience?.trim() || 'api://AzureADTokenExchange';
 
     const containerAppName = binding?.azure_container_app_name
       || buildDefaultContainerAppName(selectedApplication.name || selectedApplication.domain || 'auth-forms', environmentName);
@@ -923,8 +927,43 @@ export default function EnvironmentsManager() {
     const location = binding?.azure_location || azureConfig.location;
     const containerAppsEnvironment = binding?.azure_containerapps_environment || azureConfig.containerapps_environment || `${containerAppName}-env`;
     const createIfMissing = binding?.azure_create_if_missing ?? true;
-    const deployCallbackToken = (environment.metadata as any)?.deploy_callback_token
+    const { data: latestEnvironmentRecord } = await supabase
+      .from('environments')
+      .select('metadata')
+      .eq('id', environmentId)
+      .maybeSingle();
+    const uiEnvironmentMetadata = ((environment.metadata as any) || {});
+    const latestEnvironmentMetadata = ((latestEnvironmentRecord?.metadata as any) || {});
+    const persistedEnvironmentMetadata = {
+      ...uiEnvironmentMetadata,
+      ...latestEnvironmentMetadata,
+    };
+    const latestPersistedDeployToken = String(latestEnvironmentMetadata?.deploy_callback_token || '').trim();
+    const staleUiDeployToken = String(uiEnvironmentMetadata?.deploy_callback_token || '').trim();
+    const previousDeployTokens = Array.isArray(persistedEnvironmentMetadata?.deploy_callback_previous_tokens)
+      ? persistedEnvironmentMetadata.deploy_callback_previous_tokens
+        .filter((token: unknown) => typeof token === 'string' && token.trim().length > 0)
+        .map((token: string) => token.trim())
+      : [];
+    const deployCallbackToken = latestPersistedDeployToken
       || `${crypto.randomUUID().replace(/-/g, '')}${crypto.randomUUID().replace(/-/g, '')}`;
+    const deployCallbackPreviousTokens = Array.from(new Set([
+      ...previousDeployTokens,
+      ...(staleUiDeployToken && staleUiDeployToken !== deployCallbackToken ? [staleUiDeployToken] : []),
+    ])).slice(-5);
+    const deployCallbackSecretName = buildDeployCallbackSecretName(environmentName);
+    const queuedEnvironmentMetadata = {
+      ...persistedEnvironmentMetadata,
+      deploy_callback_token: deployCallbackToken,
+      deploy_callback_previous_tokens: deployCallbackPreviousTokens,
+      deployment_provider: 'azure_container_apps',
+      azure_container_app_name: containerAppName,
+      azure_resource_group: resourceGroup,
+      azure_location: location,
+      azure_containerapps_environment: containerAppsEnvironment,
+      api_key: apiKey,
+      deployment_status: 'queued',
+    };
 
     addLog(`   Proveedor: Azure Container Apps`, 'success');
     addLog(`   Container App: ${containerAppName}`, 'info');
@@ -932,6 +971,8 @@ export default function EnvironmentsManager() {
     addLog(`   Región: ${location}`, 'info');
     addLog(`   ACA Environment: ${containerAppsEnvironment}`, 'info');
     addLog(`   Branch: ${deployBranch}`, 'info');
+    addLog(`   Auth mode: ${azureAuthMode === 'oidc' ? 'OIDC' : 'Service Principal (legacy)'}`, 'info');
+    addLog(`   Callback secret: ${deployCallbackSecretName}`, 'info');
     addLog('   Prerrequisito único: la suscripción debe tener Microsoft.App y Microsoft.OperationalInsights registrados por un administrador.', 'warning');
     addLog('   El ACA Environment se crea sin Log Analytics por defecto para evitar permisos extra sobre Operational Insights.', 'info');
     addLog('   Cuando GitHub Actions termine, AuthSystem sincronizará automáticamente la URL Base real del deploy.', 'info');
@@ -939,15 +980,7 @@ export default function EnvironmentsManager() {
 
     await applicationService.updateEnvironment(environmentId, {
       metadata: {
-        ...(environment.metadata || {}),
-        deploy_callback_token: deployCallbackToken,
-        deployment_provider: 'azure_container_apps',
-        azure_container_app_name: containerAppName,
-        azure_resource_group: resourceGroup,
-        azure_location: location,
-        azure_containerapps_environment: containerAppsEnvironment,
-        api_key: apiKey,
-        deployment_status: 'queued',
+        ...queuedEnvironmentMetadata,
       }
     });
 
@@ -961,21 +994,64 @@ export default function EnvironmentsManager() {
       location,
       containerAppsEnvironment,
       createIfMissing,
+      azureAuthMode,
+      azureOidcAudience,
     });
 
     addLog(`📦 Archivos finales con overlay Azure: ${Object.keys(deployFiles).length}`, 'success');
-    addLog('🔐 Sincronizando secreto AZURE_CREDENTIALS en GitHub Actions...', 'info');
+    addLog(
+      azureAuthMode === 'oidc'
+        ? '🔐 Sincronizando credenciales OIDC de Azure en GitHub Actions...'
+        : '🔐 Sincronizando secreto AZURE_CREDENTIALS en GitHub Actions...',
+      'info'
+    );
 
-    const secretsResult = await githubService.syncRepositorySecrets(repo.repo_full_name, {
-      AZURE_CREDENTIALS: buildAzureCredentialsSecretPayload(azureConfig),
-      AUTHSYSTEM_DEPLOY_CALLBACK_TOKEN: deployCallbackToken,
+    const criticalDeployFiles = ['server.mjs', 'Dockerfile', '.dockerignore'];
+    const missingCriticalFiles = criticalDeployFiles.filter((filePath) => !(filePath in deployFiles));
+    const workflowFiles = Object.keys(deployFiles).filter((filePath) => filePath.startsWith('.github/workflows/'));
+
+    if (missingCriticalFiles.length > 0 || workflowFiles.length === 0) {
+      throw new Error(
+        `El overlay de Azure no genero todos los archivos requeridos. ` +
+        `Faltan: ${missingCriticalFiles.join(', ') || 'ninguno'}. ` +
+        `Workflows detectados: ${workflowFiles.length}.`
+      );
+    }
+
+    addLog('Archivos clave que se subiran al repositorio:', 'info');
+    criticalDeployFiles.forEach((filePath) => {
+      addLog(`   - ${filePath}`, 'info');
     });
+    workflowFiles.forEach((filePath) => {
+      addLog(`   - ${filePath}`, 'info');
+    });
+    addLog('', 'info');
+
+    const secretsResult = await githubService.syncRepositorySecrets(
+      repo.repo_full_name,
+      azureAuthMode === 'oidc'
+        ? {
+            ...buildAzureOidcSecretPayload(azureConfig),
+            AUTHSYSTEM_DEPLOY_CALLBACK_TOKEN: deployCallbackToken,
+            [deployCallbackSecretName]: deployCallbackToken,
+          }
+        : {
+            AZURE_CREDENTIALS: buildAzureCredentialsSecretPayload(azureConfig),
+            AUTHSYSTEM_DEPLOY_CALLBACK_TOKEN: deployCallbackToken,
+            [deployCallbackSecretName]: deployCallbackToken,
+          }
+    );
 
     if (!secretsResult.success) {
       throw new Error(secretsResult.error || 'No se pudieron sincronizar los secretos de GitHub Actions.');
     }
 
-    addLog('✅ Secreto AZURE_CREDENTIALS sincronizado', 'success');
+    addLog(
+      azureAuthMode === 'oidc'
+        ? '✅ Credenciales OIDC de Azure sincronizadas'
+        : '✅ Secreto AZURE_CREDENTIALS sincronizado',
+      'success'
+    );
     addLog('📤 Subiendo workflow y código al repositorio...', 'info');
 
     const commitResult = await githubService.commitAndPush(
@@ -1001,17 +1077,11 @@ export default function EnvironmentsManager() {
       auth_url: environment.auth_url,
       callback_url: fallbackCallbackUrl,
       metadata: {
-        ...(environment.metadata || {}),
+        ...queuedEnvironmentMetadata,
         github_repo: repo.repo_full_name,
-        deployment_provider: 'azure_container_apps',
-        azure_container_app_name: containerAppName,
-        azure_resource_group: resourceGroup,
-        azure_location: location,
-        azure_containerapps_environment: containerAppsEnvironment,
         last_commit: commitResult.sha,
         last_deploy: new Date().toISOString(),
         deployment_status: 'deploying',
-        api_key: apiKey,
       }
     });
 

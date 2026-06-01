@@ -1,8 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.43.2";
 import bcrypt from "npm:bcryptjs@2.4.3";
-import { create, getNumericDate } from "https://deno.land/x/djwt@v2.8/mod.ts";
 import { buildRedirectUrl, resolveApplicationAuthUrl } from "../_shared/application-auth-url.ts";
+import { issueAuthTokens, resolveApplicationJwtSecret } from "../_shared/auth-jwt.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -18,37 +18,28 @@ interface ResetPasswordConfirmRequest {
   api_key: string;
 }
 
-async function generateAuthTokens(userId: string, applicationId: string, jwtSecret: string) {
-  const encoder = new TextEncoder();
-  const keyData = encoder.encode(jwtSecret);
-  const key = await crypto.subtle.importKey(
-    "raw",
-    keyData,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign", "verify"]
+async function generateAuthTokens(
+  userId: string,
+  applicationId: string,
+  jwtSecret: string,
+  options: { email?: string; appName?: string; appDomain?: string } = {},
+) {
+  return await issueAuthTokens(
+    jwtSecret,
+    {
+      sub: userId,
+      email: options.email,
+      app_id: applicationId,
+      app_name: options.appName,
+      app_domain: options.appDomain,
+      iss: "AuthSystem",
+      aud: options.appDomain || applicationId,
+    },
+    {
+      accessTtlSeconds: 60 * 60,
+      refreshTtlSeconds: 60 * 60 * 24 * 30,
+    },
   );
-
-  const accessTokenPayload = {
-    sub: userId,
-    app_id: applicationId,
-    type: "access",
-    exp: getNumericDate(60 * 60), // 1 hour
-    iat: getNumericDate(0),
-  };
-
-  const refreshTokenPayload = {
-    sub: userId,
-    app_id: applicationId,
-    type: "refresh",
-    exp: getNumericDate(60 * 60 * 24 * 30), // 30 days
-    iat: getNumericDate(0),
-  };
-
-  const accessToken = await create({ alg: "HS256", typ: "JWT" }, accessTokenPayload, key);
-  const refreshToken = await create({ alg: "HS256", typ: "JWT" }, refreshTokenPayload, key);
-
-  return { accessToken, refreshToken };
 }
 
 Deno.serve(async (req) => {
@@ -342,12 +333,22 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     let authTokens: any = null;
-    if (appData?.jwt_secret) {
+    if (appData?.application_id) {
       try {
+        const jwtSecret = await resolveApplicationJwtSecret(
+          supabase,
+          appUser.application_id,
+          appData.jwt_secret,
+        );
         const tokens = await generateAuthTokens(
           appUser.id,
-          appUser.application_id,
-          appData.jwt_secret
+          appData.application_id,
+          jwtSecret,
+          {
+            email: appUser.email,
+            appName: appData.name,
+            appDomain: appData.domain,
+          }
         );
 
         authTokens = {
