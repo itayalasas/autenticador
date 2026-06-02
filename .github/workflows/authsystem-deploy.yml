@@ -1,0 +1,44 @@
+name: Deploy AuthSystem
+
+on:
+  push:
+    branches:
+      - dev
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AUTHSYSTEM_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AUTHSYSTEM_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AUTHSYSTEM_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build Image
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            az acr build \
+              --registry functionplatform \
+              --resource-group WebAyalaIT \
+              --file Dockerfile \
+              --image authsystem:${{ github.sha }} \
+              .
+
+      - name: Deploy
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            az containerapp update \
+              --name authsystem \
+              --resource-group WebAyalaIT \
+              --image functionplatform-e7hxf6akdfh2dder.azurecr.io/authsystem:${{ github.sha }}
