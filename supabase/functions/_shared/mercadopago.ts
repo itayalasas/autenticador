@@ -8,7 +8,10 @@ export interface MercadoPagoBillingConfig {
   autoSyncOnLogin: boolean;
   autoAssignDefaultPlan: boolean;
   requirePlanForAccess: boolean;
+  environmentName: string | null;
 }
+
+export type BillingEnvironmentName = 'development' | 'testing' | 'production';
 
 export class MercadoPagoApiError extends Error {
   status: number;
@@ -69,6 +72,25 @@ export interface ApplicationBillingPlanRecord {
   metadata?: Record<string, unknown> | null;
 }
 
+function normalizeObject(value: unknown): Record<string, any> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? { ...(value as Record<string, any>) }
+    : {};
+}
+
+export function normalizeBillingEnvironmentName(value: unknown): BillingEnvironmentName | string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  return normalized;
+}
+
 function normalizeBoolean(value: unknown, fallback = false): boolean {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'string') {
@@ -77,8 +99,30 @@ function normalizeBoolean(value: unknown, fallback = false): boolean {
   return fallback;
 }
 
-export function normalizeMercadoPagoConfig(raw: Record<string, any> | null | undefined): MercadoPagoBillingConfig {
-  const config = raw || {};
+export function resolveBillingConfigForEnvironment(
+  raw: Record<string, any> | null | undefined,
+  environmentName?: string | null,
+) {
+  const config = normalizeObject(raw);
+  const normalizedEnvironment = normalizeBillingEnvironmentName(environmentName);
+  const environments = normalizeObject(config.environments);
+  const environmentOverride = normalizedEnvironment
+    ? normalizeObject(environments[normalizedEnvironment])
+    : {};
+
+  return {
+    ...config,
+    ...environmentOverride,
+    environments,
+    environmentName: normalizedEnvironment,
+  };
+}
+
+export function normalizeMercadoPagoConfig(
+  raw: Record<string, any> | null | undefined,
+  environmentName?: string | null,
+): MercadoPagoBillingConfig {
+  const config = resolveBillingConfigForEnvironment(raw, environmentName);
   return {
     enabled: normalizeBoolean(config.enabled, false),
     provider: 'mercadopago',
@@ -97,6 +141,70 @@ export function normalizeMercadoPagoConfig(raw: Record<string, any> | null | und
     autoSyncOnLogin: normalizeBoolean(config.auto_sync_on_login, true),
     autoAssignDefaultPlan: normalizeBoolean(config.auto_assign_default_plan, true),
     requirePlanForAccess: normalizeBoolean(config.require_plan_for_access, true),
+    environmentName: normalizeBillingEnvironmentName(environmentName),
+  };
+}
+
+export function resolvePlanProviderState(
+  plan: ApplicationBillingPlanRecord,
+  environmentName?: string | null,
+) {
+  const metadata = normalizeObject(plan.metadata);
+  const providerByEnvironment = normalizeObject(metadata.provider_by_environment);
+  const normalizedEnvironment = normalizeBillingEnvironmentName(environmentName);
+  const environmentProviderState = normalizedEnvironment
+    ? normalizeObject(providerByEnvironment[normalizedEnvironment])
+    : {};
+
+  return {
+    provider: String(environmentProviderState.provider || plan.provider || 'mercadopago'),
+    provider_plan_id: String(environmentProviderState.provider_plan_id || plan.provider_plan_id || '').trim() || null,
+    provider_status: String(environmentProviderState.provider_status || plan.provider_status || '').trim() || null,
+    provider_init_point: String(environmentProviderState.provider_init_point || plan.provider_init_point || '').trim() || null,
+    provider_metadata:
+      environmentProviderState.provider_metadata && typeof environmentProviderState.provider_metadata === 'object'
+        ? { ...(environmentProviderState.provider_metadata as Record<string, unknown>) }
+        : (plan.provider_metadata && typeof plan.provider_metadata === 'object'
+          ? { ...(plan.provider_metadata as Record<string, unknown>) }
+          : null),
+    environmentName: normalizedEnvironment,
+  };
+}
+
+export function buildPlanProviderUpdatePayload(params: {
+  plan: ApplicationBillingPlanRecord;
+  providerResponse: Record<string, any>;
+  environmentName?: string | null;
+  provider?: string | null;
+}) {
+  const { plan, providerResponse, environmentName, provider } = params;
+  const normalizedEnvironment = normalizeBillingEnvironmentName(environmentName);
+  const metadata = normalizeObject(plan.metadata);
+  const providerByEnvironment = normalizeObject(metadata.provider_by_environment);
+  const syncedAt = new Date().toISOString();
+  const nextProvider = String(provider || plan.provider || 'mercadopago').trim() || 'mercadopago';
+
+  if (normalizedEnvironment) {
+    providerByEnvironment[normalizedEnvironment] = {
+      provider: nextProvider,
+      provider_plan_id: providerResponse.id || null,
+      provider_status: providerResponse.status || null,
+      provider_init_point: providerResponse.init_point || null,
+      provider_metadata: providerResponse || {},
+      synced_at: syncedAt,
+    };
+  }
+
+  return {
+    provider: nextProvider,
+    provider_plan_id: providerResponse.id || null,
+    provider_status: providerResponse.status || null,
+    provider_init_point: providerResponse.init_point || null,
+    provider_metadata: providerResponse || {},
+    metadata: {
+      ...metadata,
+      provider_by_environment: providerByEnvironment,
+    },
   };
 }
 

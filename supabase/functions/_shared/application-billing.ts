@@ -4,6 +4,8 @@ import {
   mapMercadoPagoSubscriptionStatus,
   mercadoPagoRequest,
   normalizeMercadoPagoConfig,
+  normalizeBillingEnvironmentName,
+  resolvePlanProviderState,
 } from './mercadopago.ts';
 
 const ACTIVE_SUBSCRIPTION_STATUSES = ['active', 'authorized', 'trialing'];
@@ -129,10 +131,12 @@ export function buildAvailablePlan(
     currentPlanId?: string | null;
     currentPlanPrice?: number;
     managedCheckout?: boolean;
+    environmentName?: string | null;
   } = {},
 ) {
   const price = Number(plan.price || 0);
-  const providerCheckoutUrl = plan.provider_init_point || (plan.provider_metadata as any)?.init_point || null;
+  const providerState = resolvePlanProviderState(plan, options.environmentName);
+  const providerCheckoutUrl = providerState.provider_init_point || (providerState.provider_metadata as any)?.init_point || null;
   const managedCheckout = options.managedCheckout === true;
   const checkoutUrl = managedCheckout ? null : providerCheckoutUrl;
   const intervalCount = Number(plan.interval_count || 1);
@@ -158,10 +162,10 @@ export function buildAvailablePlan(
     sort_order: Number(plan.sort_order || 0),
     features: normalizeFeatures(plan.features),
     entitlements,
-    provider: plan.provider || 'mercadopago',
-    provider_plan_id: plan.provider_plan_id || null,
-    provider_status: plan.provider_status || null,
-    plan_token: plan.provider_plan_id || plan.id,
+    provider: providerState.provider || 'mercadopago',
+    provider_plan_id: providerState.provider_plan_id || null,
+    provider_status: providerState.provider_status || null,
+    plan_token: providerState.provider_plan_id || plan.id,
     managed_checkout: managedCheckout,
     requires_checkout_session: managedCheckout,
     provider_checkout_url: providerCheckoutUrl,
@@ -177,8 +181,9 @@ export function buildAvailablePlan(
       : 0,
     mp_init_point: checkoutUrl,
     mp_back_url: options.backUrl || null,
-    mp_preapproval_plan_id: plan.provider_plan_id || null,
-    mp_status: plan.provider_status || null,
+    mp_preapproval_plan_id: providerState.provider_plan_id || null,
+    mp_status: providerState.provider_status || null,
+    billing_environment: providerState.environmentName || null,
   };
 }
 
@@ -440,6 +445,7 @@ async function upsertProviderSubscription(params: {
   payerEmail: string;
   providerSubscription: Record<string, any>;
   source?: string;
+  environmentName?: string | null;
 }) {
   const {
     supabase,
@@ -450,9 +456,12 @@ async function upsertProviderSubscription(params: {
     payerEmail,
     providerSubscription,
     source,
+    environmentName,
   } = params;
 
   const currentStatus = mapMercadoPagoSubscriptionStatus(providerSubscription.status);
+  const normalizedEnvironment = normalizeBillingEnvironmentName(environmentName);
+  const planProviderState = resolvePlanProviderState(plan, normalizedEnvironment);
   const { data: existing } = await supabase
     .from('application_plan_subscriptions')
     .select('id, metadata')
@@ -474,7 +483,7 @@ async function upsertProviderSubscription(params: {
     status: currentStatus,
     provider: 'mercadopago',
     provider_subscription_id: providerSubscription.id,
-    provider_plan_id: providerSubscription.preapproval_plan_id || plan.provider_plan_id || null,
+    provider_plan_id: providerSubscription.preapproval_plan_id || planProviderState.provider_plan_id || null,
     next_payment_date: providerSubscription.next_payment_date || null,
     current_period_start: providerSubscription.auto_recurring?.start_date || null,
     current_period_end: providerSubscription.auto_recurring?.end_date || null,
@@ -484,6 +493,7 @@ async function upsertProviderSubscription(params: {
       ...existingMetadata,
       source: source || 'mercadopago_sync',
       last_synced_at: new Date().toISOString(),
+      billing_environment: normalizedEnvironment,
     },
   };
 
@@ -508,6 +518,7 @@ export async function syncMercadoPagoSubscriptionById(params: {
   appUserId?: string | null;
   payerEmail?: string | null;
   source?: string;
+  environmentName?: string | null;
 }) {
   const {
     supabase,
@@ -518,9 +529,11 @@ export async function syncMercadoPagoSubscriptionById(params: {
     appUserId,
     payerEmail,
     source,
+    environmentName,
   } = params;
 
-  const config = normalizeMercadoPagoConfig(application.billing_config || {});
+  const normalizedEnvironment = normalizeBillingEnvironmentName(environmentName);
+  const config = normalizeMercadoPagoConfig(application.billing_config || {}, normalizedEnvironment);
   if (!config.enabled || !config.accessToken || !providerSubscriptionId) {
     return null;
   }
@@ -536,7 +549,10 @@ export async function syncMercadoPagoSubscriptionById(params: {
     (selectedPlanId
       ? activePlans.find((plan) => plan.id === selectedPlanId)
       : null) ||
-    activePlans.find((plan) => plan.provider_plan_id && plan.provider_plan_id === providerSubscription?.preapproval_plan_id) ||
+    activePlans.find((plan) => {
+      const providerState = resolvePlanProviderState(plan, normalizedEnvironment);
+      return providerState.provider_plan_id && providerState.provider_plan_id === providerSubscription?.preapproval_plan_id;
+    }) ||
     null
   );
 
@@ -563,6 +579,7 @@ export async function syncMercadoPagoSubscriptionById(params: {
     payerEmail: resolvedEmail,
     providerSubscription,
     source: source || 'mercadopago_checkout',
+    environmentName: normalizedEnvironment,
   });
 
   const subscription = await getScopedSubscription(
@@ -586,16 +603,19 @@ async function syncSubscriptionFromMercadoPago(params: {
   payerEmail: string;
   tenantId?: string | null;
   appUserId?: string | null;
+  environmentName?: string | null;
 }) {
-  const { supabase, application, plans, payerEmail, tenantId, appUserId } = params;
-  const config = normalizeMercadoPagoConfig(application.billing_config || {});
+  const { supabase, application, plans, payerEmail, tenantId, appUserId, environmentName } = params;
+  const normalizedEnvironment = normalizeBillingEnvironmentName(environmentName);
+  const config = normalizeMercadoPagoConfig(application.billing_config || {}, normalizedEnvironment);
 
   if (!config.enabled || !config.accessToken || !config.autoSyncOnLogin || !payerEmail) {
     return null;
   }
 
   for (const plan of plans) {
-    if (!plan.provider_plan_id) continue;
+    const providerState = resolvePlanProviderState(plan, normalizedEnvironment);
+    if (!providerState.provider_plan_id) continue;
 
     try {
       const response = await mercadoPagoRequest(
@@ -605,7 +625,7 @@ async function syncSubscriptionFromMercadoPago(params: {
         {
           query: {
             payer_email: payerEmail,
-            preapproval_plan_id: plan.provider_plan_id,
+            preapproval_plan_id: providerState.provider_plan_id,
           },
         },
       );
@@ -624,6 +644,7 @@ async function syncSubscriptionFromMercadoPago(params: {
         payerEmail,
         providerSubscription: matching,
         source: 'mercadopago_sync',
+        environmentName: normalizedEnvironment,
       });
 
       return matching;
@@ -643,8 +664,11 @@ export async function createLocalPlanSubscription(params: {
   appUserId?: string | null;
   payerEmail?: string | null;
   source?: string;
+  environmentName?: string | null;
 }) {
-  const { supabase, applicationId, plan, tenantId, appUserId, payerEmail, source } = params;
+  const { supabase, applicationId, plan, tenantId, appUserId, payerEmail, source, environmentName } = params;
+  const normalizedEnvironment = normalizeBillingEnvironmentName(environmentName);
+  const planProviderState = resolvePlanProviderState(plan, normalizedEnvironment);
   const now = new Date();
   const price = Number(plan.price || 0);
   const trialDays = Number(plan.trial_days || 0);
@@ -667,8 +691,8 @@ export async function createLocalPlanSubscription(params: {
     payer_email: payerEmail || null,
     external_reference: `${applicationId}:${plan.id}:${tenantId || appUserId || payerEmail || 'scope'}`,
     status,
-    provider: price === 0 ? 'internal' : (plan.provider || 'mercadopago'),
-    provider_plan_id: plan.provider_plan_id || null,
+    provider: price === 0 ? 'internal' : (planProviderState.provider || 'mercadopago'),
+    provider_plan_id: planProviderState.provider_plan_id || null,
     current_period_start: currentPeriodStart,
     current_period_end: currentPeriodEnd,
     trial_end: trialEnd,
@@ -676,6 +700,7 @@ export async function createLocalPlanSubscription(params: {
       source: source || 'auto_provision',
       auto_created: true,
       selected_plan_id: plan.id,
+      billing_environment: normalizedEnvironment,
     },
   };
 
@@ -757,6 +782,7 @@ export async function ensureSelectedPlanSubscription(params: {
   payerEmail?: string | null;
   context?: 'initial_registration' | 'runtime_access';
   source?: string;
+  environmentName?: string | null;
 }) {
   const {
     supabase,
@@ -767,8 +793,10 @@ export async function ensureSelectedPlanSubscription(params: {
     payerEmail,
     context = 'runtime_access',
     source,
+    environmentName,
   } = params;
-  const config = normalizeMercadoPagoConfig(application.billing_config || {});
+  const normalizedEnvironment = normalizeBillingEnvironmentName(environmentName);
+  const config = normalizeMercadoPagoConfig(application.billing_config || {}, normalizedEnvironment);
   if (!config.enabled || !config.autoAssignDefaultPlan) {
     return null;
   }
@@ -801,6 +829,7 @@ export async function ensureSelectedPlanSubscription(params: {
     appUserId,
     payerEmail,
     source: source || (allowInitialTrial ? 'initial_plan_trial' : 'default_plan_assignment'),
+    environmentName: normalizedEnvironment,
   });
 
   if (allowInitialTrial) {
@@ -824,13 +853,16 @@ export async function resolveApplicationBillingAccess(params: {
   application: Record<string, any>;
   appUser: Record<string, any>;
   tenantId?: string | null;
+  environmentName?: string | null;
 }) {
-  const { supabase, application, appUser, tenantId } = params;
-  const billingConfig = normalizeMercadoPagoConfig(application.billing_config || {});
+  const { supabase, application, appUser, tenantId, environmentName } = params;
+  const normalizedEnvironment = normalizeBillingEnvironmentName(environmentName);
+  const billingConfig = normalizeMercadoPagoConfig(application.billing_config || {}, normalizedEnvironment);
   const plans = await getActivePlans(supabase, application.id);
   const baseAvailablePlans = plans.map((plan) => buildAvailablePlan(plan, {
     backUrl: billingConfig.backUrl || null,
     managedCheckout: true,
+    environmentName: normalizedEnvironment,
   }));
 
   if (!billingConfig.enabled) {
@@ -870,6 +902,7 @@ export async function resolveApplicationBillingAccess(params: {
       payerEmail: appUser.email,
       tenantId,
       appUserId: appUser.id,
+      environmentName: normalizedEnvironment,
     });
     subscription = await getScopedSubscription(supabase, application.id, tenantId, appUser.id);
   }
@@ -884,6 +917,7 @@ export async function resolveApplicationBillingAccess(params: {
       payerEmail: appUser.email || null,
       context: 'runtime_access',
       source: 'runtime_access_resolution',
+      environmentName: normalizedEnvironment,
     });
     if (provisioned) {
       subscription = provisioned;
@@ -897,6 +931,7 @@ export async function resolveApplicationBillingAccess(params: {
       currentPlanId: planRecord?.id || null,
       currentPlanPrice: Number(planRecord?.price || 0),
       managedCheckout: true,
+      environmentName: normalizedEnvironment,
     })
   );
   const entitlements = planRecord ? normalizeEntitlements(planRecord) : { features: [] };

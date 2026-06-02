@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
 import { syncMercadoPagoSubscriptionById } from '../_shared/application-billing.ts';
-import { normalizeMercadoPagoConfig } from '../_shared/mercadopago.ts';
+import { normalizeBillingEnvironmentName, normalizeMercadoPagoConfig } from '../_shared/mercadopago.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -104,13 +104,13 @@ Deno.serve(async (req) => {
 
     const { data: checkoutSession } = await supabase
       .from('subscription_checkout_sessions')
-      .select('id, application_id, application_plan_id, tenant_id, app_user_id, payer_email, provider_subscription_id')
+      .select('id, application_id, application_plan_id, tenant_id, app_user_id, payer_email, provider_subscription_id, metadata')
       .eq('provider_subscription_id', dataId)
       .maybeSingle();
 
     const { data: storedSubscription } = await supabase
       .from('application_plan_subscriptions')
-      .select('id, application_id, application_plan_id, tenant_id, app_user_id, payer_email')
+      .select('id, application_id, application_plan_id, tenant_id, app_user_id, payer_email, metadata')
       .eq('provider', 'mercadopago')
       .eq('provider_subscription_id', dataId)
       .maybeSingle();
@@ -128,6 +128,12 @@ Deno.serve(async (req) => {
       }, 202);
     }
 
+    const billingEnvironment = normalizeBillingEnvironmentName(
+      (typeof checkoutSession?.metadata === 'object' ? (checkoutSession.metadata as Record<string, any>)?.billing_environment : null) ||
+      (typeof storedSubscription?.metadata === 'object' ? (storedSubscription.metadata as Record<string, any>)?.billing_environment : null) ||
+      null
+    );
+
     const { data: application, error: applicationError } = await supabase
       .from('applications')
       .select('id, application_id, name, billing_config')
@@ -144,7 +150,7 @@ Deno.serve(async (req) => {
       }, 404);
     }
 
-    const billingConfig = normalizeMercadoPagoConfig(application.billing_config || {});
+    const billingConfig = normalizeMercadoPagoConfig(application.billing_config || {}, billingEnvironment);
     const signatureValid = await verifyWebhookSignature({
       secret: billingConfig.webhookSecret,
       request: req,
@@ -170,6 +176,7 @@ Deno.serve(async (req) => {
       appUserId: checkoutSession?.app_user_id || storedSubscription?.app_user_id || null,
       payerEmail: checkoutSession?.payer_email || storedSubscription?.payer_email || null,
       source: 'mercadopago_webhook',
+      environmentName: billingEnvironment,
     });
 
     if (checkoutSession?.id) {

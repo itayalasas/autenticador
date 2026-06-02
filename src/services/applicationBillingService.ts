@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import {
   ApplicationBillingConfig,
+  BillingEnvironmentName,
   ApplicationBillingFeatureCatalogItem,
   ApplicationBillingPlan,
   ApplicationPlanSubscription,
@@ -462,10 +463,11 @@ export const applicationBillingService = {
     if (error) throw error;
   },
 
-  async syncPlanWithMercadoPago(applicationPlanId: string) {
+  async syncPlanWithMercadoPago(applicationPlanId: string, environment?: BillingEnvironmentName | null) {
     const { data, error } = await supabase.functions.invoke('mercadopago-sync-plan', {
       body: {
         application_plan_id: applicationPlanId,
+        environment: environment || null,
       },
     });
 

@@ -16,8 +16,10 @@ import {
 } from 'lucide-react';
 import {
   ApplicationBillingConfig,
+  ApplicationBillingEnvironmentConfig,
   ApplicationBillingFeatureCatalogItem,
   ApplicationBillingPlan,
+  BillingEnvironmentName,
   BillingFeatureValueType,
 } from '../../types';
 import {
@@ -63,6 +65,83 @@ const EMPTY_FEATURE_DRAFT: PlanEditorFeatureValue = {
   unit: '',
   active: true,
 };
+
+const BILLING_ENVIRONMENTS: BillingEnvironmentName[] = ['development', 'testing', 'production'];
+
+const BILLING_ENVIRONMENT_LABELS: Record<BillingEnvironmentName, string> = {
+  development: 'Development',
+  testing: 'Testing',
+  production: 'Production',
+};
+
+type BillingBooleanConfigKey =
+  | 'enabled'
+  | 'auto_sync_on_login'
+  | 'auto_assign_default_plan'
+  | 'require_plan_for_access';
+
+type BillingTextConfigKey =
+  | 'mercado_pago_access_token'
+  | 'mercado_pago_public_key'
+  | 'mercado_pago_back_url'
+  | 'mercado_pago_webhook_secret';
+
+function createDefaultBillingConfig(): ApplicationBillingConfig {
+  return {
+    enabled: false,
+    provider: 'mercadopago',
+    mercado_pago_access_token: '',
+    mercado_pago_public_key: '',
+    mercado_pago_back_url: '',
+    mercado_pago_webhook_secret: '',
+    auto_sync_on_login: true,
+    auto_assign_default_plan: true,
+    require_plan_for_access: true,
+    environments: {},
+  };
+}
+
+function getEnvironmentOverride(
+  config: ApplicationBillingConfig,
+  environment: BillingEnvironmentName,
+): ApplicationBillingEnvironmentConfig {
+  const environments = config.environments || {};
+  const current = environments[environment];
+  return current && typeof current === 'object' ? { ...current } : {};
+}
+
+function getResolvedEnvironmentTextValue(
+  config: ApplicationBillingConfig,
+  environment: BillingEnvironmentName,
+  key: BillingTextConfigKey,
+) {
+  const override = getEnvironmentOverride(config, environment);
+  const scopedValue = typeof override[key] === 'string' ? override[key] : '';
+  const globalValue = typeof config[key] === 'string' ? config[key] || '' : '';
+
+  return {
+    overrideValue: scopedValue,
+    resolvedValue: scopedValue || globalValue,
+    isOverride: scopedValue.length > 0,
+  };
+}
+
+function getResolvedEnvironmentBooleanValue(
+  config: ApplicationBillingConfig,
+  environment: BillingEnvironmentName,
+  key: BillingBooleanConfigKey,
+  fallback = false,
+) {
+  const override = getEnvironmentOverride(config, environment);
+  const scopedValue = typeof override[key] === 'boolean' ? override[key] : undefined;
+  const globalValue = typeof config[key] === 'boolean' ? config[key] : fallback;
+
+  return {
+    resolvedValue: scopedValue ?? globalValue,
+    isOverride: scopedValue !== undefined,
+    globalValue,
+  };
+}
 
 function slugify(value: string) {
   return value
@@ -185,17 +264,8 @@ export default function ApplicationPlansManager({
   const [savingConfig, setSavingConfig] = useState(false);
   const [savingPlan, setSavingPlan] = useState(false);
   const [syncingPlanId, setSyncingPlanId] = useState<string | null>(null);
-  const [config, setConfig] = useState<ApplicationBillingConfig>({
-    enabled: false,
-    provider: 'mercadopago',
-    mercado_pago_access_token: '',
-    mercado_pago_public_key: '',
-    mercado_pago_back_url: '',
-    mercado_pago_webhook_secret: '',
-    auto_sync_on_login: true,
-    auto_assign_default_plan: true,
-    require_plan_for_access: true,
-  });
+  const [config, setConfig] = useState<ApplicationBillingConfig>(createDefaultBillingConfig());
+  const [selectedBillingEnvironment, setSelectedBillingEnvironment] = useState<BillingEnvironmentName>('production');
   const [plans, setPlans] = useState<ApplicationBillingPlan[]>([]);
   const [featureCatalog, setFeatureCatalog] = useState<ApplicationBillingFeatureCatalogItem[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<EditableApplicationBillingPlan | null>(null);
@@ -209,9 +279,19 @@ export default function ApplicationPlansManager({
   const [creatingCustomFeature, setCreatingCustomFeature] = useState(false);
   const [featureDraft, setFeatureDraft] = useState<PlanEditorFeatureValue>(EMPTY_FEATURE_DRAFT);
 
+  const selectedEnvironmentOverride = useMemo(
+    () => getEnvironmentOverride(config, selectedBillingEnvironment),
+    [config, selectedBillingEnvironment],
+  );
+
+  const selectedEnvironmentAccessToken = useMemo(
+    () => getResolvedEnvironmentTextValue(config, selectedBillingEnvironment, 'mercado_pago_access_token').resolvedValue,
+    [config, selectedBillingEnvironment],
+  );
+
   const hasMercadoPagoConfig = useMemo(() => {
-    return Boolean(config.mercado_pago_access_token?.trim());
-  }, [config.mercado_pago_access_token]);
+    return Boolean(selectedEnvironmentAccessToken.trim());
+  }, [selectedEnvironmentAccessToken]);
 
   const catalogByCode = useMemo(() => {
     return featureCatalog.reduce<Record<string, ApplicationBillingFeatureCatalogItem>>((accumulator, feature) => {
@@ -248,6 +328,17 @@ export default function ApplicationPlansManager({
     return featureCatalog.find((feature) => feature.id === selectedCatalogFeatureId) || null;
   }, [featureCatalog, selectedCatalogFeatureId]);
 
+  const selectedEnvironmentBillingValues = useMemo(() => ({
+    enabled: getResolvedEnvironmentBooleanValue(config, selectedBillingEnvironment, 'enabled', false),
+    autoSyncOnLogin: getResolvedEnvironmentBooleanValue(config, selectedBillingEnvironment, 'auto_sync_on_login', true),
+    autoAssignDefaultPlan: getResolvedEnvironmentBooleanValue(config, selectedBillingEnvironment, 'auto_assign_default_plan', true),
+    requirePlanForAccess: getResolvedEnvironmentBooleanValue(config, selectedBillingEnvironment, 'require_plan_for_access', true),
+    accessToken: getResolvedEnvironmentTextValue(config, selectedBillingEnvironment, 'mercado_pago_access_token'),
+    publicKey: getResolvedEnvironmentTextValue(config, selectedBillingEnvironment, 'mercado_pago_public_key'),
+    returnUrl: getResolvedEnvironmentTextValue(config, selectedBillingEnvironment, 'mercado_pago_back_url'),
+    webhookSecret: getResolvedEnvironmentTextValue(config, selectedBillingEnvironment, 'mercado_pago_webhook_secret'),
+  }), [config, selectedBillingEnvironment]);
+
   const loadData = async (preferredPlanId?: string | null) => {
     try {
       setLoading(true);
@@ -267,6 +358,7 @@ export default function ApplicationPlansManager({
         auto_sync_on_login: billingConfig.auto_sync_on_login ?? true,
         auto_assign_default_plan: billingConfig.auto_assign_default_plan ?? true,
         require_plan_for_access: billingConfig.require_plan_for_access ?? true,
+        environments: billingConfig.environments || {},
       });
       setPlans(billingPlans);
       setFeatureCatalog(billingFeatures);
@@ -308,10 +400,66 @@ export default function ApplicationPlansManager({
     }));
   };
 
+  const handleEnvironmentConfigChange = (
+    environment: BillingEnvironmentName,
+    key: keyof ApplicationBillingEnvironmentConfig,
+    value: string | boolean,
+  ) => {
+    setConfig((current) => {
+      const environments = { ...(current.environments || {}) };
+      const currentOverride = getEnvironmentOverride(current, environment);
+      environments[environment] = {
+        ...currentOverride,
+        [key]: value,
+      };
+
+      return {
+        ...current,
+        environments,
+      };
+    });
+  };
+
+  const clearEnvironmentConfigOverride = (
+    environment: BillingEnvironmentName,
+    key: keyof ApplicationBillingEnvironmentConfig,
+  ) => {
+    setConfig((current) => {
+      const environments = { ...(current.environments || {}) };
+      const currentOverride = { ...getEnvironmentOverride(current, environment) };
+      delete currentOverride[key];
+
+      if (Object.keys(currentOverride).length === 0) {
+        delete environments[environment];
+      } else {
+        environments[environment] = currentOverride;
+      }
+
+      return {
+        ...current,
+        environments,
+      };
+    });
+  };
+
   const handleSaveConfig = async () => {
     try {
       setSavingConfig(true);
-      await applicationBillingService.saveApplicationBillingConfig(applicationId, config);
+      const normalizedEnvironmentConfig = Object.fromEntries(
+        Object.entries(config.environments || {}).flatMap(([environment, values]) => {
+          const nextValues = Object.fromEntries(
+            Object.entries(values || {}).filter(([, value]) => value !== undefined && value !== '')
+          );
+
+          return Object.keys(nextValues).length > 0 ? [[environment, nextValues]] : [];
+        })
+      );
+
+      await applicationBillingService.saveApplicationBillingConfig(applicationId, {
+        ...config,
+        provider: 'mercadopago',
+        environments: normalizedEnvironmentConfig,
+      });
       onSuccess(
         'Facturacion guardada',
         'La configuracion interna de planes y Mercado Pago quedo guardada para esta aplicacion.',
@@ -544,11 +692,11 @@ export default function ApplicationPlansManager({
   const handleSyncPlan = async (planId: string) => {
     try {
       setSyncingPlanId(planId);
-      await applicationBillingService.syncPlanWithMercadoPago(planId);
+      await applicationBillingService.syncPlanWithMercadoPago(planId, selectedBillingEnvironment);
       await loadData(planId);
       onSuccess(
         'Plan sincronizado',
-        'El plan ya fue creado o actualizado en Mercado Pago.',
+        `El plan ya fue creado o actualizado en Mercado Pago para ${BILLING_ENVIRONMENT_LABELS[selectedBillingEnvironment]}.`,
       );
     } catch (error: any) {
       onError('No se pudo sincronizar con Mercado Pago', error?.message || 'Revisa la configuracion del access token.');
@@ -692,7 +840,7 @@ export default function ApplicationPlansManager({
 
           <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">Access token de Mercado Pago</label>
+              <label className="mb-2 block text-sm font-medium text-slate-700">Access token global / fallback</label>
               <input
                 type="password"
                 value={config.mercado_pago_access_token || ''}
@@ -703,7 +851,7 @@ export default function ApplicationPlansManager({
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">Public key de Mercado Pago</label>
+              <label className="mb-2 block text-sm font-medium text-slate-700">Public key global / fallback</label>
               <input
                 type="text"
                 value={config.mercado_pago_public_key || ''}
@@ -714,7 +862,7 @@ export default function ApplicationPlansManager({
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">URL final de retorno del frontend</label>
+              <label className="mb-2 block text-sm font-medium text-slate-700">URL final global del frontend</label>
               <input
                 type="url"
                 value={config.mercado_pago_back_url || ''}
@@ -723,12 +871,12 @@ export default function ApplicationPlansManager({
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               />
               <p className="mt-2 text-xs text-slate-500">
-                AuthSystem la usara como retorno final hacia tu app. El back_url real de Mercado Pago se resuelve internamente por la Edge Function.
+                Si un ambiente no define su propia URL final, heredara este valor global.
               </p>
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">Webhook secret de Mercado Pago</label>
+              <label className="mb-2 block text-sm font-medium text-slate-700">Webhook secret global / fallback</label>
               <input
                 type="password"
                 value={config.mercado_pago_webhook_secret || ''}
@@ -739,6 +887,269 @@ export default function ApplicationPlansManager({
               <p className="mt-2 text-xs text-slate-500">
                 Se usa para validar eventos <code>subscription_preapproval</code> y reforzar la seguridad del webhook.
               </p>
+            </div>
+          </div>
+
+          <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Overrides por ambiente</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  El ambiente desplegado se resuelve por <code>api_key</code>. Si un campo queda vacio o sin override, usa el valor global.
+                </p>
+              </div>
+
+              <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1">
+                {BILLING_ENVIRONMENTS.map((environment) => {
+                  const isSelected = selectedBillingEnvironment === environment;
+                  return (
+                    <button
+                      key={environment}
+                      type="button"
+                      onClick={() => setSelectedBillingEnvironment(environment)}
+                      className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                        isSelected
+                          ? 'bg-slate-900 text-white shadow-sm'
+                          : 'text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      {BILLING_ENVIRONMENT_LABELS[environment]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <label className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">Facturacion interna</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {selectedEnvironmentBillingValues.enabled.isOverride
+                        ? 'Override explicito para este ambiente.'
+                        : `Usando global: ${selectedEnvironmentBillingValues.enabled.globalValue ? 'activo' : 'inactivo'}.`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {selectedEnvironmentBillingValues.enabled.isOverride && (
+                      <button
+                        type="button"
+                        onClick={() => clearEnvironmentConfigOverride(selectedBillingEnvironment, 'enabled')}
+                        className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-100"
+                      >
+                        Usar global
+                      </button>
+                    )}
+                    <input
+                      type="checkbox"
+                      checked={selectedEnvironmentBillingValues.enabled.resolvedValue}
+                      onChange={(event) => handleEnvironmentConfigChange(selectedBillingEnvironment, 'enabled', event.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              </label>
+
+              <label className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">Sync en login</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {selectedEnvironmentBillingValues.autoSyncOnLogin.isOverride
+                        ? 'Override explicito para este ambiente.'
+                        : `Usando global: ${selectedEnvironmentBillingValues.autoSyncOnLogin.globalValue ? 'activo' : 'inactivo'}.`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {selectedEnvironmentBillingValues.autoSyncOnLogin.isOverride && (
+                      <button
+                        type="button"
+                        onClick={() => clearEnvironmentConfigOverride(selectedBillingEnvironment, 'auto_sync_on_login')}
+                        className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-100"
+                      >
+                        Usar global
+                      </button>
+                    )}
+                    <input
+                      type="checkbox"
+                      checked={selectedEnvironmentBillingValues.autoSyncOnLogin.resolvedValue}
+                      onChange={(event) => handleEnvironmentConfigChange(selectedBillingEnvironment, 'auto_sync_on_login', event.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              </label>
+
+              <label className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">Autoasignar plan gratis/trial</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {selectedEnvironmentBillingValues.autoAssignDefaultPlan.isOverride
+                        ? 'Override explicito para este ambiente.'
+                        : `Usando global: ${selectedEnvironmentBillingValues.autoAssignDefaultPlan.globalValue ? 'activo' : 'inactivo'}.`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {selectedEnvironmentBillingValues.autoAssignDefaultPlan.isOverride && (
+                      <button
+                        type="button"
+                        onClick={() => clearEnvironmentConfigOverride(selectedBillingEnvironment, 'auto_assign_default_plan')}
+                        className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-100"
+                      >
+                        Usar global
+                      </button>
+                    )}
+                    <input
+                      type="checkbox"
+                      checked={selectedEnvironmentBillingValues.autoAssignDefaultPlan.resolvedValue}
+                      onChange={(event) => handleEnvironmentConfigChange(selectedBillingEnvironment, 'auto_assign_default_plan', event.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              </label>
+
+              <label className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">Exigir plan activo</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {selectedEnvironmentBillingValues.requirePlanForAccess.isOverride
+                        ? 'Override explicito para este ambiente.'
+                        : `Usando global: ${selectedEnvironmentBillingValues.requirePlanForAccess.globalValue ? 'activo' : 'inactivo'}.`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {selectedEnvironmentBillingValues.requirePlanForAccess.isOverride && (
+                      <button
+                        type="button"
+                        onClick={() => clearEnvironmentConfigOverride(selectedBillingEnvironment, 'require_plan_for_access')}
+                        className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-100"
+                      >
+                        Usar global
+                      </button>
+                    )}
+                    <input
+                      type="checkbox"
+                      checked={selectedEnvironmentBillingValues.requirePlanForAccess.resolvedValue}
+                      onChange={(event) => handleEnvironmentConfigChange(selectedBillingEnvironment, 'require_plan_for_access', event.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <label className="block text-sm font-medium text-slate-700">Access token de Mercado Pago</label>
+                  {selectedEnvironmentBillingValues.accessToken.isOverride && (
+                    <button
+                      type="button"
+                      onClick={() => clearEnvironmentConfigOverride(selectedBillingEnvironment, 'mercado_pago_access_token')}
+                      className="text-xs font-semibold text-slate-500 transition hover:text-slate-700"
+                    >
+                      Quitar override
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="password"
+                  value={selectedEnvironmentOverride.mercado_pago_access_token || ''}
+                  onChange={(event) => handleEnvironmentConfigChange(selectedBillingEnvironment, 'mercado_pago_access_token', event.target.value)}
+                  placeholder="Si queda vacio, usa el global"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+                <p className="mt-2 text-xs text-slate-500">
+                  {selectedEnvironmentBillingValues.accessToken.isOverride
+                    ? 'Este ambiente usa su propio access token.'
+                    : `Heredando global${selectedEnvironmentBillingValues.accessToken.resolvedValue ? '.' : ' (sin configurar).'}`}
+                </p>
+              </div>
+
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <label className="block text-sm font-medium text-slate-700">Public key de Mercado Pago</label>
+                  {selectedEnvironmentBillingValues.publicKey.isOverride && (
+                    <button
+                      type="button"
+                      onClick={() => clearEnvironmentConfigOverride(selectedBillingEnvironment, 'mercado_pago_public_key')}
+                      className="text-xs font-semibold text-slate-500 transition hover:text-slate-700"
+                    >
+                      Quitar override
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  value={selectedEnvironmentOverride.mercado_pago_public_key || ''}
+                  onChange={(event) => handleEnvironmentConfigChange(selectedBillingEnvironment, 'mercado_pago_public_key', event.target.value)}
+                  placeholder="Si queda vacio, usa la global"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+                <p className="mt-2 text-xs text-slate-500">
+                  {selectedEnvironmentBillingValues.publicKey.isOverride
+                    ? 'Este ambiente usa su propia public key.'
+                    : `Heredando global${selectedEnvironmentBillingValues.publicKey.resolvedValue ? '.' : ' (sin configurar).'}`}
+                </p>
+              </div>
+
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <label className="block text-sm font-medium text-slate-700">URL final de retorno del frontend</label>
+                  {selectedEnvironmentBillingValues.returnUrl.isOverride && (
+                    <button
+                      type="button"
+                      onClick={() => clearEnvironmentConfigOverride(selectedBillingEnvironment, 'mercado_pago_back_url')}
+                      className="text-xs font-semibold text-slate-500 transition hover:text-slate-700"
+                    >
+                      Quitar override
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="url"
+                  value={selectedEnvironmentOverride.mercado_pago_back_url || ''}
+                  onChange={(event) => handleEnvironmentConfigChange(selectedBillingEnvironment, 'mercado_pago_back_url', event.target.value)}
+                  placeholder="https://tuapp.com/subscription/result"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+                <p className="mt-2 text-xs text-slate-500">
+                  {selectedEnvironmentBillingValues.returnUrl.isOverride
+                    ? 'Este ambiente vuelve a una URL final distinta.'
+                    : 'Si queda vacia, AuthSystem usara la URL global del frontend.'}
+                </p>
+              </div>
+
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <label className="block text-sm font-medium text-slate-700">Webhook secret de Mercado Pago</label>
+                  {selectedEnvironmentBillingValues.webhookSecret.isOverride && (
+                    <button
+                      type="button"
+                      onClick={() => clearEnvironmentConfigOverride(selectedBillingEnvironment, 'mercado_pago_webhook_secret')}
+                      className="text-xs font-semibold text-slate-500 transition hover:text-slate-700"
+                    >
+                      Quitar override
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="password"
+                  value={selectedEnvironmentOverride.mercado_pago_webhook_secret || ''}
+                  onChange={(event) => handleEnvironmentConfigChange(selectedBillingEnvironment, 'mercado_pago_webhook_secret', event.target.value)}
+                  placeholder="Pega aqui la firma secreta del ambiente"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+                <p className="mt-2 text-xs text-slate-500">
+                  {selectedEnvironmentBillingValues.webhookSecret.isOverride
+                    ? 'Este ambiente valida webhooks con su secreto propio.'
+                    : 'Si queda vacio, se usara el webhook secret global.'}
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -824,17 +1235,17 @@ export default function ApplicationPlansManager({
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
-                {selectedPlan?.id && (
-                  <button
-                    type="button"
-                    onClick={() => handleSyncPlan(selectedPlan.id!)}
-                    disabled={!hasMercadoPagoConfig || syncingPlanId === selectedPlan.id}
+                  {selectedPlan?.id && (
+                    <button
+                      type="button"
+                      onClick={() => handleSyncPlan(selectedPlan.id!)}
+                      disabled={!hasMercadoPagoConfig || syncingPlanId === selectedPlan.id}
                     className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <RefreshCw className={`h-4 w-4 ${syncingPlanId === selectedPlan.id ? 'animate-spin' : ''}`} />
-                    {syncingPlanId === selectedPlan.id ? 'Sincronizando...' : 'Sync Mercado Pago'}
-                  </button>
-                )}
+                    >
+                      <RefreshCw className={`h-4 w-4 ${syncingPlanId === selectedPlan.id ? 'animate-spin' : ''}`} />
+                      {syncingPlanId === selectedPlan.id ? 'Sincronizando...' : `Sync ${BILLING_ENVIRONMENT_LABELS[selectedBillingEnvironment]}`}
+                    </button>
+                  )}
                 {selectedPlan?.id && (
                   <button
                     type="button"
@@ -1087,8 +1498,8 @@ export default function ApplicationPlansManager({
               </label>
               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
                 {hasMercadoPagoConfig
-                  ? 'La app ya tiene access token de Mercado Pago para sincronizar planes.'
-                  : 'Falta guardar el access token de Mercado Pago antes de sincronizar.'}
+                  ? `La app ya tiene credenciales resueltas para sincronizar en ${BILLING_ENVIRONMENT_LABELS[selectedBillingEnvironment]}.`
+                  : `Falta guardar el access token global o el override de ${BILLING_ENVIRONMENT_LABELS[selectedBillingEnvironment]} antes de sincronizar.`}
               </div>
             </div>
           </div>

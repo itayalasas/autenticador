@@ -248,7 +248,10 @@ export default function PlansSubscriptionsManager() {
                   Auth mode: {selectedApplication.auth_mode || 'classic'}
                 </span>
                 <span className="rounded-full bg-white px-3 py-1 shadow-sm">
-                  Plans sync: {selectedApplication.billing_config?.enabled ? 'interno activo' : 'pendiente'}
+                  Plans sync: {(selectedApplication.billing_config?.enabled ||
+                    Object.values(selectedApplication.billing_config?.environments || {}).some((entry: any) => entry?.enabled === true))
+                    ? 'interno activo'
+                    : 'pendiente'}
                 </span>
               </div>
             </div>

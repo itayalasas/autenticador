@@ -6,7 +6,9 @@ import { resolveTrustedBillingReturnUrl } from '../_shared/billing-return-url.ts
 import {
   buildMercadoPagoPendingSubscriptionPayload,
   mercadoPagoRequest,
+  normalizeBillingEnvironmentName,
   normalizeMercadoPagoConfig,
+  resolvePlanProviderState,
 } from '../_shared/mercadopago.ts';
 
 const corsHeaders = {
@@ -155,7 +157,8 @@ Deno.serve(async (req) => {
       }, 403);
     }
 
-    const billingConfig = normalizeMercadoPagoConfig(application.billing_config || {});
+    const billingEnvironment = normalizeBillingEnvironmentName(apiKeyData.environment || null);
+    const billingConfig = normalizeMercadoPagoConfig(application.billing_config || {}, billingEnvironment);
     const requestedReturnUrl = returnUrl || billingConfig.backUrl || '';
     const trustedReturnUrl = await resolveTrustedBillingReturnUrl(supabase, application, requestedReturnUrl);
     if (!trustedReturnUrl) {
@@ -192,6 +195,7 @@ Deno.serve(async (req) => {
     }
 
     const price = Number(plan.price || 0);
+    const planProviderState = resolvePlanProviderState(plan, billingEnvironment);
     const canProvisionWithoutCheckout = price === 0;
 
     if (!canProvisionWithoutCheckout) {
@@ -209,7 +213,7 @@ Deno.serve(async (req) => {
         request: req,
         supabase,
         applicationInternalId: application.id,
-        apiKeyEnvironment: apiKeyData.environment || null,
+        apiKeyEnvironment: billingEnvironment,
       });
 
       if (!resolvedProviderBackUrl) {
@@ -230,6 +234,8 @@ Deno.serve(async (req) => {
     const sessionMetadata = {
       source: 'authsystem_checkout',
       requested_return_url: trustedReturnUrl,
+      billing_environment: billingEnvironment,
+      api_key_environment: billingEnvironment,
       ...((body.metadata && typeof body.metadata === 'object') ? body.metadata : {}),
     };
 
@@ -245,7 +251,7 @@ Deno.serve(async (req) => {
         provider: 'mercadopago',
         external_reference: externalReference,
         return_url: trustedReturnUrl,
-        provider_plan_id: plan.provider_plan_id || null,
+        provider_plan_id: planProviderState.provider_plan_id || null,
         status: 'pending',
         metadata: sessionMetadata,
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
@@ -273,6 +279,7 @@ Deno.serve(async (req) => {
         appUserId,
         payerEmail,
         source: 'subscription_checkout_session',
+        environmentName: billingEnvironment,
       });
 
       await supabase
@@ -293,17 +300,18 @@ Deno.serve(async (req) => {
         success: true,
         data: {
           checkout_session_id: sessionId,
+        provider: 'internal',
+        requires_redirect: false,
+        redirect_url: buildRedirectUrl(trustedReturnUrl, {
+          subscription_state: 'active',
+          checkout_session_id: sessionId,
+          plan_id: plan.id,
           provider: 'internal',
-          requires_redirect: false,
-          redirect_url: buildRedirectUrl(trustedReturnUrl, {
-            subscription_state: 'active',
-            checkout_session_id: sessionId,
-            plan_id: plan.id,
-            provider: 'internal',
-          }),
-          subscription: localSubscription,
-        },
-      });
+        }),
+        subscription: localSubscription,
+        environment: billingEnvironment,
+      },
+    });
     }
 
     const providerBackUrl = billingConfig.backUrl;
@@ -327,7 +335,7 @@ Deno.serve(async (req) => {
     await supabase
       .from('subscription_checkout_sessions')
       .update({
-        provider_plan_id: plan.provider_plan_id || null,
+        provider_plan_id: planProviderState.provider_plan_id || null,
         provider_subscription_id: providerResponse?.id || null,
         provider_checkout_url: providerResponse?.init_point || null,
         provider_status: providerResponse?.status || 'pending',
@@ -335,10 +343,11 @@ Deno.serve(async (req) => {
         status: 'checkout_created',
         metadata: {
           ...sessionMetadata,
-          checkout_mode: 'mercadopago_pending_payment',
-          provider_back_url: providerBackUrl,
-        },
-      })
+        checkout_mode: 'mercadopago_pending_payment',
+        provider_back_url: providerBackUrl,
+        billing_environment: billingEnvironment,
+      },
+    })
       .eq('id', sessionId);
 
     return jsonResponse({
@@ -349,6 +358,7 @@ Deno.serve(async (req) => {
         requires_redirect: true,
         checkout_url: providerResponse?.init_point || null,
         provider_subscription_id: providerResponse?.id || null,
+        environment: billingEnvironment,
         plan: {
           id: plan.id,
           name: plan.name,

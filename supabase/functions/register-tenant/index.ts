@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
 import { ensureSelectedPlanSubscription } from '../_shared/application-billing.ts';
 import { buildEnvironmentScopedMetadata, normalizeEnvironmentName } from '../_shared/environment-access.ts';
+import { normalizeMercadoPagoConfig } from '../_shared/mercadopago.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -173,7 +174,10 @@ Deno.serve(async (req: Request) => {
     };
 
     const appMeta = (application.metadata || {}) as Record<string, any>;
-    const internalBillingEnabled = application?.billing_config?.enabled === true;
+    const internalBillingEnabled = normalizeMercadoPagoConfig(
+      application?.billing_config || {},
+      tenantEnvironment,
+    ).enabled === true;
     const syncPlanId = (plan_id as string | undefined) || (appMeta.subscription_sync_plan_id as string | undefined);
 
     if (internalBillingEnabled) {
@@ -186,6 +190,7 @@ Deno.serve(async (req: Request) => {
           payerEmail: null,
           context: 'initial_registration',
           source: 'tenant_registration_trial',
+          environmentName: tenantEnvironment,
         });
 
         subscriptionSync.attempted = !!syncPlanId;

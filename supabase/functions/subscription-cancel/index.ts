@@ -5,7 +5,7 @@ import {
   resolveApplicationBillingAccess,
   syncMercadoPagoSubscriptionById,
 } from '../_shared/application-billing.ts';
-import { mercadoPagoRequest, normalizeMercadoPagoConfig } from '../_shared/mercadopago.ts';
+import { mercadoPagoRequest, normalizeBillingEnvironmentName, normalizeMercadoPagoConfig } from '../_shared/mercadopago.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -179,7 +179,7 @@ Deno.serve(async (req) => {
 
     const { data: apiKeyData } = await supabase
       .from('api_keys')
-      .select('application_id, is_active')
+      .select('application_id, is_active, environment')
       .eq('key_hash', apiKey)
       .eq('is_active', true)
       .maybeSingle();
@@ -203,6 +203,8 @@ Deno.serve(async (req) => {
         },
       }, 403);
     }
+
+    const billingEnvironment = normalizeBillingEnvironmentName(apiKeyData.environment || null);
 
     const subscription = await resolveTargetSubscription({
       supabase,
@@ -266,6 +268,10 @@ Deno.serve(async (req) => {
         application,
         appUser,
         tenantId: subscription.tenant_id || appUser.tenant_id || null,
+        environmentName:
+          billingEnvironment ||
+          (typeof subscription?.metadata === 'object' ? (subscription.metadata as Record<string, any>)?.billing_environment : null) ||
+          null,
       });
 
       return jsonResponse({
@@ -303,7 +309,11 @@ Deno.serve(async (req) => {
     let providerStatus = currentStatus;
 
     if (String(subscription.provider || '').toLowerCase() === 'mercadopago' && subscription.provider_subscription_id) {
-      const billingConfig = normalizeMercadoPagoConfig(application.billing_config || {});
+      const resolvedSubscriptionEnvironment =
+        billingEnvironment ||
+        (typeof subscription?.metadata === 'object' ? (subscription.metadata as Record<string, any>)?.billing_environment : null) ||
+        null;
+      const billingConfig = normalizeMercadoPagoConfig(application.billing_config || {}, resolvedSubscriptionEnvironment);
       if (!billingConfig.enabled || !billingConfig.accessToken) {
         return jsonResponse({
           success: false,
@@ -353,6 +363,7 @@ Deno.serve(async (req) => {
         appUserId: subscription.app_user_id,
         payerEmail: subscription.payer_email,
         source: 'subscription_cancel',
+        environmentName: resolvedSubscriptionEnvironment,
       });
 
       if (synced?.subscription) {
@@ -441,6 +452,10 @@ Deno.serve(async (req) => {
       application,
       appUser,
       tenantId: updatedSubscription.tenant_id || appUser.tenant_id || null,
+      environmentName:
+        billingEnvironment ||
+        (typeof updatedSubscription?.metadata === 'object' ? (updatedSubscription.metadata as Record<string, any>)?.billing_environment : null) ||
+        null,
     });
 
     return jsonResponse({

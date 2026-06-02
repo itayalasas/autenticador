@@ -666,13 +666,14 @@ Deno.serve(async (req) => {
     let validationData = null;
     let validationSource: 'none' | 'internal' | 'external' = 'none';
 
-    try {
-      const internalValidation = await resolveApplicationBillingAccess({
-        supabase,
-        application,
-        appUser: user,
-        tenantId: tenantIdForValidation,
-      });
+      try {
+        const internalValidation = await resolveApplicationBillingAccess({
+          supabase,
+          application,
+          appUser: user,
+          tenantId: tenantIdForValidation,
+          environmentName: requestedEnvironment,
+        });
 
       if (internalValidation?.enabled) {
         validationData = internalValidation;

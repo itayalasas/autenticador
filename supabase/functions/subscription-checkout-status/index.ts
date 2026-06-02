@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
 import { resolveApplicationBillingAccess, syncMercadoPagoSubscriptionById } from '../_shared/application-billing.ts';
+import { normalizeBillingEnvironmentName } from '../_shared/mercadopago.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -67,7 +68,7 @@ Deno.serve(async (req) => {
 
     const { data: apiKeyData } = await supabase
       .from('api_keys')
-      .select('application_id, is_active')
+      .select('application_id, is_active, environment')
       .eq('key_hash', apiKey)
       .eq('is_active', true)
       .maybeSingle();
@@ -91,6 +92,8 @@ Deno.serve(async (req) => {
         },
       }, 403);
     }
+
+    const billingEnvironment = normalizeBillingEnvironmentName(apiKeyData.environment || null);
 
     const { data: checkoutSession, error: checkoutSessionError } = await supabase
       .from('subscription_checkout_sessions')
@@ -119,6 +122,7 @@ Deno.serve(async (req) => {
         appUserId: checkoutSession.app_user_id,
         payerEmail: checkoutSession.payer_email,
         source: 'subscription_checkout_status',
+        environmentName: billingEnvironment || checkoutSession?.metadata?.billing_environment || null,
       });
 
       const providerStatus = String(synced?.providerSubscription?.status || checkoutSession.provider_status || '').trim().toLowerCase();
@@ -171,6 +175,7 @@ Deno.serve(async (req) => {
       application,
       appUser,
       tenantId: checkoutSession.tenant_id || appUser.tenant_id || null,
+      environmentName: billingEnvironment || checkoutSession?.metadata?.billing_environment || null,
     });
 
     const { data: refreshedSession } = await supabase
@@ -187,6 +192,7 @@ Deno.serve(async (req) => {
           name: application.name,
           auth_mode: application.auth_mode,
         },
+        environment: billingEnvironment || checkoutSession?.metadata?.billing_environment || null,
         checkout_session: {
           id: refreshedSession?.id || checkoutSession.id,
           status: refreshedSession?.status || checkoutSession.status,

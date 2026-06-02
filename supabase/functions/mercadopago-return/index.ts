@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
 import { buildRedirectUrl, normalizeUrl } from '../_shared/application-auth-url.ts';
 import { syncMercadoPagoSubscriptionById } from '../_shared/application-billing.ts';
+import { normalizeBillingEnvironmentName } from '../_shared/mercadopago.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -114,6 +115,10 @@ Deno.serve(async (req) => {
     }
 
     const finalProviderSubscriptionId = providerSubscriptionId || String(checkoutSession.provider_subscription_id || '').trim();
+    const billingEnvironment = normalizeBillingEnvironmentName(
+      (typeof checkoutSession?.metadata === 'object' ? (checkoutSession.metadata as Record<string, any>)?.billing_environment : null) ||
+      null
+    );
 
     let synced: Awaited<ReturnType<typeof syncMercadoPagoSubscriptionById>> | null = null;
     let subscriptionState = String(url.searchParams.get('status') || checkoutSession.provider_status || 'pending').trim().toLowerCase();
@@ -128,6 +133,7 @@ Deno.serve(async (req) => {
         appUserId: checkoutSession.app_user_id,
         payerEmail: checkoutSession.payer_email,
         source: 'mercadopago_return',
+        environmentName: billingEnvironment,
       });
 
       if (synced?.providerSubscription?.status) {

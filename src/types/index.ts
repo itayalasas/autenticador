@@ -51,6 +51,19 @@ export interface ApplicationMetadata {
   [key: string]: any;
 }
 
+export type BillingEnvironmentName = 'development' | 'testing' | 'production';
+
+export interface ApplicationBillingEnvironmentConfig {
+  enabled?: boolean;
+  mercado_pago_access_token?: string;
+  mercado_pago_public_key?: string;
+  mercado_pago_back_url?: string;
+  mercado_pago_webhook_secret?: string;
+  auto_sync_on_login?: boolean;
+  auto_assign_default_plan?: boolean;
+  require_plan_for_access?: boolean;
+}
+
 export interface ApplicationBillingConfig {
   enabled?: boolean;
   provider?: 'mercadopago';
@@ -61,6 +74,7 @@ export interface ApplicationBillingConfig {
   auto_sync_on_login?: boolean;
   auto_assign_default_plan?: boolean;
   require_plan_for_access?: boolean;
+  environments?: Partial<Record<BillingEnvironmentName, ApplicationBillingEnvironmentConfig>>;
 }
 
 export type DeployProvider = 'netlify' | 'azure_container_apps';
@@ -367,7 +381,16 @@ export interface ApplicationBillingPlan {
   provider_status?: string | null;
   provider_init_point?: string | null;
   provider_metadata?: Record<string, any>;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, any> & {
+    provider_by_environment?: Partial<Record<BillingEnvironmentName, {
+      provider?: string | null;
+      provider_plan_id?: string | null;
+      provider_status?: string | null;
+      provider_init_point?: string | null;
+      provider_metadata?: Record<string, any> | null;
+      synced_at?: string | null;
+    }>>;
+  };
   created_at?: string;
   updated_at?: string;
 }

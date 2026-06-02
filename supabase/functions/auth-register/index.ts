@@ -5,6 +5,7 @@ import bcrypt from "npm:bcryptjs@2.4.3";
 import { buildRedirectUrl, normalizeUrl, resolveApplicationAuthUrl, resolveTrustedApplicationCallbackUrl } from '../_shared/application-auth-url.ts';
 import { ensureSelectedPlanSubscription } from '../_shared/application-billing.ts';
 import { buildEnvironmentScopedMetadata, normalizeEnvironmentName } from '../_shared/environment-access.ts';
+import { normalizeMercadoPagoConfig } from '../_shared/mercadopago.ts';
 import { resolveRoleAccess } from '../_shared/role-access.ts';
 import { issueAuthTokens, resolveApplicationJwtSecret } from '../_shared/auth-jwt.ts';
 
@@ -1008,7 +1009,10 @@ Deno.serve(async (req) => {
 
     // Provision internal billing when enabled, otherwise keep legacy external sync
     try {
-      const internalBillingEnabled = application?.billing_config?.enabled === true;
+      const internalBillingEnabled = normalizeMercadoPagoConfig(
+        application?.billing_config || {},
+        registrationEnvironment,
+      ).enabled === true;
       let selectedPlanId = (metadata?.plan_id as string | undefined) || null;
 
       if (tenantId) {
@@ -1047,6 +1051,7 @@ Deno.serve(async (req) => {
           payerEmail: email,
           context: 'initial_registration',
           source: 'user_registration_trial',
+          environmentName: registrationEnvironment,
         });
 
         console.log('internal billing provisioning result:', {

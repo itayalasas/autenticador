@@ -1,9 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
 import {
+  buildPlanProviderUpdatePayload,
   buildMercadoPagoPlanPayload,
   MercadoPagoApiError,
   mercadoPagoRequest,
+  normalizeBillingEnvironmentName,
   normalizeMercadoPagoConfig,
 } from '../_shared/mercadopago.ts';
 
@@ -57,6 +59,7 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const planId = String(body?.application_plan_id || '').trim();
+    const requestedEnvironment = normalizeBillingEnvironmentName(body?.environment || null);
     if (!planId) {
       return jsonResponse({
         success: false,
@@ -109,7 +112,7 @@ Deno.serve(async (req) => {
       }, 403);
     }
 
-    const billingConfig = normalizeMercadoPagoConfig(application.billing_config || {});
+    const billingConfig = normalizeMercadoPagoConfig(application.billing_config || {}, requestedEnvironment);
     if (!billingConfig.enabled) {
       return jsonResponse({
         success: false,
@@ -133,7 +136,9 @@ Deno.serve(async (req) => {
     const backUrl = `${Deno.env.get('SUPABASE_URL') ?? ''}/functions/v1/mercadopago-return`;
     const payload = buildMercadoPagoPlanPayload(plan, backUrl);
 
-    const providerPlanId = plan.provider_plan_id || null;
+    const providerPlanId = requestedEnvironment
+      ? String(plan?.metadata?.provider_by_environment?.[requestedEnvironment]?.provider_plan_id || '').trim() || null
+      : (plan.provider_plan_id || null);
     let providerResponse: any = null;
     let recreatedProviderPlan = false;
 
@@ -176,21 +181,24 @@ Deno.serve(async (req) => {
     }
 
     const nextProviderMetadata = {
-      ...(plan.provider_metadata || {}),
       ...(providerResponse || {}),
       authsystem_sync: {
         recreated_provider_plan: recreatedProviderPlan,
         previous_provider_plan_id: recreatedProviderPlan ? providerPlanId : null,
         synced_at: new Date().toISOString(),
+        environment: requestedEnvironment,
       },
     };
 
-    const updatePayload = {
+    const environmentAwareProviderPayload = buildPlanProviderUpdatePayload({
+      plan,
+      providerResponse: nextProviderMetadata,
+      environmentName: requestedEnvironment,
       provider: 'mercadopago',
-      provider_plan_id: providerResponse.id || providerPlanId,
-      provider_status: providerResponse.status || 'active',
-      provider_init_point: providerResponse.init_point || null,
-      provider_metadata: nextProviderMetadata,
+    });
+
+    const updatePayload = {
+      ...environmentAwareProviderPayload,
       updated_at: new Date().toISOString(),
     };
 
@@ -213,6 +221,7 @@ Deno.serve(async (req) => {
           id: providerResponse.id || null,
           status: providerResponse.status || null,
           init_point: providerResponse.init_point || null,
+          environment: requestedEnvironment,
           recreated_provider_plan: recreatedProviderPlan,
           previous_provider_plan_id: recreatedProviderPlan ? providerPlanId : null,
         },

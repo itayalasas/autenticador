@@ -24,6 +24,14 @@ function collectMetadataUrls(application: Record<string, any>) {
   addUrl(application?.billing_config?.mercado_pago_back_url);
   addUrl(application?.billing_config?.back_url);
 
+  const billingEnvironments = application?.billing_config?.environments;
+  if (billingEnvironments && typeof billingEnvironments === 'object') {
+    Object.values(billingEnvironments).forEach((entry: any) => {
+      addUrl(entry?.mercado_pago_back_url);
+      addUrl(entry?.back_url);
+    });
+  }
+
   const allowedCallbackUrls = Array.isArray(metadata.allowed_callback_urls)
     ? metadata.allowed_callback_urls
     : [];

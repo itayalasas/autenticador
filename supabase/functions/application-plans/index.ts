@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
 import { buildAvailablePlan, getActivePlans, resolveApplicationBillingAccess } from '../_shared/application-billing.ts';
-import { normalizeMercadoPagoConfig } from '../_shared/mercadopago.ts';
+import { normalizeBillingEnvironmentName, normalizeMercadoPagoConfig } from '../_shared/mercadopago.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
 
     const { data: apiKeyData } = await supabase
       .from('api_keys')
-      .select('application_id, is_active')
+      .select('application_id, is_active, environment')
       .eq('key_hash', apiKey)
       .eq('is_active', true)
       .maybeSingle();
@@ -90,6 +90,8 @@ Deno.serve(async (req) => {
       }, 403);
     }
 
+    const billingEnvironment = normalizeBillingEnvironmentName(apiKeyData.environment || null);
+
     let billingState = null;
     if (email) {
       const { data: appUser } = await supabase
@@ -105,21 +107,23 @@ Deno.serve(async (req) => {
           application,
           appUser,
           tenantId: tenantId || appUser.tenant_id || null,
+          environmentName: billingEnvironment,
         });
       }
     }
 
     if (!billingState) {
       const plans = await getActivePlans(supabase, application.id);
-      const billingConfig = normalizeMercadoPagoConfig(application.billing_config || {});
+      const billingConfig = normalizeMercadoPagoConfig(application.billing_config || {}, billingEnvironment);
 
       billingState = {
-        enabled: Boolean(application.billing_config?.enabled),
+        enabled: Boolean(billingConfig.enabled),
         success: true,
         has_access: true,
         available_plans: plans.map((plan: any) => buildAvailablePlan(plan, {
           backUrl: billingConfig.backUrl || null,
           managedCheckout: true,
+          environmentName: billingEnvironment,
         })),
         subscription: null,
         license: {
@@ -138,6 +142,7 @@ Deno.serve(async (req) => {
           name: application.name,
           auth_mode: application.auth_mode,
         },
+        environment: billingEnvironment,
         checkout: {
           provider: 'mercadopago',
           managed_by_authsystem: true,
