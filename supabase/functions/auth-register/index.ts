@@ -24,9 +24,56 @@ interface RegisterRequest {
   api_key: string
   role?: string
   callback_url?: string
+  redirect_uri?: string
   client_ip?: string
   metadata?: Record<string, any>
   tenant_id?: string
+}
+
+interface ApplicationRoleRecord {
+  id: string
+  name: string
+  display_name: string
+  permissions: any[]
+  is_default?: boolean | null
+}
+
+function normalizeRoleLookupValue(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function selectPreferredTenantAdminRole(roles: ApplicationRoleRecord[]): ApplicationRoleRecord | null {
+  if (!Array.isArray(roles) || roles.length === 0) {
+    return null;
+  }
+
+  const exactDisplayNameMatches = roles.filter((role) => normalizeRoleLookupValue(role.display_name) === 'administrador');
+  const exactNameMatches = roles.filter((role) => {
+    const normalizedName = normalizeRoleLookupValue(role.name);
+    return normalizedName === 'administrador' || normalizedName === 'admin' || normalizedName === 'administrator';
+  });
+  const fuzzyMatches = roles.filter((role) => {
+    const normalizedDisplayName = normalizeRoleLookupValue(role.display_name);
+    const normalizedName = normalizeRoleLookupValue(role.name);
+    return (
+      normalizedDisplayName.includes('admin') ||
+      normalizedDisplayName.includes('administr') ||
+      normalizedName.includes('admin') ||
+      normalizedName.includes('administr')
+    );
+  });
+
+  const candidatePool = [
+    ...exactDisplayNameMatches,
+    ...exactNameMatches,
+    ...fuzzyMatches,
+  ].filter((role, index, list) => list.findIndex((item) => item.id === role.id) === index);
+
+  if (candidatePool.length === 0) {
+    return null;
+  }
+
+  return candidatePool.find((role) => role.is_default === true) || candidatePool[0];
 }
 
 function generateVerificationToken(): string {
@@ -476,7 +523,20 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { email, password, name, application_id, api_key, role, callback_url, client_ip, metadata, tenant_id: requestedTenantId }: RegisterRequest = requestBody;
+    const {
+      email,
+      password,
+      name,
+      application_id,
+      api_key,
+      role,
+      callback_url,
+      redirect_uri,
+      client_ip,
+      metadata,
+      tenant_id: requestedTenantId
+    }: RegisterRequest = requestBody;
+    const requestedCallbackUrl = callback_url || redirect_uri;
 
     if (!email || !password || !name || !application_id || !api_key) {
       const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0';
@@ -939,14 +999,20 @@ Deno.serve(async (req) => {
 
     console.log('✅ User created successfully, assigning role...');
     console.log('🎭 Role from request:', role || 'not specified');
+    console.log('🌍 Registration environment metadata:', {
+      environment: registrationEnvironment,
+      allowed_environments: scopedUserMetadata?.environment_access?.allowed_environments || [],
+      tenant_id: tenantId,
+      application_id: application.id,
+    });
 
-    let roleToAssign: { id: string; name: string; display_name: string; permissions: any[] } | null = null;
+    let roleToAssign: ApplicationRoleRecord | null = null;
 
     // If role is specified in the request, try to find it
     if (role) {
       const { data: requestedRole } = await supabase
         .from('application_roles')
-        .select('id, name, display_name, permissions')
+        .select('id, name, display_name, permissions, is_default')
         .eq('application_id', application.id)
         .eq('display_name', role)
         .maybeSingle();
@@ -958,7 +1024,7 @@ Deno.serve(async (req) => {
         // Try finding by name (lowercase)
         const { data: roleByName } = await supabase
           .from('application_roles')
-          .select('id, name, display_name, permissions')
+          .select('id, name, display_name, permissions, is_default')
           .eq('application_id', application.id)
           .ilike('name', role)
           .maybeSingle();
@@ -972,11 +1038,43 @@ Deno.serve(async (req) => {
       }
     }
 
+    const shouldPreferTenantAdminRole =
+      application.auth_mode === 'tenant' &&
+      !!tenantId &&
+      !roleToAssign;
+
+    if (shouldPreferTenantAdminRole) {
+      const { data: applicationRoles, error: applicationRolesError } = await supabase
+        .from('application_roles')
+        .select('id, name, display_name, permissions, is_default')
+        .eq('application_id', application.id);
+
+      if (applicationRolesError) {
+        console.warn('⚠️ Error loading application roles for tenant admin selection:', applicationRolesError);
+      } else {
+        roleToAssign = selectPreferredTenantAdminRole((applicationRoles || []) as ApplicationRoleRecord[]);
+        if (roleToAssign) {
+          console.log('✅ Using tenant administrator role scoped to application:', {
+            role_id: roleToAssign.id,
+            role_name: roleToAssign.name,
+            role_display_name: roleToAssign.display_name,
+            role_is_default: roleToAssign.is_default === true,
+            application_id: application.id,
+          });
+        } else {
+          console.warn('⚠️ No tenant administrator role found for application. Falling back to default role.', {
+            application_id: application.id,
+            tenant_id: tenantId,
+          });
+        }
+      }
+    }
+
     // If no role was specified or found, get the default role
     if (!roleToAssign) {
       const { data: defaultRole } = await supabase
         .from('application_roles')
-        .select('id, name, display_name, permissions')
+        .select('id, name, display_name, permissions, is_default')
         .eq('application_id', application.id)
         .eq('is_default', true)
         .maybeSingle();
@@ -999,7 +1097,13 @@ Deno.serve(async (req) => {
       if (roleError) {
         console.error('⚠️ Error assigning role_id to user:', roleError);
       } else {
-        console.log('✅ Role assigned successfully:', roleToAssign.display_name || roleToAssign.name);
+        console.log('✅ Role assigned successfully:', {
+          role_id: roleToAssign.id,
+          role_name: roleToAssign.name,
+          role_display_name: roleToAssign.display_name || roleToAssign.name,
+          application_id: application.id,
+          tenant_id: tenantId,
+        });
         // Update the newUser object with role_id for later use
         newUser.role_id = roleToAssign.id;
       }
@@ -1144,6 +1248,7 @@ Deno.serve(async (req) => {
         token: verificationToken,
         expires_at: expiresAt.toISOString()
       });
+      let verificationCallbackUrl: string | null = null;
       
       if (tokenError) {
         console.error('Error creating verification token:', tokenError);
@@ -1154,8 +1259,8 @@ Deno.serve(async (req) => {
           application.id,
           (apiKeyData as any).environment || null
         );
-        const configuredCallbackUrl = resolveTrustedApplicationCallbackUrl({
-          requestedCallbackUrl: callback_url,
+        verificationCallbackUrl = resolveTrustedApplicationCallbackUrl({
+          requestedCallbackUrl,
           configuredCallbackUrl: resolvedCallbackUrl,
           configuredBaseUrl: baseUrl,
           applicationDomain: application.domain || null,
@@ -1179,10 +1284,10 @@ Deno.serve(async (req) => {
           );
         }
 
-        if (normalizeUrl(callback_url) && configuredCallbackUrl && normalizeUrl(callback_url) !== configuredCallbackUrl) {
+        if (normalizeUrl(requestedCallbackUrl) && verificationCallbackUrl && normalizeUrl(requestedCallbackUrl) !== verificationCallbackUrl) {
           console.warn('⚠️ Replacing requested callback_url during registration with trusted application callback URL.', {
-            requested: normalizeUrl(callback_url),
-            configured: configuredCallbackUrl,
+            requested: normalizeUrl(requestedCallbackUrl),
+            configured: verificationCallbackUrl,
             environment: environmentName || (apiKeyData as any).environment || null
           });
         }
@@ -1236,7 +1341,7 @@ Deno.serve(async (req) => {
         }
       };
       
-      if (configuredCallbackUrl) {
+      if (verificationCallbackUrl) {
         const verifyParams = new URLSearchParams({
           user_id: newUser.id,
           email: newUser.email,
@@ -1245,7 +1350,7 @@ Deno.serve(async (req) => {
         });
         
         response.data.callback_url = buildRedirectUrl(
-          configuredCallbackUrl.replace(/\/callback\/?$/, '/verify-email'),
+          verificationCallbackUrl.replace(/\/callback\/?$/, '/verify-email'),
           Object.fromEntries(verifyParams.entries())
         );
       }
@@ -1334,16 +1439,16 @@ Deno.serve(async (req) => {
       (apiKeyData as any).environment || null
     );
     const finalCallbackUrl = resolveTrustedApplicationCallbackUrl({
-      requestedCallbackUrl: callback_url,
+      requestedCallbackUrl,
       configuredCallbackUrl: resolvedFinalCallbackUrl,
       configuredBaseUrl: finalBaseUrl,
       applicationDomain: application.domain || null,
       applicationMetadata: application.metadata || null
     });
 
-    if (normalizeUrl(callback_url) && finalCallbackUrl && normalizeUrl(callback_url) !== finalCallbackUrl) {
+    if (normalizeUrl(requestedCallbackUrl) && finalCallbackUrl && normalizeUrl(requestedCallbackUrl) !== finalCallbackUrl) {
       console.warn('⚠️ Replacing requested callback_url for final registration redirect with trusted application callback URL.', {
-        requested: normalizeUrl(callback_url),
+        requested: normalizeUrl(requestedCallbackUrl),
         configured: finalCallbackUrl,
         environment: finalEnvironmentName || (apiKeyData as any).environment || null
       });

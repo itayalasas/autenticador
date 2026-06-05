@@ -226,6 +226,17 @@ export const userService = {
   async updateUserRoles(userId: string, roles: string[]) {
     console.log('Updating user roles:', { userId, roles });
 
+    const { data: currentUser, error: currentUserError } = await supabase
+      .from('app_users')
+      .select('id, application_id')
+      .eq('id', userId)
+      .single();
+
+    if (currentUserError || !currentUser) {
+      console.error('Error loading current user before updating roles:', currentUserError);
+      throw currentUserError || new Error('No se encontró el usuario a actualizar');
+    }
+
     // Delete existing roles
     const { error: deleteError } = await supabase
       .from('user_roles')
@@ -241,6 +252,7 @@ export const userService = {
     const { data: applicationRoles, error: rolesError } = await supabase
       .from('application_roles')
       .select('id, name, permissions')
+      .eq('application_id', currentUser.application_id)
       .in('name', roles);
 
     if (rolesError) {

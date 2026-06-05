@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.57.4';
+import { resolveRoleAccess } from '../_shared/role-access.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -72,6 +73,7 @@ Deno.serve(async (req: Request) => {
         role_id,
         application_roles (
           id,
+          application_id,
           name,
           display_name,
           permissions
@@ -95,60 +97,40 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const { data: rolePermissions, error: permError } = await supabase
-      .from('role_permissions')
-      .select(`
-        role_id,
-        menu_id,
-        action_id,
-        granted,
-        menus!role_permissions_menu_id_fkey (
-          id,
-          name,
-          label
-        ),
-        actions!role_permissions_action_id_fkey (
-          id,
-          name,
-          label
-        )
-      `)
-      .in('role_id', users?.map(u => u.role_id).filter(Boolean) || []);
-
-    const permissionsMap = new Map();
-    if (rolePermissions && !permError) {
-      rolePermissions.forEach((perm: any) => {
-        if (!permissionsMap.has(perm.role_id)) {
-          permissionsMap.set(perm.role_id, {});
-        }
-        const rolePerms = permissionsMap.get(perm.role_id);
-        const menuName = perm.menus?.name || perm.menu_id;
-        const actionName = perm.actions?.name || perm.action_id;
-
-        if (!rolePerms[menuName]) {
-          rolePerms[menuName] = {};
-        }
-        rolePerms[menuName][actionName] = perm.granted;
-      });
-    }
-
-    const formattedUsers = (users || []).map(user => {
+    const formattedUsers = await Promise.all((users || []).map(async (user) => {
       const role = Array.isArray(user.application_roles)
         ? user.application_roles[0]
         : user.application_roles;
 
-      const rolePermissions = user.role_id ? permissionsMap.get(user.role_id) || {} : {};
+      let resolvedPermissions: Record<string, string[]> | string[] = [];
+      let resolvedPermissionsHierarchy: Record<string, any> = {};
+      let resolvedRoleName = role?.display_name || role?.name || null;
+      let roleApplicationId = role?.application_id || null;
+
+      if (user.role_id) {
+        const resolvedRoleAccess = await resolveRoleAccess(supabase, user.role_id);
+        resolvedPermissions = Object.keys(resolvedRoleAccess.rolePermissions || {}).length > 0
+          ? resolvedRoleAccess.rolePermissions
+          : (role?.permissions || []);
+        resolvedPermissionsHierarchy = resolvedRoleAccess.rolePermissionsHierarchy || {};
+        resolvedRoleName = role?.display_name || resolvedRoleAccess.roleName || role?.name || null;
+      } else {
+        resolvedPermissions = role?.permissions || [];
+      }
 
       return {
         id: user.id,
         email: user.email,
         name: user.name,
-        role: role?.display_name || role?.name || null,
-        permissions: role?.permissions || rolePermissions,
+        role_id: user.role_id || null,
+        role_application_id: roleApplicationId,
+        role: resolvedRoleName,
+        permissions: resolvedPermissions,
+        permissions_hierarchy: resolvedPermissionsHierarchy,
         metadata: user.metadata || {},
         created_at: user.created_at
       };
-    });
+    }));
 
     return new Response(
       JSON.stringify({

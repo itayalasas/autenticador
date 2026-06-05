@@ -325,6 +325,46 @@ const logAuthEvent = async (applicationId, appUserId, eventType, req, success, e
   }
 };
 
+const proxyEdgeFunctionRoute = async (req, res, functionName, {
+  allowGet = false,
+  routeName = functionName,
+} = {}) => {
+  if (req.method !== 'POST' && !(allowGet && req.method === 'GET')) {
+    return res.status(405).json({
+      success: false,
+      error: {
+        code: 'METHOD_NOT_ALLOWED',
+        message: `${routeName} solo acepta ${allowGet ? 'GET y POST' : 'POST'}`
+      }
+    });
+  }
+
+  const requestBody = req.method === 'GET' ? (req.query || {}) : (req.body || {});
+
+  try {
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/${functionName}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.VITE_SUPABASE_ANON_KEY || ''}`,
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    const result = await response.json();
+    return res.status(response.status).json(result);
+  } catch (error) {
+    console.error(`Proxy error for ${functionName}:`, error);
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: 'PROXY_ERROR',
+        message: `No se pudo conectar con ${routeName}: ${error.message}`
+      }
+    });
+  }
+};
+
 // API Routes
 
 // Health check
@@ -364,6 +404,50 @@ app.all('/api/application/plans', async (req, res) => {
       }
     });
   }
+});
+
+[
+  {
+    paths: ['/list-roles', '/api/list-roles'],
+    functionName: 'list-roles',
+    allowGet: true,
+    routeName: 'list-roles'
+  },
+  {
+    paths: ['/invitations-list', '/api/invitations-list'],
+    functionName: 'invitations-list',
+    allowGet: true,
+    routeName: 'invitaciones'
+  },
+  {
+    paths: ['/invitations-create', '/api/invitations-create'],
+    functionName: 'invitations-create',
+    allowGet: false,
+    routeName: 'crear invitación'
+  },
+  {
+    paths: ['/invitations-revoke', '/api/invitations-revoke'],
+    functionName: 'invitations-revoke',
+    allowGet: false,
+    routeName: 'revocar invitación'
+  },
+  {
+    paths: ['/invitations-validate', '/api/invitations-validate'],
+    functionName: 'invitations-validate',
+    allowGet: true,
+    routeName: 'validar invitación'
+  },
+  {
+    paths: ['/invitations-accept', '/api/invitations-accept'],
+    functionName: 'invitations-accept',
+    allowGet: false,
+    routeName: 'aceptar invitación'
+  }
+].forEach(({ paths, functionName, allowGet, routeName }) => {
+  app.all(paths, async (req, res) => proxyEdgeFunctionRoute(req, res, functionName, {
+    allowGet,
+    routeName
+  }));
 });
 
 app.post('/api/application/subscription/start-checkout', async (req, res) => {

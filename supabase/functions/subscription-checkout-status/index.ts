@@ -112,40 +112,6 @@ Deno.serve(async (req) => {
       }, 404);
     }
 
-    if (checkoutSession.provider_subscription_id) {
-      const synced = await syncMercadoPagoSubscriptionById({
-        supabase,
-        application,
-        providerSubscriptionId: checkoutSession.provider_subscription_id,
-        selectedPlanId: checkoutSession.application_plan_id,
-        tenantId: checkoutSession.tenant_id,
-        appUserId: checkoutSession.app_user_id,
-        payerEmail: checkoutSession.payer_email,
-        source: 'subscription_checkout_status',
-        environmentName: billingEnvironment || checkoutSession?.metadata?.billing_environment || null,
-      });
-
-      const providerStatus = String(synced?.providerSubscription?.status || checkoutSession.provider_status || '').trim().toLowerCase();
-      await supabase
-        .from('subscription_checkout_sessions')
-        .update({
-          provider_status: providerStatus || null,
-          provider_metadata: synced?.providerSubscription || checkoutSession.provider_metadata || {},
-          status: ['authorized', 'active'].includes(providerStatus)
-            ? 'completed'
-            : ['cancelled', 'canceled'].includes(providerStatus)
-              ? 'cancelled'
-              : providerStatus === 'rejected'
-                ? 'failed'
-                : checkoutSession.status,
-          last_synced_at: new Date().toISOString(),
-          completed_at: ['authorized', 'active'].includes(providerStatus)
-            ? new Date().toISOString()
-            : checkoutSession.completed_at,
-        })
-        .eq('id', checkoutSession.id);
-    }
-
     const sessionAppUser = checkoutSession.app_user_id
       ? await supabase
           .from('app_users')
@@ -163,19 +129,84 @@ Deno.serve(async (req) => {
           .maybeSingle()
       : { data: null };
 
-    const appUser = sessionAppUser.data || fallbackAppUser.data || {
-      id: checkoutSession.app_user_id || '',
+    const resolvedAppUser = sessionAppUser.data || fallbackAppUser.data || null;
+    const resolvedAppUserId = resolvedAppUser?.id || checkoutSession.app_user_id || null;
+    const resolvedTenantId = checkoutSession.tenant_id || resolvedAppUser?.tenant_id || null;
+
+    if ((resolvedAppUserId && resolvedAppUserId !== checkoutSession.app_user_id) || (resolvedTenantId && resolvedTenantId !== checkoutSession.tenant_id)) {
+      await supabase
+        .from('subscription_checkout_sessions')
+        .update({
+          app_user_id: resolvedAppUserId || checkoutSession.app_user_id || null,
+          tenant_id: resolvedTenantId || checkoutSession.tenant_id || null,
+        })
+        .eq('id', checkoutSession.id);
+    }
+
+    let latestProviderStatus = String(checkoutSession.provider_status || '').trim().toLowerCase();
+    let localSubscriptionStatus = '';
+
+    if (checkoutSession.provider_subscription_id) {
+      const synced = await syncMercadoPagoSubscriptionById({
+        supabase,
+        application,
+        providerSubscriptionId: checkoutSession.provider_subscription_id,
+        selectedPlanId: checkoutSession.application_plan_id,
+        tenantId: resolvedTenantId,
+        appUserId: resolvedAppUserId,
+        payerEmail: checkoutSession.payer_email,
+        source: 'subscription_checkout_status',
+        environmentName: billingEnvironment || checkoutSession?.metadata?.billing_environment || null,
+      });
+
+      const providerStatus = String(synced?.providerSubscription?.status || checkoutSession.provider_status || '').trim().toLowerCase();
+      localSubscriptionStatus = String(synced?.subscription?.status || '').trim().toLowerCase();
+      latestProviderStatus = providerStatus;
+      const completed = ['authorized', 'active'].includes(providerStatus)
+        || ['authorized', 'active', 'trialing'].includes(localSubscriptionStatus);
+
+      await supabase
+        .from('subscription_checkout_sessions')
+        .update({
+          provider_status: providerStatus || null,
+          provider_metadata: synced?.providerSubscription || checkoutSession.provider_metadata || {},
+          status: completed
+            ? 'completed'
+            : ['cancelled', 'canceled'].includes(providerStatus)
+              ? 'cancelled'
+              : providerStatus === 'rejected'
+                ? 'failed'
+                : checkoutSession.status,
+          last_synced_at: new Date().toISOString(),
+          completed_at: ['authorized', 'active'].includes(providerStatus)
+            ? new Date().toISOString()
+            : checkoutSession.completed_at,
+        })
+        .eq('id', checkoutSession.id);
+    }
+
+    const appUser = resolvedAppUser || {
+      id: resolvedAppUserId || '',
       email: checkoutSession.payer_email || '',
       metadata: {},
-      tenant_id: checkoutSession.tenant_id || null,
+      tenant_id: resolvedTenantId || null,
     };
 
     const billingState = await resolveApplicationBillingAccess({
       supabase,
       application,
       appUser,
-      tenantId: checkoutSession.tenant_id || appUser.tenant_id || null,
+      tenantId: resolvedTenantId || appUser.tenant_id || null,
       environmentName: billingEnvironment || checkoutSession?.metadata?.billing_environment || null,
+    });
+
+    console.log('📡 Checkout status resolved:', {
+      checkout_session_id: checkoutSession.id,
+      environment: billingEnvironment || checkoutSession?.metadata?.billing_environment || null,
+      provider_subscription_id: checkoutSession.provider_subscription_id || null,
+      provider_status: latestProviderStatus || checkoutSession.provider_status || null,
+      local_subscription_status: billingState.subscription?.status || localSubscriptionStatus || null,
+      has_access: billingState.has_access,
     });
 
     const { data: refreshedSession } = await supabase

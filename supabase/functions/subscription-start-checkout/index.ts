@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
-import { createLocalPlanSubscription, getActivePlans } from '../_shared/application-billing.ts';
+import { createLocalPlanSubscription, getActivePlans, getScopedTrialUsage } from '../_shared/application-billing.ts';
 import { buildRedirectUrl, normalizeUrl, resolveApplicationAuthUrl } from '../_shared/application-auth-url.ts';
 import { resolveTrustedBillingReturnUrl } from '../_shared/billing-return-url.ts';
 import {
@@ -101,8 +101,8 @@ Deno.serve(async (req) => {
     const planId = String(body.plan_id || '').trim();
     const returnUrl = String(body.return_url || '').trim();
     const payerEmail = String(body.email || '').trim().toLowerCase() || null;
-    const tenantId = String(body.tenant_id || '').trim() || null;
-    const appUserId = String(body.app_user_id || '').trim() || null;
+    let tenantId = String(body.tenant_id || '').trim() || null;
+    let appUserId = String(body.app_user_id || '').trim() || null;
 
     if (!applicationId || !apiKey || !planId) {
       return jsonResponse({
@@ -195,8 +195,31 @@ Deno.serve(async (req) => {
     }
 
     const price = Number(plan.price || 0);
+    const trialDays = Number(plan.trial_days || 0);
     const planProviderState = resolvePlanProviderState(plan, billingEnvironment);
     const canProvisionWithoutCheckout = price === 0;
+
+    if ((!appUserId || !tenantId) && payerEmail) {
+      const { data: resolvedAppUser } = await supabase
+        .from('app_users')
+        .select('id, tenant_id')
+        .eq('application_id', application.id)
+        .eq('email', payerEmail)
+        .maybeSingle();
+
+      if (resolvedAppUser) {
+        appUserId = appUserId || resolvedAppUser.id || null;
+        tenantId = tenantId || resolvedAppUser.tenant_id || null;
+      }
+    }
+
+    const trialUsage = await getScopedTrialUsage({
+      supabase,
+      applicationId: application.id,
+      tenantId,
+      appUserId,
+    });
+    const includeProviderFreeTrial = !canProvisionWithoutCheckout && trialDays > 0 && !trialUsage.consumed;
 
     if (!canProvisionWithoutCheckout) {
       if (!billingConfig.accessToken) {
@@ -228,6 +251,22 @@ Deno.serve(async (req) => {
 
       billingConfig.backUrl = resolvedProviderBackUrl;
     }
+
+    console.log('🛒 Starting managed checkout:', {
+      application_id: application.id,
+      application_public_id: application.application_id,
+      environment: billingEnvironment,
+      plan_id: plan.id,
+      plan_name: plan.name,
+      price,
+      trial_days: trialDays,
+      include_provider_free_trial: includeProviderFreeTrial,
+      trial_consumed: trialUsage.consumed,
+      trial_scope: trialUsage.scope,
+      tenant_id: tenantId,
+      app_user_id: appUserId,
+      payer_email: payerEmail,
+    });
 
     const sessionId = crypto.randomUUID();
     const externalReference = `checkout:${sessionId}`;
@@ -326,11 +365,21 @@ Deno.serve(async (req) => {
           externalReference,
           payerEmail,
           reason: plan.name,
-          includeFreeTrial: false,
+          includeFreeTrial: includeProviderFreeTrial,
           status: 'pending',
         }),
       },
     );
+
+    console.log('💳 Mercado Pago checkout created:', {
+      checkout_session_id: sessionId,
+      environment: billingEnvironment,
+      provider_subscription_id: providerResponse?.id || null,
+      provider_status: providerResponse?.status || null,
+      next_payment_date: providerResponse?.next_payment_date || null,
+      has_free_trial: Boolean(providerResponse?.auto_recurring?.free_trial),
+      provider_back_url: providerBackUrl,
+    });
 
     await supabase
       .from('subscription_checkout_sessions')

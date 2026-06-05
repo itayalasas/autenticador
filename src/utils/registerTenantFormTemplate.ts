@@ -228,7 +228,7 @@ export default function RegisterTenantForm() {
       const registerRes = await fetch(\`\${API_BASE_URL}/auth-register\`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': \`Bearer \${SUPABASE_ANON_KEY}\`, 'apikey': SUPABASE_ANON_KEY },
-        body: JSON.stringify({ application_id: appId, api_key: resolvedApiKey, name: adminData.name, email: adminData.email, password: adminData.password, tenant_id: tenantId, redirect_uri: redirectUri || undefined }),
+        body: JSON.stringify({ application_id: appId, api_key: resolvedApiKey, name: adminData.name, email: adminData.email, password: adminData.password, tenant_id: tenantId, role: 'Administrador', redirect_uri: redirectUri || undefined }),
       });
       const registerResult = await registerRes.json();
       if (!registerRes.ok || !registerResult.success) throw new Error(registerResult?.error?.message || 'Error al crear el usuario administrador');

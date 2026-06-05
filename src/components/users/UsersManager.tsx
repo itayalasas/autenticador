@@ -343,9 +343,17 @@ export default function UsersManager() {
 
       // Update user basic info
       await userService.updateAppUser(editingUser!.id, userDataWithoutRoles as any);
-      
-      // Update user roles separately
-      await userService.updateUserRoles(editingUser!.id, roles);
+
+      const currentRoles = Array.isArray(editingUser?.roles) ? [...editingUser.roles].sort() : [];
+      const nextRoles = Array.isArray(roles) ? [...roles].sort() : [];
+      const rolesChanged =
+        currentRoles.length !== nextRoles.length ||
+        currentRoles.some((roleName, index) => roleName !== nextRoles[index]);
+
+      // Only rewrite role assignments when they actually changed.
+      if (rolesChanged) {
+        await userService.updateUserRoles(editingUser!.id, roles);
+      }
       
       setShowEditModal(false);
       setEditingUser(null);

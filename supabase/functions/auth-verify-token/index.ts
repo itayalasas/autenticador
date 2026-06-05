@@ -201,9 +201,11 @@ Deno.serve(async (req) => {
         ? claims.permissions_hierarchy
         : {};
 
-    if (user.role_id && (!roleName || Object.keys(rolePermissions).length === 0 || Object.keys(rolePermissionsHierarchy).length === 0)) {
+    if (user.role_id) {
       const resolvedRoleAccess = await resolveRoleAccess(supabase, user.role_id);
-      roleName = resolvedRoleAccess.roleName;
+      if (resolvedRoleAccess.roleName) {
+        roleName = resolvedRoleAccess.roleName;
+      }
       rolePermissions = resolvedRoleAccess.rolePermissions;
       rolePermissionsHierarchy = resolvedRoleAccess.rolePermissionsHierarchy;
     }

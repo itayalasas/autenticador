@@ -44,6 +44,7 @@ async function resolveTargetSubscription(params: {
   providerSubscriptionId?: string | null;
   tenantId?: string | null;
   appUserId?: string | null;
+  environmentName?: string | null;
 }) {
   const {
     supabase,
@@ -52,7 +53,9 @@ async function resolveTargetSubscription(params: {
     providerSubscriptionId,
     tenantId,
     appUserId,
+    environmentName,
   } = params;
+  const normalizedEnvironment = normalizeBillingEnvironmentName(environmentName);
 
   if (subscriptionId) {
     const { data, error } = await supabase
@@ -63,7 +66,14 @@ async function resolveTargetSubscription(params: {
       .maybeSingle();
 
     if (error && error.code !== 'PGRST116') throw error;
-    if (data) return data;
+    if (data) {
+      const subscriptionEnvironment = normalizeBillingEnvironmentName(
+        typeof data?.metadata === 'object' ? (data.metadata as Record<string, any>)?.billing_environment : null
+      );
+      if (!normalizedEnvironment || subscriptionEnvironment === normalizedEnvironment) {
+        return data;
+      }
+    }
   }
 
   if (providerSubscriptionId) {
@@ -75,7 +85,14 @@ async function resolveTargetSubscription(params: {
       .maybeSingle();
 
     if (error && error.code !== 'PGRST116') throw error;
-    if (data) return data;
+    if (data) {
+      const subscriptionEnvironment = normalizeBillingEnvironmentName(
+        typeof data?.metadata === 'object' ? (data.metadata as Record<string, any>)?.billing_environment : null
+      );
+      if (!normalizedEnvironment || subscriptionEnvironment === normalizedEnvironment) {
+        return data;
+      }
+    }
   }
 
   if (tenantId) {
@@ -86,11 +103,18 @@ async function resolveTargetSubscription(params: {
       .eq('tenant_id', tenantId)
       .in('status', ['pending', 'authorized', 'active', 'trialing', 'paused'])
       .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(20);
 
-    if (error && error.code !== 'PGRST116') throw error;
-    if (data) return data;
+    if (error) throw error;
+    const rows = Array.isArray(data) ? data : [];
+    const match = normalizedEnvironment
+      ? rows.find((row: any) => normalizeBillingEnvironmentName(
+          row?.metadata && typeof row.metadata === 'object'
+            ? (row.metadata as Record<string, any>).billing_environment
+            : null
+        ) === normalizedEnvironment)
+      : rows[0];
+    if (match) return match;
   }
 
   if (appUserId) {
@@ -101,11 +125,18 @@ async function resolveTargetSubscription(params: {
       .eq('app_user_id', appUserId)
       .in('status', ['pending', 'authorized', 'active', 'trialing', 'paused'])
       .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(20);
 
-    if (error && error.code !== 'PGRST116') throw error;
-    if (data) return data;
+    if (error) throw error;
+    const rows = Array.isArray(data) ? data : [];
+    const match = normalizedEnvironment
+      ? rows.find((row: any) => normalizeBillingEnvironmentName(
+          row?.metadata && typeof row.metadata === 'object'
+            ? (row.metadata as Record<string, any>).billing_environment
+            : null
+        ) === normalizedEnvironment)
+      : rows[0];
+    if (match) return match;
   }
 
   return null;
@@ -213,6 +244,7 @@ Deno.serve(async (req) => {
       providerSubscriptionId,
       tenantId,
       appUserId,
+      environmentName: billingEnvironment,
     });
 
     if (!subscription) {

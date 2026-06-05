@@ -84,6 +84,30 @@ const callEdgeFunction = async (functionName, body, headers = {}) => {
   }
 };
 
+const jsonResponse = (statusCode, body) => ({
+  statusCode,
+  headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  body: JSON.stringify(body)
+});
+
+const parseRequestBody = (event, method) => {
+  if (method === 'GET') {
+    return event.queryStringParameters || {};
+  }
+
+  if (!event.body) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(event.body);
+  } catch (error) {
+    const invalidJsonError = new Error('Request body must be valid JSON');
+    invalidJsonError.name = 'InvalidJsonError';
+    throw invalidJsonError;
+  }
+};
+
 // Main Netlify function handler
 exports.handler = async (event, context) => {
   console.log('📥 Netlify Function Called:', {
@@ -337,44 +361,222 @@ exports.handler = async (event, context) => {
 
       let requestBody = {};
       try {
-        requestBody = method === 'GET'
-          ? (event.queryStringParameters || {})
-          : (event.body ? JSON.parse(event.body) : {});
-      } catch (parseError) {
-        return {
-          statusCode: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            success: false,
-            error: {
-              code: 'INVALID_JSON',
-              message: 'Request body must be valid JSON'
-            }
-          })
-        };
+        requestBody = parseRequestBody(event, method);
+      } catch (error) {
+        return jsonResponse(400, {
+          success: false,
+          error: {
+            code: 'INVALID_JSON',
+            message: 'Request body must be valid JSON'
+          }
+        });
       }
 
       try {
         const result = await callEdgeFunction('application-plans', requestBody);
 
-        return {
-          statusCode: result.statusCode,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify(result.body)
-        };
+        return jsonResponse(result.statusCode, result.body);
       } catch (error) {
         console.error('❌ Error proxying application plans request:', error);
-        return {
-          statusCode: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            success: false,
-            error: {
-              code: 'PROXY_ERROR',
-              message: 'Error connecting to plans service: ' + error.message
-            }
-          })
-        };
+        return jsonResponse(500, {
+          success: false,
+          error: {
+            code: 'PROXY_ERROR',
+            message: 'Error connecting to plans service: ' + error.message
+          }
+        });
+      }
+    }
+
+    // Roles list endpoint - Proxy to Edge Function
+    if (path.endsWith('/list-roles') && (method === 'GET' || method === 'POST')) {
+      console.log(`👥 List roles endpoint called (${method}) - proxying to Edge Function`);
+
+      let requestBody = {};
+      try {
+        requestBody = parseRequestBody(event, method);
+      } catch (error) {
+        return jsonResponse(400, {
+          success: false,
+          error: {
+            code: 'INVALID_JSON',
+            message: 'Request body must be valid JSON'
+          }
+        });
+      }
+
+      try {
+        const result = await callEdgeFunction('list-roles', requestBody);
+        return jsonResponse(result.statusCode, result.body);
+      } catch (error) {
+        console.error('❌ Error proxying list roles request:', error);
+        return jsonResponse(500, {
+          success: false,
+          error: {
+            code: 'PROXY_ERROR',
+            message: 'Error connecting to roles service: ' + error.message
+          }
+        });
+      }
+    }
+
+    // Invitations list endpoint - Proxy to Edge Function
+    if (path.endsWith('/invitations-list') && (method === 'GET' || method === 'POST')) {
+      console.log(`📨 Invitations list endpoint called (${method}) - proxying to Edge Function`);
+
+      let requestBody = {};
+      try {
+        requestBody = parseRequestBody(event, method);
+      } catch (error) {
+        return jsonResponse(400, {
+          success: false,
+          error: {
+            code: 'INVALID_JSON',
+            message: 'Request body must be valid JSON'
+          }
+        });
+      }
+
+      try {
+        const result = await callEdgeFunction('invitations-list', requestBody);
+        return jsonResponse(result.statusCode, result.body);
+      } catch (error) {
+        console.error('❌ Error proxying invitations list request:', error);
+        return jsonResponse(500, {
+          success: false,
+          error: {
+            code: 'PROXY_ERROR',
+            message: 'Error connecting to invitations service: ' + error.message
+          }
+        });
+      }
+    }
+
+    // Invitations create endpoint - Proxy to Edge Function
+    if (path.endsWith('/invitations-create') && method === 'POST') {
+      console.log('✉️ Invitations create endpoint called - proxying to Edge Function');
+
+      let requestBody = {};
+      try {
+        requestBody = parseRequestBody(event, method);
+      } catch (error) {
+        return jsonResponse(400, {
+          success: false,
+          error: {
+            code: 'INVALID_JSON',
+            message: 'Request body must be valid JSON'
+          }
+        });
+      }
+
+      try {
+        const result = await callEdgeFunction('invitations-create', requestBody);
+        return jsonResponse(result.statusCode, result.body);
+      } catch (error) {
+        console.error('❌ Error proxying invitations create request:', error);
+        return jsonResponse(500, {
+          success: false,
+          error: {
+            code: 'PROXY_ERROR',
+            message: 'Error connecting to invitations create service: ' + error.message
+          }
+        });
+      }
+    }
+
+    // Invitations revoke endpoint - Proxy to Edge Function
+    if (path.endsWith('/invitations-revoke') && method === 'POST') {
+      console.log('🚫 Invitations revoke endpoint called - proxying to Edge Function');
+
+      let requestBody = {};
+      try {
+        requestBody = parseRequestBody(event, method);
+      } catch (error) {
+        return jsonResponse(400, {
+          success: false,
+          error: {
+            code: 'INVALID_JSON',
+            message: 'Request body must be valid JSON'
+          }
+        });
+      }
+
+      try {
+        const result = await callEdgeFunction('invitations-revoke', requestBody);
+        return jsonResponse(result.statusCode, result.body);
+      } catch (error) {
+        console.error('❌ Error proxying invitations revoke request:', error);
+        return jsonResponse(500, {
+          success: false,
+          error: {
+            code: 'PROXY_ERROR',
+            message: 'Error connecting to invitations revoke service: ' + error.message
+          }
+        });
+      }
+    }
+
+    // Invitations validate endpoint - Proxy to Edge Function
+    if (path.endsWith('/invitations-validate') && (method === 'GET' || method === 'POST')) {
+      console.log(`🔎 Invitations validate endpoint called (${method}) - proxying to Edge Function`);
+
+      let requestBody = {};
+      try {
+        requestBody = parseRequestBody(event, method);
+      } catch (error) {
+        return jsonResponse(400, {
+          success: false,
+          error: {
+            code: 'INVALID_JSON',
+            message: 'Request body must be valid JSON'
+          }
+        });
+      }
+
+      try {
+        const result = await callEdgeFunction('invitations-validate', requestBody);
+        return jsonResponse(result.statusCode, result.body);
+      } catch (error) {
+        console.error('❌ Error proxying invitations validate request:', error);
+        return jsonResponse(500, {
+          success: false,
+          error: {
+            code: 'PROXY_ERROR',
+            message: 'Error connecting to invitations validate service: ' + error.message
+          }
+        });
+      }
+    }
+
+    // Invitations accept endpoint - Proxy to Edge Function
+    if (path.endsWith('/invitations-accept') && method === 'POST') {
+      console.log('✅ Invitations accept endpoint called - proxying to Edge Function');
+
+      let requestBody = {};
+      try {
+        requestBody = parseRequestBody(event, method);
+      } catch (error) {
+        return jsonResponse(400, {
+          success: false,
+          error: {
+            code: 'INVALID_JSON',
+            message: 'Request body must be valid JSON'
+          }
+        });
+      }
+
+      try {
+        const result = await callEdgeFunction('invitations-accept', requestBody);
+        return jsonResponse(result.statusCode, result.body);
+      } catch (error) {
+        console.error('❌ Error proxying invitations accept request:', error);
+        return jsonResponse(500, {
+          success: false,
+          error: {
+            code: 'PROXY_ERROR',
+            message: 'Error connecting to invitations accept service: ' + error.message
+          }
+        });
       }
     }
 

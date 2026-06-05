@@ -120,6 +120,37 @@ Deno.serve(async (req) => {
       null
     );
 
+    const sessionAppUser = checkoutSession.app_user_id
+      ? await supabase
+          .from('app_users')
+          .select('id, email, metadata, tenant_id')
+          .eq('id', checkoutSession.app_user_id)
+          .maybeSingle()
+      : { data: null };
+
+    const fallbackAppUser = !sessionAppUser.data && checkoutSession.payer_email
+      ? await supabase
+          .from('app_users')
+          .select('id, email, metadata, tenant_id')
+          .eq('application_id', application.id)
+          .eq('email', checkoutSession.payer_email)
+          .maybeSingle()
+      : { data: null };
+
+    const resolvedAppUser = sessionAppUser.data || fallbackAppUser.data || null;
+    const resolvedAppUserId = resolvedAppUser?.id || checkoutSession.app_user_id || null;
+    const resolvedTenantId = checkoutSession.tenant_id || resolvedAppUser?.tenant_id || null;
+
+    if ((resolvedAppUserId && resolvedAppUserId !== checkoutSession.app_user_id) || (resolvedTenantId && resolvedTenantId !== checkoutSession.tenant_id)) {
+      await supabase
+        .from('subscription_checkout_sessions')
+        .update({
+          app_user_id: resolvedAppUserId || checkoutSession.app_user_id || null,
+          tenant_id: resolvedTenantId || checkoutSession.tenant_id || null,
+        })
+        .eq('id', checkoutSession.id);
+    }
+
     let synced: Awaited<ReturnType<typeof syncMercadoPagoSubscriptionById>> | null = null;
     let subscriptionState = String(url.searchParams.get('status') || checkoutSession.provider_status || 'pending').trim().toLowerCase();
 
@@ -129,8 +160,8 @@ Deno.serve(async (req) => {
         application,
         providerSubscriptionId: finalProviderSubscriptionId,
         selectedPlanId: checkoutSession.application_plan_id,
-        tenantId: checkoutSession.tenant_id,
-        appUserId: checkoutSession.app_user_id,
+        tenantId: resolvedTenantId,
+        appUserId: resolvedAppUserId,
         payerEmail: checkoutSession.payer_email,
         source: 'mercadopago_return',
         environmentName: billingEnvironment,
@@ -141,9 +172,22 @@ Deno.serve(async (req) => {
       }
     }
 
-    const completed = ['authorized', 'active'].includes(subscriptionState);
+    const syncedSubscriptionState = String(synced?.subscription?.status || '').trim().toLowerCase();
+    const completed = ['authorized', 'active'].includes(subscriptionState)
+      || ['authorized', 'active', 'trialing'].includes(syncedSubscriptionState);
     const cancelled = ['cancelled', 'canceled'].includes(subscriptionState);
     const failed = ['rejected', 'failed'].includes(subscriptionState);
+
+    console.log('↩️ Mercado Pago return processed:', {
+      checkout_session_id: checkoutSession.id,
+      environment: billingEnvironment,
+      provider_subscription_id: finalProviderSubscriptionId || null,
+      provider_status: subscriptionState,
+      local_subscription_status: syncedSubscriptionState || null,
+      completed,
+      cancelled,
+      failed,
+    });
 
     await supabase
       .from('subscription_checkout_sessions')
@@ -171,7 +215,7 @@ Deno.serve(async (req) => {
     }
 
     const redirectUrl = buildRedirectUrl(redirectTarget, {
-      subscription_state: completed ? 'active' : subscriptionState || 'pending',
+      subscription_state: syncedSubscriptionState || (completed ? 'active' : subscriptionState || 'pending'),
       checkout_session_id: checkoutSession.id,
       plan_id: checkoutSession.application_plan_id,
       provider: 'mercadopago',

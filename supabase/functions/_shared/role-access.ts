@@ -310,7 +310,7 @@ export async function resolveRoleAccess(
     .from('role_permissions')
     .select(`
       granted,
-      menu:application_menus!inner(id, slug, parent_menu_id),
+      menu:application_menus!inner(id, slug, parent_menu_id, application_id),
       action:menu_actions!inner(id, slug)
     `)
     .eq('role_id', roleId)
@@ -320,9 +320,22 @@ export async function resolveRoleAccess(
   const rolePermissionsHierarchy: Record<string, PermissionNode> = {};
 
   if (permissions && permissions.length > 0) {
+    const validPermissions = permissions.filter((perm: any) => {
+      const menuApplicationId = perm.menu?.application_id || null;
+      return !roleRecord?.application_id || menuApplicationId === roleRecord.application_id;
+    });
+
+    if (validPermissions.length !== permissions.length) {
+      console.warn('Ignoring cross-application role permissions:', {
+        roleId,
+        roleApplicationId: roleRecord?.application_id || null,
+        ignoredPermissions: permissions.length - validPermissions.length,
+      });
+    }
+
     const menuById: Record<string, { slug: string; parent_menu_id: string | null }> = {};
 
-    permissions.forEach((perm: any) => {
+    validPermissions.forEach((perm: any) => {
       const menuData = perm.menu;
       if (menuData?.id && menuData?.slug) {
         menuById[menuData.id] = {
@@ -332,7 +345,7 @@ export async function resolveRoleAccess(
       }
     });
 
-    permissions.forEach((perm: any) => {
+    validPermissions.forEach((perm: any) => {
       const menuId = perm.menu?.id;
       const menuSlug = perm.menu?.slug;
       const actionSlug = perm.action?.slug;

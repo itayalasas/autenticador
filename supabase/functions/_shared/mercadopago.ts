@@ -122,7 +122,31 @@ export function normalizeMercadoPagoConfig(
   raw: Record<string, any> | null | undefined,
   environmentName?: string | null,
 ): MercadoPagoBillingConfig {
-  const config = resolveBillingConfigForEnvironment(raw, environmentName);
+  const rawConfig = normalizeObject(raw);
+  const normalizedEnvironment = normalizeBillingEnvironmentName(environmentName);
+  const environments = normalizeObject(rawConfig.environments);
+  const environmentOverride = normalizedEnvironment
+    ? normalizeObject(environments[normalizedEnvironment])
+    : {};
+  const config = {
+    ...rawConfig,
+    ...environmentOverride,
+    environments,
+    environmentName: normalizedEnvironment,
+  };
+  const hasEnvironmentRequirePlanOverride = typeof environmentOverride.require_plan_for_access === 'boolean';
+  const hasGlobalRequirePlanConfig = typeof rawConfig.require_plan_for_access === 'boolean';
+  const defaultRequirePlanForAccess = normalizedEnvironment && normalizedEnvironment !== 'production'
+    ? false
+    : true;
+  const requirePlanForAccess = hasEnvironmentRequirePlanOverride
+    ? normalizeBoolean(environmentOverride.require_plan_for_access, defaultRequirePlanForAccess)
+    : normalizedEnvironment && normalizedEnvironment !== 'production'
+      ? false
+      : hasGlobalRequirePlanConfig
+        ? normalizeBoolean(rawConfig.require_plan_for_access, defaultRequirePlanForAccess)
+        : defaultRequirePlanForAccess;
+
   return {
     enabled: normalizeBoolean(config.enabled, false),
     provider: 'mercadopago',
@@ -140,8 +164,8 @@ export function normalizeMercadoPagoConfig(
     webhookSecret: String(config.mercado_pago_webhook_secret || config.webhook_secret || '').trim(),
     autoSyncOnLogin: normalizeBoolean(config.auto_sync_on_login, true),
     autoAssignDefaultPlan: normalizeBoolean(config.auto_assign_default_plan, true),
-    requirePlanForAccess: normalizeBoolean(config.require_plan_for_access, true),
-    environmentName: normalizeBillingEnvironmentName(environmentName),
+    requirePlanForAccess,
+    environmentName: normalizedEnvironment,
   };
 }
 

@@ -376,11 +376,14 @@ Deno.serve(async (req) => {
 
     console.log('✅ API Key belongs to application');
 
+    const apiKeyEnvironment = normalizeEnvironmentName((apiKeyData as any).environment || null);
+
     const { baseUrl: authBaseUrl, callbackUrl: resolvedCallbackUrl, environmentName: resolvedEnvironmentName } = await resolveApplicationAuthUrl(
       supabase,
       application.id,
-      (apiKeyData as any).environment || null
+      apiKeyEnvironment
     );
+    const requestedEnvironment = apiKeyEnvironment || normalizeEnvironmentName(resolvedEnvironmentName || null);
     const configuredCallbackUrl = resolveTrustedApplicationCallbackUrl({
       requestedCallbackUrl: callback_url,
       configuredCallbackUrl: resolvedCallbackUrl,
@@ -397,9 +400,19 @@ Deno.serve(async (req) => {
       console.warn('⚠️ Replacing requested callback_url with trusted application callback URL.', {
         requested: normalizeUrl(callback_url),
         configured: configuredCallbackUrl,
-        environment: resolvedEnvironmentName || (apiKeyData as any).environment || null
+        api_key_environment: apiKeyEnvironment,
+        resolved_callback_environment: resolvedEnvironmentName || null,
+        effective_environment: requestedEnvironment,
       });
     }
+
+    console.log('🌍 Login environment resolution:', {
+      api_key_environment: apiKeyEnvironment,
+      resolved_callback_environment: resolvedEnvironmentName || null,
+      effective_environment: requestedEnvironment,
+      auth_base_url: authBaseUrl || null,
+      trusted_callback_url: configuredCallbackUrl || null,
+    });
 
     const { data: user, error: userError } = await supabase
       .from('app_users')
@@ -533,9 +546,6 @@ Deno.serve(async (req) => {
       )
     }
 
-    const requestedEnvironment = normalizeEnvironmentName(
-      resolvedEnvironmentName || (apiKeyData as any).environment || null
-    );
     let tenantRecordForEnvironmentAccess: Record<string, any> | null = null;
 
     if (!Array.isArray(user.metadata?.environment_access?.allowed_environments) && application.auth_mode === 'tenant' && user.tenant_id) {
@@ -679,7 +689,10 @@ Deno.serve(async (req) => {
         validationData = internalValidation;
         validationSource = 'internal';
         console.log('✅ Internal application billing resolved:', {
+          environment: requestedEnvironment,
           has_access: internalValidation.has_access,
+          billing_enabled: internalValidation.enabled,
+          plan_required: internalValidation.license?.plan_required,
           subscription_status: internalValidation.subscription?.status,
           plan_name: internalValidation.subscription?.plan_name
         });

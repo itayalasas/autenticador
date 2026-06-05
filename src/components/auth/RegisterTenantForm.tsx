@@ -49,6 +49,14 @@ interface PublicApplicationPlan {
   };
 }
 
+interface PublicApplicationRole {
+  id: string;
+  name: string;
+  display_name?: string;
+  is_default?: boolean;
+  available_for_registration?: boolean;
+}
+
 interface AdminData {
   name: string;
   email: string;
@@ -64,6 +72,41 @@ function buildSlug(value: string) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .substring(0, 60);
+}
+
+function normalizeRoleValue(value?: string | null) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function selectTenantRegistrationRole(roles: PublicApplicationRole[]): PublicApplicationRole | null {
+  if (!Array.isArray(roles) || roles.length === 0) {
+    return null;
+  }
+
+  const adminCandidates = roles.filter((role) => {
+    const normalizedDisplayName = normalizeRoleValue(role.display_name);
+    const normalizedName = normalizeRoleValue(role.name);
+
+    return (
+      normalizedDisplayName === 'administrador' ||
+      normalizedName === 'administrador' ||
+      normalizedName === 'admin' ||
+      normalizedName === 'administrator'
+    );
+  });
+
+  const availableForRegistration = roles.filter((role) => role.available_for_registration === true);
+  const defaultRole = roles.find((role) => role.is_default === true) || null;
+
+  return (
+    adminCandidates.find((role) => role.is_default === true) ||
+    adminCandidates[0] ||
+    availableForRegistration.find((role) => role.is_default === true) ||
+    availableForRegistration[0] ||
+    defaultRole ||
+    roles[0] ||
+    null
+  );
 }
 
 export default function RegisterTenantForm() {
@@ -85,6 +128,7 @@ export default function RegisterTenantForm() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [success, setSuccess] = useState(false);
   const [plans, setPlans] = useState<PublicApplicationPlan[]>([]);
+  const [registrationRole, setRegistrationRole] = useState<PublicApplicationRole | null>(null);
   const [plansLoading, setPlansLoading] = useState(true);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(searchParams.get('plan_id'));
 
@@ -196,6 +240,7 @@ export default function RegisterTenantForm() {
     const loadPlans = async () => {
       if (!appId || !resolvedApiKey) {
         setPlans([]);
+        setRegistrationRole(null);
         setPlansLoading(false);
         return;
       }
@@ -207,6 +252,29 @@ export default function RegisterTenantForm() {
           application_id: appId,
           api_key: resolvedApiKey
         };
+
+        try {
+          const roleResponse = await fetch(`${apiBaseUrl}/list-roles`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${supabaseAnonKey}`,
+              apikey: supabaseAnonKey
+            },
+            body: JSON.stringify(payload)
+          });
+
+          const roleJson = await roleResponse.json().catch(() => null);
+          if (roleResponse.ok && roleJson?.success) {
+            const roles = Array.isArray(roleJson?.data?.roles) ? roleJson.data.roles : [];
+            setRegistrationRole(selectTenantRegistrationRole(roles));
+          } else {
+            setRegistrationRole(null);
+          }
+        } catch (roleError) {
+          console.warn('Unable to resolve registration role for tenant signup:', roleError);
+          setRegistrationRole(null);
+        }
 
         const requestAttempts = [
           {
@@ -289,6 +357,7 @@ export default function RegisterTenantForm() {
       } catch (error) {
         console.error('Error loading application plans:', error);
         setPlans([]);
+        setRegistrationRole(null);
       } finally {
         setPlansLoading(false);
       }
@@ -407,6 +476,7 @@ export default function RegisterTenantForm() {
           email: adminData.email,
           password: adminData.password,
           tenant_id: tenantId,
+          role: registrationRole?.display_name || registrationRole?.name || 'Administrador',
           redirect_uri: trustedRedirectUri || undefined
         })
       });
