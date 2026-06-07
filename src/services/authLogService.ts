@@ -29,6 +29,7 @@ export const authLogService = {
           ...params.metadata,
           email: params.email,
           source: 'dashboard',
+          environment: params.metadata?.environment || 'dashboard',
           timestamp: new Date().toISOString()
         }
       });

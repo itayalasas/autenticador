@@ -4,7 +4,6 @@ import { Application } from '../../types';
 import { applicationService } from '../../services/applicationService';
 import { userService } from '../../services/userService';
 import { useNotification } from '../../hooks/useNotification';
-import { subscriptionService } from '../../services/subscriptionService';
 import NotificationModal from '../ui/NotificationModal';
 import ConfirmationModal from '../ui/ConfirmationModal';
 import CreateApplicationWizard from './CreateApplicationWizard';
@@ -85,16 +84,6 @@ export default function ApplicationsList() {
 
   const handleCreateApp = async (appData: any) => {
     try {
-      // Check subscription limits before creating
-      const canCreate = await subscriptionService.canCreateApplication();
-      if (!canCreate.allowed) {
-        showError(
-          'Límite alcanzado',
-          canCreate.reason || 'No puedes crear más aplicaciones con tu plan actual.'
-        );
-        return;
-      }
-
       setCreateLoading(true);
       await applicationService.createApplication(appData);
       setShowCreateModal(false);

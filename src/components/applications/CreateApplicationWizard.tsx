@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Plus, ArrowRight, ArrowLeft, Check, Globe, Settings, Palette, Users } from 'lucide-react';
-import { subscriptionService } from '../../services/subscriptionService';
 
 interface CreateApplicationWizardProps {
   isOpen: boolean;
@@ -18,7 +17,6 @@ export default function CreateApplicationWizard({
   loading
 }: CreateApplicationWizardProps) {
   const [currentStep, setCurrentStep] = useState(1);
-  const [subscriptionLimits, setSubscriptionLimits] = useState<any>(null);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -48,7 +46,6 @@ export default function CreateApplicationWizard({
   React.useEffect(() => {
     if (isOpen && !wasOpenRef.current) {
       wasOpenRef.current = true;
-      loadSubscriptionLimits();
       setCurrentStep(1);
       setFormData({
         name: '',
@@ -72,15 +69,6 @@ export default function CreateApplicationWizard({
   }, [isOpen]);
 
   if (!isOpen) return null;
-
-  const loadSubscriptionLimits = async () => {
-    try {
-      const limits = await subscriptionService.canCreateApplication();
-      setSubscriptionLimits(limits);
-    } catch (error) {
-      console.error('Error loading subscription limits:', error);
-    }
-  };
 
   const handleInputChange = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -490,19 +478,6 @@ export default function CreateApplicationWizard({
           <div className="flex-1 p-6 overflow-y-auto min-h-0">
             {renderStepContent()}
 
-            {subscriptionLimits && !subscriptionLimits.allowed && (
-              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
-                <p className="text-sm font-medium text-amber-800">
-                  No puedes crear la aplicación todavía
-                </p>
-                <p className="mt-1 text-sm text-amber-700">
-                  {subscriptionLimits.reason || 'Tu plan actual no permite crear más aplicaciones.'}
-                </p>
-                <p className="mt-2 text-xs text-amber-700">
-                  Uso actual: {subscriptionLimits.current} / {subscriptionLimits.limit === -1 ? 'ilimitado' : subscriptionLimits.limit}
-                </p>
-              </div>
-            )}
           </div>
 
           {/* Footer */}

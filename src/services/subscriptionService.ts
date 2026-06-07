@@ -430,52 +430,6 @@ export const subscriptionService = {
     if (error) throw error;
   },
 
-  // Check if user can create more applications
-  async canCreateApplication(): Promise<{ allowed: boolean; reason?: string; current: number; limit: number }> {
-    let subscription = await this.getCurrentSubscription();
-    if (!subscription) {
-      try {
-        console.log('ℹ️ No active subscription found. Creating free basic subscription automatically...');
-        subscription = await this.createBasicSubscription();
-      } catch (error) {
-        console.error('❌ Error auto-creating basic subscription:', error);
-        return {
-          allowed: false,
-          reason: 'No se pudo activar el plan Básico gratuito automáticamente',
-          current: 0,
-          limit: 0
-        };
-      }
-    }
-
-    const plan = subscription.subscription_plans;
-    if (!plan) {
-      return { allowed: false, reason: 'No se encontró un plan asociado a la suscripción', current: 0, limit: 0 };
-    }
-
-    // Get current application count
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('User not authenticated');
-
-    const { count: currentApps, error } = await supabase
-      .from('applications')
-      .select('id', { count: 'exact' })
-      .eq('owner_id', user.id)
-      .eq('status', 'active');
-
-    if (error) throw error;
-
-    const current = currentApps || 0;
-    const limit = plan.limits.applications;
-
-    return {
-      allowed: limit === -1 || current < limit,
-      current,
-      limit,
-      reason: limit !== -1 && current >= limit ? `Has alcanzado el límite de ${limit} aplicaciones` : undefined
-    };
-  },
-
   // Check if user can create more users in an application
   async canCreateUser(applicationId: string): Promise<{ allowed: boolean; reason?: string; current: number; limit: number }> {
     const subscription = await this.getCurrentSubscription();

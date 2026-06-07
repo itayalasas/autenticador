@@ -125,6 +125,59 @@ export default function LogsViewer() {
     if (data) setApplications(data);
   };
 
+  const normalizeEnvironment = (value: unknown): string | null => {
+    if (!value) return null;
+    const normalized = String(value).trim().toLowerCase();
+    return normalized || null;
+  };
+
+  const getLogEnvironment = (log: AuthLog): string | null => {
+    const metadata = log.metadata && typeof log.metadata === 'object' ? log.metadata : {};
+    const rawEnvironment =
+      metadata.environment ||
+      metadata.requested_environment ||
+      metadata.environment_name ||
+      metadata.billing_environment ||
+      null;
+
+    const normalized = normalizeEnvironment(rawEnvironment);
+    if (normalized) {
+      return normalized;
+    }
+
+    return metadata.source === 'dashboard' ? 'dashboard' : null;
+  };
+
+  const getEnvironmentLabel = (environment: string | null) => {
+    switch (environment) {
+      case 'development':
+        return 'Desarrollo';
+      case 'testing':
+        return 'Testing';
+      case 'production':
+        return 'Producción';
+      case 'dashboard':
+        return 'Dashboard';
+      default:
+        return environment ? environment.charAt(0).toUpperCase() + environment.slice(1) : 'Sin ambiente';
+    }
+  };
+
+  const getEnvironmentBadgeClass = (environment: string | null) => {
+    switch (environment) {
+      case 'development':
+        return 'bg-sky-100 text-sky-800';
+      case 'testing':
+        return 'bg-amber-100 text-amber-800';
+      case 'production':
+        return 'bg-emerald-100 text-emerald-800';
+      case 'dashboard':
+        return 'bg-violet-100 text-violet-800';
+      default:
+        return 'bg-gray-100 text-gray-600';
+    }
+  };
+
   const groupFailedAttempts = (logs: AuthLog[]): AuthLog[] => {
     console.log('🔄 Grouping failed attempts for', logs.length, 'logs');
     
@@ -145,7 +198,8 @@ export default function LogsViewer() {
         });
         
         const email = log.app_user?.email || log.metadata?.email || 'anonymous';
-        const groupKey = `${log.ip_address}_${email}_${log.application_id || 'no-app'}`;
+        const environment = getLogEnvironment(log) || 'no-environment';
+        const groupKey = `${log.ip_address}_${email}_${log.application_id || 'no-app'}_${environment}`;
 
         if (!groupedMap.has(groupKey)) {
           // Primer intento fallido con esta combinación
@@ -154,7 +208,8 @@ export default function LogsViewer() {
             (l.event_type === 'login' || l.event_type === 'register' || l.event_type === 'failed_login') &&
             l.ip_address === log.ip_address &&
             (l.app_user?.email || l.metadata?.email || 'anonymous') === email &&
-            (l.application_id || 'no-app') === (log.application_id || 'no-app')
+            (l.application_id || 'no-app') === (log.application_id || 'no-app') &&
+            (getLogEnvironment(l) || 'no-environment') === environment
           );
 
           // Marcar todos los logs relacionados como procesados
@@ -304,12 +359,21 @@ export default function LogsViewer() {
         }))
       });
 
+      const normalizedSearchQuery = searchQuery.toLowerCase();
       const filteredData = searchQuery
-        ? data?.filter(log =>
-            log.ip_address?.includes(searchQuery) ||
-            log.app_user?.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            log.metadata?.email?.toLowerCase().includes(searchQuery.toLowerCase())
-          )
+        ? data?.filter(log => {
+            const logEnvironment = getLogEnvironment(log);
+            const logEnvironmentLabel = getEnvironmentLabel(logEnvironment).toLowerCase();
+
+            return (
+              log.ip_address?.includes(searchQuery) ||
+              log.app_user?.email?.toLowerCase().includes(normalizedSearchQuery) ||
+              log.metadata?.email?.toLowerCase().includes(normalizedSearchQuery) ||
+              log.application?.name?.toLowerCase().includes(normalizedSearchQuery) ||
+              (logEnvironment || '').includes(normalizedSearchQuery) ||
+              logEnvironmentLabel.includes(normalizedSearchQuery)
+            );
+          })
         : data;
 
       // Agrupar intentos fallidos por IP, email, aplicación y usuario
@@ -564,7 +628,7 @@ export default function LogsViewer() {
   };
 
   const exportLogs = () => {
-    const csv = [
+    const csvBody = [
       ['Fecha', 'Evento', 'Usuario', 'Email', 'IP', 'Estado', 'Error', 'Aplicación'].join(','),
       ...logs.map(log => [
         new Date(log.created_at).toLocaleString(),
@@ -574,9 +638,13 @@ export default function LogsViewer() {
         log.ip_address,
         log.success ? 'Exitoso' : 'Fallido',
         log.error_message || '-',
-        log.application?.name || '-'
+        log.application?.name || '-',
+        getEnvironmentLabel(getLogEnvironment(log))
       ].join(','))
     ].join('\n');
+
+    const csvHeader = ['Fecha', 'Evento', 'Usuario', 'Email', 'IP', 'Estado', 'Error', 'Aplicación', 'Ambiente'].join(',');
+    const csv = [csvHeader, ...csvBody.split('\n').slice(1)].join('\n');
 
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -821,6 +889,7 @@ export default function LogsViewer() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">IP Address</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Aplicación</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ambiente</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Timestamp</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
@@ -861,6 +930,11 @@ export default function LogsViewer() {
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-600">
                     {log.application?.name || '-'}
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className={`inline-flex px-2.5 py-1 text-xs font-medium rounded-full ${getEnvironmentBadgeClass(getLogEnvironment(log))}`}>
+                      {getEnvironmentLabel(getLogEnvironment(log))}
+                    </span>
                   </td>
                   <td className="px-6 py-4">
                     <div className="text-sm text-gray-900">
@@ -1143,7 +1217,7 @@ export default function LogsViewer() {
 
               <div>
                 <h4 className="text-sm font-semibold text-gray-900 mb-3">Información de la Aplicación</h4>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <p className="text-sm text-gray-600">Aplicación:</p>
                     <p className="text-sm font-medium text-gray-900">{selectedLog.application?.name || '-'}</p>
@@ -1151,6 +1225,12 @@ export default function LogsViewer() {
                   <div>
                     <p className="text-sm text-gray-600">Dominio:</p>
                     <p className="text-sm font-medium text-gray-900">{selectedLog.application?.domain || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Ambiente:</p>
+                    <span className={`inline-flex mt-1 px-2.5 py-1 text-xs font-medium rounded-full ${getEnvironmentBadgeClass(getLogEnvironment(selectedLog))}`}>
+                      {getEnvironmentLabel(getLogEnvironment(selectedLog))}
+                    </span>
                   </div>
                 </div>
               </div>
