@@ -432,14 +432,25 @@ export const subscriptionService = {
 
   // Check if user can create more applications
   async canCreateApplication(): Promise<{ allowed: boolean; reason?: string; current: number; limit: number }> {
-    const subscription = await this.getCurrentSubscription();
+    let subscription = await this.getCurrentSubscription();
     if (!subscription) {
-      return { allowed: false, reason: 'No active subscription', current: 0, limit: 0 };
+      try {
+        console.log('ℹ️ No active subscription found. Creating free basic subscription automatically...');
+        subscription = await this.createBasicSubscription();
+      } catch (error) {
+        console.error('❌ Error auto-creating basic subscription:', error);
+        return {
+          allowed: false,
+          reason: 'No se pudo activar el plan Básico gratuito automáticamente',
+          current: 0,
+          limit: 0
+        };
+      }
     }
 
     const plan = subscription.subscription_plans;
     if (!plan) {
-      return { allowed: false, reason: 'No plan found', current: 0, limit: 0 };
+      return { allowed: false, reason: 'No se encontró un plan asociado a la suscripción', current: 0, limit: 0 };
     }
 
     // Get current application count

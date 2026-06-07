@@ -131,7 +131,6 @@ export default function CreateApplicationWizard({
 
   const handleCreate = () => {
     if (loading) return;
-    if (subscriptionLimits && !subscriptionLimits.allowed) return;
     onSubmit(formData);
   };
 
@@ -490,6 +489,20 @@ export default function CreateApplicationWizard({
         <div className="flex flex-col flex-1 min-h-0">
           <div className="flex-1 p-6 overflow-y-auto min-h-0">
             {renderStepContent()}
+
+            {subscriptionLimits && !subscriptionLimits.allowed && (
+              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+                <p className="text-sm font-medium text-amber-800">
+                  No puedes crear la aplicación todavía
+                </p>
+                <p className="mt-1 text-sm text-amber-700">
+                  {subscriptionLimits.reason || 'Tu plan actual no permite crear más aplicaciones.'}
+                </p>
+                <p className="mt-2 text-xs text-amber-700">
+                  Uso actual: {subscriptionLimits.current} / {subscriptionLimits.limit === -1 ? 'ilimitado' : subscriptionLimits.limit}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Footer */}
@@ -528,7 +541,7 @@ export default function CreateApplicationWizard({
                   <button
                     type="button"
                     onClick={handleCreate}
-                    disabled={loading || (subscriptionLimits && !subscriptionLimits.allowed)}
+                    disabled={loading}
                     className="flex items-center space-x-2 px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {loading ? (
