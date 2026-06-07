@@ -78,7 +78,6 @@ function PublicAuthForms({
   const [mfaSetupData, setMfaSetupData] = useState<any | null>(null);
   const [mfaSetupStep, setMfaSetupStep] = useState<1 | 2 | 3>(1);
   const [mfaChallengeId, setMfaChallengeId] = useState<string | null>(null);
-  const [mfaChallengeCode, setMfaChallengeCode] = useState<string>('');
   const [mfaVerificationNumber, setMfaVerificationNumber] = useState<string>('');
   const [mfaCodeExpiresIn, setMfaCodeExpiresIn] = useState<number>(0);
   const [showMfaManualEntry, setShowMfaManualEntry] = useState(false);
@@ -359,7 +358,6 @@ function PublicAuthForms({
     setMfaAutoStartingSession(false);
     setMfaSetupPolling(false);
     setMfaChallengeId(null);
-    setMfaChallengeCode('');
     setMfaVerificationNumber('');
     setMfaCodeExpiresIn(0);
     setShowMfaManualEntry(false);
@@ -494,7 +492,6 @@ function PublicAuthForms({
 
         if (formType === 'login' && result.error?.code === 'MFA_REQUIRED') {
           const challengeId = result.data?.challenge_id;
-          const challengeCode = result.data?.challenge_code;
           const verificationNumber = String(result.data?.verification_number || '').padStart(2, '0');
 
           if (!challengeId) {
@@ -509,7 +506,6 @@ function PublicAuthForms({
           });
 
           setMfaChallengeId(challengeId);
-          setMfaChallengeCode(challengeCode || '');
           setMfaVerificationNumber(verificationNumber || '');
           setMfaCodeExpiresIn(Number(result.data?.challenge_code_expires_in_seconds || 60));
           setShowMfaManualEntry(false);
@@ -547,10 +543,6 @@ function PublicAuthForms({
               }
 
               if (challengeStatus === 'pending') {
-                if (checkResult?.data?.challenge_code) {
-                  setMfaChallengeCode(checkResult.data.challenge_code);
-                }
-
                 if (typeof checkResult?.data?.verification_number === 'string') {
                   setMfaVerificationNumber(String(checkResult.data.verification_number).padStart(2, '0'));
                 }
@@ -603,15 +595,27 @@ function PublicAuthForms({
         }
 
         if (formType === 'login' && result.error?.code === 'MFA_SETUP_REQUIRED') {
-          setMfaSetupData(result.data || null);
-          setMfaSetupStep(1);
-          setMessage(null);
+          beginMfaSetupFlow(result.data || null);
+          return;
+        }
 
-          const pairingToken = result.data?.pairing_token;
-          if (pairingToken) {
-            startMfaSetupPolling(pairingToken);
+        if (formType === 'login' && result.error?.code === 'MFA_SETUP_ERROR') {
+          try {
+            const fallbackSetupData = await requestFallbackMfaSetup();
+            beginMfaSetupFlow(fallbackSetupData || null);
+            setMessage({
+              type: 'success',
+              text: 'Reintentamos la configuración MFA y ya puedes vincular tu app Authenticator.'
+            });
+            return;
+          } catch (fallbackError: any) {
+            console.error('❌ MFA setup fallback failed:', fallbackError);
           }
 
+          setMessage({
+            type: 'error',
+            text: result.error?.message || 'No se pudo iniciar la configuración de doble factor'
+          });
           return;
         }
         
@@ -787,7 +791,6 @@ function PublicAuthForms({
     setShowMfaManualEntry(false);
     setMfaManualCode('');
     setMfaChallengeId(null);
-    setMfaChallengeCode('');
     setMfaVerificationNumber('');
     setMfaCodeExpiresIn(0);
     setMessage(null);
@@ -811,6 +814,46 @@ function PublicAuthForms({
       activeSetupPollRunRef.current += 1;
     };
   }, []);
+
+  const beginMfaSetupFlow = (setupData: any) => {
+    setMfaSetupData(setupData || null);
+    setMfaSetupStep(1);
+    setMessage(null);
+
+    const pairingToken = setupData?.pairing_token;
+    if (pairingToken) {
+      startMfaSetupPolling(pairingToken);
+    }
+  };
+
+  const requestFallbackMfaSetup = async () => {
+    if (!apiKey) {
+      throw new Error('No se encontró api_key para continuar con la configuración MFA.');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/mfa-generate-pairing-token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        'apikey': SUPABASE_ANON_KEY,
+        'X-Client-Info': 'authsystem-public-form/1.0'
+      },
+      body: JSON.stringify({
+        application_id: applicationId,
+        api_key: apiKey,
+        email: formData.email,
+        password: formData.password
+      })
+    });
+
+    const result = await response.json().catch(() => null);
+    if (!response.ok || !result?.success) {
+      throw new Error(result?.error?.message || 'No se pudo iniciar la configuración de doble factor');
+    }
+
+    return result.data;
+  };
 
   // Helper function to get custom text or fallback to default
   const getText = (key: string, defaultText: string) => {

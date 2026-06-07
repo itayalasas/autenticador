@@ -41,7 +41,6 @@ export default function BrandedPublicAuth({
   const [mfaSetupLinked, setMfaSetupLinked] = useState(false);
   const [mfaAutoStartingSession, setMfaAutoStartingSession] = useState(false);
   const [mfaChallengeId, setMfaChallengeId] = useState<string | null>(null);
-  const [mfaChallengeCode, setMfaChallengeCode] = useState('');
   const [mfaVerificationNumber, setMfaVerificationNumber] = useState('');
   const [mfaCodeExpiresIn, setMfaCodeExpiresIn] = useState(0);
   const [showMfaManualEntry, setShowMfaManualEntry] = useState(false);
@@ -80,121 +79,25 @@ export default function BrandedPublicAuth({
     };
   }, []);
 
-  useEffect(() => {
-    if (!mfaChallengeId || mfaCodeExpiresIn <= 0) return;
+  const beginMfaSetupFlow = (setupData: any) => {
+    setMessageStatus('idle');
+    setRuntimeErrorText('');
+    setMfaSetupStep(1);
+    setMfaSetupLinked(false);
+    setMfaAutoStartingSession(false);
+    setMfaSetupData(setupData || null);
 
-    const timer = window.setInterval(() => {
-      setMfaCodeExpiresIn(current => Math.max(0, current - 1));
-    }, 1000);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [mfaChallengeId, mfaCodeExpiresIn]);
-
-  const startMfaChallengePolling = (challengeId: string) => {
-    const runId = ++activeChallengePollRunRef.current;
-    setMfaPolling(true);
-
-    const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-    const runPolling = async () => {
-      const pollingEndpoint = `${API_BASE_URL}/mfa-check-challenge`;
-      const maxAttempts = 60;
-
-      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-        if (activeChallengePollRunRef.current !== runId) return;
-        await wait(2000);
-
-        const checkResponse = await fetch(pollingEndpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'apikey': SUPABASE_ANON_KEY,
-            'X-Client-Info': 'authsystem-branded-form/1.0'
-          },
-          body: JSON.stringify({
-            challenge_id: challengeId,
-            application_id: applicationId
-          })
-        });
-
-        const checkResult = await checkResponse.json();
-        const challengeStatus = checkResult?.data?.status;
-
-        if (!checkResult?.success) {
-          continue;
-        }
-
-        if (challengeStatus === 'pending') {
-          if (checkResult?.data?.challenge_code) {
-            setMfaChallengeCode(checkResult.data.challenge_code);
-          }
-
-          if (typeof checkResult?.data?.verification_number === 'string') {
-            setMfaVerificationNumber(String(checkResult.data.verification_number).padStart(2, '0'));
-          }
-
-          if (typeof checkResult?.data?.challenge_code_expires_in_seconds === 'number') {
-            setMfaCodeExpiresIn(Math.max(0, checkResult.data.challenge_code_expires_in_seconds));
-          }
-
-          continue;
-        }
-
-        if (challengeStatus === 'approved') {
-          setMfaCompletingLogin(true);
-          setMessageStatus('success');
-          setRuntimeErrorText('Aprobación recibida. Iniciando sesión...');
-          if (onSuccess) {
-            onSuccess(checkResult.data);
-          }
-          if (checkResult?.data?.callback_url) {
-            setTimeout(() => {
-              window.location.href = checkResult.data.callback_url;
-            }, 900);
-          }
-          return;
-        }
-
-        if (challengeStatus === 'rejected') {
-          setMessageStatus('error');
-          setRuntimeErrorText('Aprobación rechazada desde la app Authenticator.');
-          return;
-        }
-
-        if (challengeStatus === 'expired') {
-          setMessageStatus('error');
-          setRuntimeErrorText('El desafío MFA expiró. Inicia sesión nuevamente.');
-          return;
-        }
-
-        if (challengeStatus === 'approved_consumed') {
-          setMessageStatus('error');
-          setRuntimeErrorText('El desafío MFA ya fue consumido. Inicia sesión nuevamente.');
-          return;
-        }
-      }
-
-      if (activeChallengePollRunRef.current === runId) {
-        setMessageStatus('error');
-        setRuntimeErrorText('Tiempo de espera agotado para la aprobación MFA.');
-      }
-    };
-
-    runPolling().finally(() => {
-      if (activeChallengePollRunRef.current === runId) {
-        setMfaPolling(false);
-      }
-    });
+    const pairingToken = setupData?.pairing_token;
+    if (pairingToken) {
+      activeSetupPollRunRef.current += 1;
+      setMfaSetupPolling(false);
+      window.setTimeout(() => {
+        startMfaSetupPolling(pairingToken);
+      }, 0);
+    }
   };
 
-  useEffect(() => {
-    if (formType !== 'login') return;
-    const pairingToken = mfaSetupData?.pairing_token;
-    if (!pairingToken) return;
-
+  const startMfaSetupPolling = (pairingToken: string) => {
     const runId = ++activeSetupPollRunRef.current;
     setMfaSetupPolling(true);
     setMfaSetupLinked(false);
@@ -258,12 +161,145 @@ export default function BrandedPublicAuth({
         setMfaSetupPolling(false);
       }
     });
+  };
+
+  const requestFallbackMfaSetup = async () => {
+    const params = new URLSearchParams(window.location.search);
+    const runtimeApiKey = params.get('api_key') || '';
+
+    if (!runtimeApiKey) {
+      throw new Error('No se encontró api_key en la URL para continuar con la configuración MFA.');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/mfa-generate-pairing-token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        'apikey': SUPABASE_ANON_KEY,
+        'X-Client-Info': 'authsystem-branded-form/1.0'
+      },
+      body: JSON.stringify({
+        application_id: applicationId,
+        api_key: runtimeApiKey,
+        email: formData.email,
+        password: formData.password
+      })
+    });
+
+    const result = await response.json().catch(() => null);
+    if (!response.ok || !result?.success) {
+      throw new Error(result?.error?.message || 'No se pudo iniciar la configuración de doble factor');
+    }
+
+    return result.data;
+  };
+
+  useEffect(() => {
+    if (!mfaChallengeId || mfaCodeExpiresIn <= 0) return;
+
+    const timer = window.setInterval(() => {
+      setMfaCodeExpiresIn(current => Math.max(0, current - 1));
+    }, 1000);
 
     return () => {
-      activeSetupPollRunRef.current += 1;
-      setMfaSetupPolling(false);
+      window.clearInterval(timer);
     };
-  }, [mfaSetupData?.pairing_token, formType, applicationId, API_BASE_URL]);
+  }, [mfaChallengeId, mfaCodeExpiresIn]);
+
+  const startMfaChallengePolling = (challengeId: string) => {
+    const runId = ++activeChallengePollRunRef.current;
+    setMfaPolling(true);
+
+    const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+    const runPolling = async () => {
+      const pollingEndpoint = `${API_BASE_URL}/mfa-check-challenge`;
+      const maxAttempts = 60;
+
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        if (activeChallengePollRunRef.current !== runId) return;
+        await wait(2000);
+
+        const checkResponse = await fetch(pollingEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'apikey': SUPABASE_ANON_KEY,
+            'X-Client-Info': 'authsystem-branded-form/1.0'
+          },
+          body: JSON.stringify({
+            challenge_id: challengeId,
+            application_id: applicationId
+          })
+        });
+
+        const checkResult = await checkResponse.json();
+        const challengeStatus = checkResult?.data?.status;
+
+        if (!checkResult?.success) {
+          continue;
+        }
+
+        if (challengeStatus === 'pending') {
+          if (typeof checkResult?.data?.verification_number === 'string') {
+            setMfaVerificationNumber(String(checkResult.data.verification_number).padStart(2, '0'));
+          }
+
+          if (typeof checkResult?.data?.challenge_code_expires_in_seconds === 'number') {
+            setMfaCodeExpiresIn(Math.max(0, checkResult.data.challenge_code_expires_in_seconds));
+          }
+
+          continue;
+        }
+
+        if (challengeStatus === 'approved') {
+          setMfaCompletingLogin(true);
+          setMessageStatus('success');
+          setRuntimeErrorText('Aprobación recibida. Iniciando sesión...');
+          if (onSuccess) {
+            onSuccess(checkResult.data);
+          }
+          if (checkResult?.data?.callback_url) {
+            setTimeout(() => {
+              window.location.href = checkResult.data.callback_url;
+            }, 900);
+          }
+          return;
+        }
+
+        if (challengeStatus === 'rejected') {
+          setMessageStatus('error');
+          setRuntimeErrorText('Aprobación rechazada desde la app Authenticator.');
+          return;
+        }
+
+        if (challengeStatus === 'expired') {
+          setMessageStatus('error');
+          setRuntimeErrorText('El desafío MFA expiró. Inicia sesión nuevamente.');
+          return;
+        }
+
+        if (challengeStatus === 'approved_consumed') {
+          setMessageStatus('error');
+          setRuntimeErrorText('El desafío MFA ya fue consumido. Inicia sesión nuevamente.');
+          return;
+        }
+      }
+
+      if (activeChallengePollRunRef.current === runId) {
+        setMessageStatus('error');
+        setRuntimeErrorText('Tiempo de espera agotado para la aprobación MFA.');
+      }
+    };
+
+    runPolling().finally(() => {
+      if (activeChallengePollRunRef.current === runId) {
+        setMfaPolling(false);
+      }
+    });
+  };
 
   // Helper function to get custom text or fallback to default
   const getText = (key: string, defaultText: string): string => {
@@ -284,7 +320,6 @@ export default function BrandedPublicAuth({
     setMfaAutoStartingSession(false);
     setMfaSetupPolling(false);
     setMfaChallengeId(null);
-    setMfaChallengeCode('');
     setMfaVerificationNumber('');
     setMfaCodeExpiresIn(0);
     setShowMfaManualEntry(false);
@@ -332,15 +367,23 @@ export default function BrandedPublicAuth({
       const errorCode = error?.code || error?.error?.code;
       const errorMessage = error?.message || 'Error de autenticación';
       const errorData = error?.data || error?.error?.data || null;
+      let shouldNotifyError = true;
 
       if (errorCode === 'MFA_SETUP_REQUIRED') {
-        setMessageStatus('idle');
-        setRuntimeErrorText('');
-        setMfaSetupStep(1);
-        setMfaSetupData(errorData || null);
+        beginMfaSetupFlow(errorData || null);
+        shouldNotifyError = false;
+      } else if (errorCode === 'MFA_SETUP_ERROR') {
+        try {
+          const fallbackSetupData = await requestFallbackMfaSetup();
+          beginMfaSetupFlow(fallbackSetupData || null);
+          shouldNotifyError = false;
+          return;
+        } catch (fallbackError: any) {
+          console.error('MFA setup fallback failed:', fallbackError);
+          setRuntimeErrorText(fallbackError?.message || errorMessage);
+        }
       } else if (errorCode === 'MFA_REQUIRED') {
         const challengeId = errorData?.challenge_id;
-        const challengeCode = errorData?.challenge_code;
         const verificationNumber = String(errorData?.verification_number || '').padStart(2, '0');
 
         if (!challengeId) {
@@ -354,12 +397,12 @@ export default function BrandedPublicAuth({
         setMessageStatus('idle');
         setRuntimeErrorText('');
         setMfaChallengeId(challengeId);
-        setMfaChallengeCode(challengeCode || '');
         setMfaVerificationNumber(verificationNumber || '');
         setMfaCodeExpiresIn(Number(errorData?.challenge_code_expires_in_seconds || 60));
         setShowMfaManualEntry(false);
         setMfaManualCode('');
         startMfaChallengePolling(challengeId);
+        shouldNotifyError = false;
       } else {
         setRuntimeErrorText(errorMessage);
 
@@ -371,7 +414,7 @@ export default function BrandedPublicAuth({
         }
       }
 
-      if (onError) {
+      if (shouldNotifyError && onError) {
         onError(errorMessage);
       }
     } finally {
@@ -531,7 +574,6 @@ export default function BrandedPublicAuth({
     setShowMfaManualEntry(false);
     setMfaManualCode('');
     setMfaChallengeId(null);
-    setMfaChallengeCode('');
     setMfaVerificationNumber('');
     setMfaCodeExpiresIn(0);
     setMessageStatus('idle');

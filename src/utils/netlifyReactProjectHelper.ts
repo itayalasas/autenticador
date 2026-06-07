@@ -748,6 +748,13 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
           throw setupError;
         }
 
+        if (validFormType === 'login' && result.error?.code === 'MFA_SETUP_ERROR') {
+          const setupError: any = new Error(result.error?.message || 'MFA_SETUP_ERROR');
+          setupError.code = 'MFA_SETUP_ERROR';
+          setupError.data = result.data || null;
+          throw setupError;
+        }
+
         throw new Error(result.error?.message || 'Error de autenticación');
       }
 

@@ -27,6 +27,88 @@ const isExpoPushToken = (token: string) => /^ExponentPushToken\[[^\]]+\]$|^ExpoP
 
 const DYNAMIC_MFA_WINDOW_SECONDS = 60;
 
+function generatePairingCode(): string {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  let raw = '';
+
+  for (let index = 0; index < bytes.length; index += 1) {
+    raw += alphabet[bytes[index] % alphabet.length];
+  }
+
+  return raw.match(/.{1,4}/g)?.join('-') || raw;
+}
+
+function isMissingPairingCodeColumnError(error: any): boolean {
+  const message = String(error?.message || error?.details || error?.hint || '').toLowerCase();
+  return message.includes('pairing_code') && (
+    message.includes('column') ||
+    message.includes('does not exist') ||
+    message.includes('schema cache')
+  );
+}
+
+async function createMfaPairingToken(params: {
+  supabase: any;
+  applicationId: string;
+  appUserId: string;
+  expiresAt: string;
+}): Promise<{ token: string; pairing_code: string | null; expires_at: string }> {
+  const { supabase, applicationId, appUserId, expiresAt } = params;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const pairingCode = generatePairingCode();
+    const { data: pairingRow, error: pairingError } = await supabase
+      .from('mfa_pairing_tokens')
+      .insert({
+        application_id: applicationId,
+        app_user_id: appUserId,
+        expires_at: expiresAt,
+        pairing_code: pairingCode,
+      })
+      .select('token, pairing_code, expires_at')
+      .single();
+
+    if (!pairingError && pairingRow) {
+      return pairingRow;
+    }
+
+    if (isMissingPairingCodeColumnError(pairingError)) {
+      console.warn('⚠️ mfa_pairing_tokens has no pairing_code column available. Retrying with token-only flow.', pairingError);
+      const { data: fallbackRow, error: fallbackError } = await supabase
+        .from('mfa_pairing_tokens')
+        .insert({
+          application_id: applicationId,
+          app_user_id: appUserId,
+          expires_at: expiresAt,
+        })
+        .select('token, expires_at')
+        .single();
+
+      if (fallbackError || !fallbackRow) {
+        throw fallbackError || new Error('No se pudo crear el token de configuración MFA');
+      }
+
+      return {
+        token: fallbackRow.token,
+        pairing_code: null,
+        expires_at: fallbackRow.expires_at,
+      };
+    }
+
+    const message = String(pairingError?.message || pairingError?.details || '').toLowerCase();
+    const duplicatePairingCode =
+      message.includes('pairing_code') &&
+      (message.includes('duplicate') || message.includes('unique'));
+
+    if (!duplicatePairingCode) {
+      throw pairingError || new Error('No se pudo crear el token de configuración MFA');
+    }
+  }
+
+  throw new Error('No se pudo generar un código de vinculación MFA único');
+}
+
 function computeDynamicChallengeCode(applicationInternalId: string, appUserId: string, timestampMs: number, secret: string): string {
   const window = Math.floor(timestampMs / (DYNAMIC_MFA_WINDOW_SECONDS * 1000));
   const seed = `${secret}|${applicationInternalId}|${appUserId}|${window}`;
@@ -953,35 +1035,24 @@ Deno.serve(async (req) => {
       }
 
       const pairingExpiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-      const pairingCode = (() => {
-        const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-        const bytes = crypto.getRandomValues(new Uint8Array(12));
-        let raw = '';
-        for (let index = 0; index < bytes.length; index += 1) {
-          raw += alphabet[bytes[index] % alphabet.length];
-        }
-        return raw.match(/.{1,4}/g)?.join('-') || raw;
-      })();
 
-      const { data: pairingRow, error: pairingError } = await supabase
-        .from('mfa_pairing_tokens')
-        .insert({
-          application_id: application.id,
-          app_user_id: user.id,
-          expires_at: pairingExpiresAt,
-          pairing_code: pairingCode,
-        })
-        .select('token, pairing_code, expires_at')
-        .single();
-
-      if (pairingError || !pairingRow) {
+      let pairingRow: { token: string; pairing_code: string | null; expires_at: string } | null = null;
+      try {
+        pairingRow = await createMfaPairingToken({
+          supabase,
+          applicationId: application.id,
+          appUserId: user.id,
+          expiresAt: pairingExpiresAt,
+        });
+      } catch (pairingError: any) {
         console.error('❌ Error creating MFA setup pairing token:', pairingError);
         return new Response(
           JSON.stringify({
             success: false,
             error: {
               code: 'MFA_SETUP_ERROR',
-              message: 'No se pudo iniciar la configuración de doble factor'
+              message: 'No se pudo iniciar la configuración de doble factor',
+              details: pairingError?.message || pairingError?.details || null,
             }
           }),
           {

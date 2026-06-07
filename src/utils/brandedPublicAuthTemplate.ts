@@ -413,6 +413,38 @@ export default function BrandedPublicAuth({
     });
   };
 
+  const requestFallbackMfaSetup = async () => {
+    const params = new URLSearchParams(window.location.search);
+    const runtimeApiKey = params.get('api_key') || '';
+
+    if (!runtimeApiKey) {
+      throw new Error('No se encontró api_key en la URL para continuar con la configuración MFA.');
+    }
+
+    const response = await fetch(API_BASE_URL + '/mfa-generate-pairing-token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+        'apikey': SUPABASE_ANON_KEY,
+        'X-Client-Info': 'authsystem-branded-form/1.0'
+      },
+      body: JSON.stringify({
+        application_id: applicationId,
+        api_key: runtimeApiKey,
+        email: formData.email,
+        password: formData.password
+      })
+    });
+
+    const result = await response.json().catch(() => null);
+    if (!response.ok || !result?.success) {
+      throw new Error(result?.error?.message || 'No se pudo iniciar la configuración de doble factor');
+    }
+
+    return result.data;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
@@ -477,16 +509,40 @@ export default function BrandedPublicAuth({
       const errorCode = error?.code || error?.error?.code;
       const errorData = error?.data || error?.error?.data || null;
       const errorText = error?.message || 'Error al procesar la solicitud';
+      let shouldNotifyError = true;
 
       if (errorCode === 'MFA_SETUP_REQUIRED') {
         setMessageStatus('idle');
         setErrorMessage('');
         setMfaSetupStep(1);
+        setMfaSetupLinked(false);
+        setMfaAutoStartingSession(false);
         setMfaSetupData(errorData || null);
+        shouldNotifyError = false;
 
         const pairingToken = errorData?.pairing_token;
         if (pairingToken) {
           startMfaSetupPolling(pairingToken);
+        }
+      } else if (errorCode === 'MFA_SETUP_ERROR') {
+        try {
+          const fallbackSetupData = await requestFallbackMfaSetup();
+          setMessageStatus('idle');
+          setErrorMessage('');
+          setMfaSetupStep(1);
+          setMfaSetupLinked(false);
+          setMfaAutoStartingSession(false);
+          setMfaSetupData(fallbackSetupData || null);
+          shouldNotifyError = false;
+
+          const pairingToken = fallbackSetupData?.pairing_token;
+          if (pairingToken) {
+            startMfaSetupPolling(pairingToken);
+          }
+          return;
+        } catch (fallbackError: any) {
+          console.error('MFA setup fallback failed:', fallbackError);
+          setErrorMessage(fallbackError?.message || errorText);
         }
       } else if (errorCode === 'MFA_REQUIRED') {
         const challengeId = errorData?.challenge_id;
@@ -511,6 +567,7 @@ export default function BrandedPublicAuth({
         setShowMfaManualEntry(false);
         setMfaManualCode('');
         startMfaChallengePolling(challengeId);
+        shouldNotifyError = false;
       } else {
         setErrorMessage(errorText);
 
@@ -522,7 +579,7 @@ export default function BrandedPublicAuth({
         }
       }
 
-      if (onError) {
+      if (shouldNotifyError && onError) {
         onError(errorText);
       }
     } finally {

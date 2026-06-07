@@ -29,6 +29,76 @@ function generatePairingCode(): string {
   return raw.match(/.{1,4}/g)?.join('-') || raw;
 }
 
+function isMissingPairingCodeColumnError(error: any): boolean {
+  const message = String(error?.message || error?.details || error?.hint || '').toLowerCase();
+  return message.includes('pairing_code') && (
+    message.includes('column') ||
+    message.includes('does not exist') ||
+    message.includes('schema cache')
+  );
+}
+
+async function createMfaPairingToken(params: {
+  supabase: any;
+  applicationId: string;
+  appUserId: string;
+  expiresAt: string;
+}): Promise<{ token: string; pairing_code: string | null; expires_at: string }> {
+  const { supabase, applicationId, appUserId, expiresAt } = params;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const pairingCode = generatePairingCode();
+    const { data: tokenRow, error: tokenError } = await supabase
+      .from('mfa_pairing_tokens')
+      .insert({
+        application_id: applicationId,
+        app_user_id: appUserId,
+        expires_at: expiresAt,
+        pairing_code: pairingCode,
+      })
+      .select('token, pairing_code, expires_at')
+      .single();
+
+    if (!tokenError && tokenRow) {
+      return tokenRow;
+    }
+
+    if (isMissingPairingCodeColumnError(tokenError)) {
+      console.warn('⚠️ mfa_pairing_tokens has no pairing_code column available. Retrying with token-only flow.', tokenError);
+      const { data: fallbackRow, error: fallbackError } = await supabase
+        .from('mfa_pairing_tokens')
+        .insert({
+          application_id: applicationId,
+          app_user_id: appUserId,
+          expires_at: expiresAt,
+        })
+        .select('token, expires_at')
+        .single();
+
+      if (fallbackError || !fallbackRow) {
+        throw fallbackError || new Error('No se pudo crear el token de emparejamiento MFA');
+      }
+
+      return {
+        token: fallbackRow.token,
+        pairing_code: null,
+        expires_at: fallbackRow.expires_at,
+      };
+    }
+
+    const message = String(tokenError?.message || tokenError?.details || '').toLowerCase();
+    const duplicatePairingCode =
+      message.includes('pairing_code') &&
+      (message.includes('duplicate') || message.includes('unique'));
+
+    if (!duplicatePairingCode) {
+      throw tokenError || new Error('No se pudo crear el token de emparejamiento MFA');
+    }
+  }
+
+  throw new Error('No se pudo generar un código de vinculación MFA único');
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 200, headers: corsHeaders });
 
@@ -120,20 +190,15 @@ Deno.serve(async (req) => {
 
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
-    const pairingCode = generatePairingCode();
-
-    const { data: tokenRow, error: tokenError } = await supabase
-      .from('mfa_pairing_tokens')
-      .insert({
-        application_id: application.id,
-        app_user_id: user.id,
-        expires_at: expiresAt,
-        pairing_code: pairingCode,
-      })
-      .select('token, pairing_code, expires_at')
-      .single();
-
-    if (tokenError || !tokenRow) {
+    let tokenRow: { token: string; pairing_code: string | null; expires_at: string } | null = null;
+    try {
+      tokenRow = await createMfaPairingToken({
+        supabase,
+        applicationId: application.id,
+        appUserId: user.id,
+        expiresAt,
+      });
+    } catch (tokenError: any) {
       console.error('Error creating pairing token:', tokenError);
       return new Response(JSON.stringify({ success: false, error: { code: 'PAIRING_TOKEN_ERROR', message: 'No se pudo generar token de emparejamiento' } }), {
         status: 500,
