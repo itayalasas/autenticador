@@ -98,16 +98,16 @@ function AuthFlowDiagram() {
 
         <rect x="450" y="92" width="170" height="84" rx="16" fill="#fef3c7" stroke="#f59e0b" />
         <text x="535" y="124" textAnchor="middle" fontSize="18" fontWeight="700" fill="#0f172a">auth-login</text>
-        <text x="535" y="144" textAnchor="middle" fontSize="12" fill="#64748b">validate / issue tokens</text>
+        <text x="535" y="144" textAnchor="middle" fontSize="12" fill="#64748b">validate / issue JWT</text>
 
         <rect x="660" y="84" width="180" height="100" rx="18" fill="#fce7f3" stroke="#db2777" />
-        <text x="750" y="120" textAnchor="middle" fontSize="18" fontWeight="700" fill="#0f172a">MFA / tokens</text>
+        <text x="750" y="120" textAnchor="middle" fontSize="18" fontWeight="700" fill="#0f172a">MFA / auth_codes</text>
         <text x="750" y="140" textAnchor="middle" fontSize="12" fill="#64748b">MFA_REQUIRED / setup</text>
-        <text x="750" y="158" textAnchor="middle" fontSize="11" fill="#94a3b8">code o redirect_uri</text>
+        <text x="750" y="158" textAnchor="middle" fontSize="11" fill="#94a3b8">callback_url + code temporal</text>
 
         <rect x="920" y="92" width="190" height="84" rx="16" fill="#dbeafe" stroke="#3b82f6" />
         <text x="1015" y="124" textAnchor="middle" fontSize="18" fontWeight="700" fill="#0f172a">redirect_uri</text>
-        <text x="1015" y="144" textAnchor="middle" fontSize="12" fill="#64748b">session / success</text>
+        <text x="1015" y="144" textAnchor="middle" fontSize="12" fill="#64748b">callback + exchange code</text>
 
         <rect x="650" y="218" width="200" height="56" rx="14" fill="#cffafe" stroke="#06b6d4" />
         <text x="750" y="243" textAnchor="middle" fontSize="16" fontWeight="700" fill="#0f172a">App movil</text>
@@ -158,9 +158,9 @@ export default function ArchitectureOverview() {
           <p className="mt-1 text-sm text-slate-600">La app autenticadora resuelve pairing, biometría y desafios.</p>
         </div>
         <div className="rounded-2xl border border-emerald-100 bg-emerald-50/80 p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-600">Bootstrap runtime</p>
-          <p className="mt-1 text-lg font-bold text-slate-900">/get-env</p>
-          <p className="mt-1 text-sm text-slate-600">El frontend arranca con variables remotas y fallback local.</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-600">Sesión traducida</p>
+          <p className="mt-1 text-lg font-bold text-slate-900">auth-exchange-code / auth-verify-token</p>
+          <p className="mt-1 text-sm text-slate-600">El callback recibe code y luego reconstruye la sesión segura desde las Edge Functions.</p>
         </div>
       </div>
 
@@ -185,7 +185,7 @@ export default function ArchitectureOverview() {
             </div>
             <div className="bg-cyan-50 border border-cyan-100 rounded-lg p-3">
               <strong className="block text-cyan-900">Salida</strong>
-              code, tokens y redireccion final
+              callback_url, code y sesión JWT
             </div>
           </div>
         </div>

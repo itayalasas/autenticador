@@ -42,38 +42,13 @@ export default function ApiDocumentation() {
       title: 'Login de Usuario',
       method: 'POST',
       path: '/functions/v1/auth-login',
-      description: `Autentica un usuario y retorna tokens de acceso junto con permisos granulares a nivel de menú.
-
-## Sistema de Permisos
-
-La respuesta incluye un objeto \`permissions\` que mapea cada menú de la aplicación con las acciones permitidas:
-
-- **Estructura**: \`{ "menu_slug": ["action1", "action2", ...] }\`
-- **Acciones posibles**: read, create, update, delete
-- **Uso**: Controla qué puede ver y hacer el usuario en cada sección
-
-Además, cuando hay submenús, también retorna \`permissions_hierarchy\`:
-
-- **Estructura**: \`{ "menu_slug": { actions: [...], submenus: { "submenu_slug": [...] } } }\`
-- **Uso**: Permite evaluar permisos por menú padre y por submenú en forma jerárquica.
-
-### Ejemplo de uso:
-\`\`\`javascript
-// Verificar si el usuario puede crear en dashboard
-if (user.permissions.dashboard?.includes('create')) {
-  // Mostrar botón "Crear"
-}
-
-// Verificar si el usuario puede ver reportes
-if (user.permissions.reports) {
-  // Mostrar menú de reportes
-}
-\`\`\``,
+      description: `Autentica al usuario con email y contraseña. La respuesta ya no devuelve el perfil en texto plano: roles, permisos, tenant, ambiente y suscripción viajan firmados dentro del JWT. Si existe un callback confiable, también devuelve data.callback_url para el flujo web con code temporal.`,
       params: [
         { name: 'api_key', type: 'string', required: true, location: 'Body', description: 'API Key de la aplicación (ej: ak_production_xxx)' },
         { name: 'email', type: 'string', required: true, location: 'Body', description: 'Email del usuario' },
         { name: 'password', type: 'string', required: true, location: 'Body', description: 'Contraseña del usuario' },
-        { name: 'application_id', type: 'string', required: true, location: 'Body', description: 'ID único de la aplicación' }
+        { name: 'application_id', type: 'string', required: true, location: 'Body', description: 'ID único de la aplicación' },
+        { name: 'callback_url', type: 'string', required: false, location: 'Body', description: 'URL de retorno solicitada. AuthSystem solo usará una callback confiable y registrada para la app/ambiente.' }
       ],
       requestExample: (baseUrl: string, apiKey: string) => ({
         url: `${baseUrl}/functions/v1/auth-login`,
@@ -85,44 +60,19 @@ if (user.permissions.reports) {
           api_key: apiKey,
           email: 'usuario@ejemplo.com',
           password: 'micontraseña123',
-          application_id: 'app_mk2k3j4h5k6l'
+          application_id: 'app_mk2k3j4h5k6l',
+          callback_url: 'https://tuapp.com/callback'
         }
       }),
       response: {
-        success: (baseUrl: string) => `{
+        success: () => `{
   "success": true,
   "data": {
     "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
     "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
     "token_type": "Bearer",
     "expires_in": 86400,
-    "user": {
-      "id": "60187dc2-a013-40fa-9a00-68701cc92018",
-      "email": "usuario@ejemplo.com",
-      "name": "Usuario Ejemplo",
-      "role": "administrador",
-      "permissions": {
-        "dashboard": ["read", "create", "update", "delete"],
-        "users": ["read", "create", "update"],
-        "reports": ["read"]
-      },
-      "permissions_hierarchy": {
-        "dashboard": {
-          "actions": ["read"],
-          "submenus": {
-            "users": ["read", "create", "update"],
-            "reports": ["read"]
-          }
-        }
-      },
-      "metadata": {},
-      "created_at": "2024-02-20T10:30:00Z"
-    },
-    "application": {
-      "id": "app_mk2k3j4h5k6l",
-      "name": "Mi Aplicación",
-      "domain": "miapp.com"
-    }
+    "callback_url": "https://tuapp.com/callback?code=AUTH_CODE_UUID&state=authenticated"
   }
 }`,
         error: `{
@@ -137,8 +87,8 @@ if (user.permissions.reports) {
 {
   "success": false,
   "error": {
-    "code": "API_KEY_INVALID",
-    "message": "API Key inválida o no encontrada"
+    "code": "INVALID_API_KEY",
+    "message": "API Key inválida o inactiva"
   }
 }
 
@@ -147,6 +97,35 @@ if (user.permissions.reports) {
   "error": {
     "code": "RATE_LIMIT_EXCEEDED",
     "message": "Demasiados intentos. Por favor intenta más tarde."
+  }
+}
+
+// Respuestas especiales (202) cuando MFA está activo:
+{
+  "success": false,
+  "error": {
+    "code": "MFA_REQUIRED",
+    "message": "Aprobación requerida en la app móvil Authenticator"
+  },
+  "data": {
+    "challenge_id": "uuid",
+    "verification_number": "42",
+    "state": "mfa_pending",
+    "polling_endpoint": "/functions/v1/mfa-check-challenge"
+  }
+}
+
+{
+  "success": false,
+  "error": {
+    "code": "MFA_SETUP_REQUIRED",
+    "message": "Configura tu app Authenticator para activar doble factor en esta cuenta."
+  },
+  "data": {
+    "state": "mfa_setup_required",
+    "pairing_token": "uuid",
+    "pairing_code": "ABCD-EFGH-IJKL",
+    "setup_endpoint": "/functions/v1/mfa-register-device"
   }
 }`
       },
@@ -161,16 +140,26 @@ const response = await fetch('${baseUrl}/functions/v1/auth-login', {
     api_key: '${apiKey}',
     email: 'usuario@ejemplo.com',
     password: 'micontraseña123',
-    application_id: 'app_mk2k3j4h5k6l'
+    application_id: 'app_mk2k3j4h5k6l',
+    callback_url: 'https://tuapp.com/callback'
   })
 });
 
 const data = await response.json();
 
-if (data.success) {
-  // Guardar tokens
+if (response.status === 202 && data.error?.code === 'MFA_REQUIRED') {
+  console.log('Aprobación pendiente:', data.data.challenge_id);
+  console.log('Polling:', data.data.polling_endpoint);
+} else if (response.status === 202 && data.error?.code === 'MFA_SETUP_REQUIRED') {
+  console.log('Registrar Authenticator:', data.data.pairing_code);
+  console.log('Setup endpoint:', data.data.setup_endpoint);
+} else if (data.success) {
   localStorage.setItem('access_token', data.data.access_token);
   localStorage.setItem('refresh_token', data.data.refresh_token);
+
+  if (data.data.callback_url) {
+    window.location.href = data.data.callback_url;
+  }
 
   const claims = JSON.parse(atob(data.data.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
 
@@ -180,20 +169,21 @@ if (data.success) {
     name: claims.name,
     role: claims.role,
     permissions: claims.permissions,
-    permissions_hierarchy: claims.permissions_hierarchy
+    permissions_hierarchy: claims.permissions_hierarchy,
+    tenant_id: claims.tenant_id || null,
+    environment: claims.environment || null,
+    has_access: claims.has_access ?? null
   }));
 
   console.log('Login exitoso:', claims.email);
   console.log('Rol del usuario:', claims.role);
   console.log('Permisos:', claims.permissions);
-
-  if (claims.permissions?.dashboard?.includes('create')) {
-    console.log('Usuario puede crear en dashboard');
-  }
 } else {
   console.error('Error:', data.error.message);
 }`,
         python: (baseUrl: string, apiKey: string) => `# Python/Requests
+import base64
+import json
 import requests
 
 url = '${baseUrl}/functions/v1/auth-login'
@@ -202,24 +192,27 @@ data = {
     'api_key': '${apiKey}',
     'email': 'usuario@ejemplo.com',
     'password': 'micontraseña123',
-    'application_id': 'app_mk2k3j4h5k6l'
+    'application_id': 'app_mk2k3j4h5k6l',
+    'callback_url': 'https://tuapp.com/callback'
 }
 
 response = requests.post(url, json=data, headers=headers)
 result = response.json()
 
-if result['success']:
+if response.status_code == 202 and result.get('error', {}).get('code') == 'MFA_REQUIRED':
+    print('Aprobación móvil requerida')
+elif response.status_code == 202 and result.get('error', {}).get('code') == 'MFA_SETUP_REQUIRED':
+    print('Debe registrar Authenticator antes de continuar')
+elif result['success']:
     access_token = result['data']['access_token']
     refresh_token = result['data']['refresh_token']
-    user = result['data']['user']
+    claims_part = access_token.split('.')[1]
+    claims_part += '=' * (-len(claims_part) % 4)
+    claims = json.loads(base64.urlsafe_b64decode(claims_part))
 
-    print(f"Login exitoso: {user['name']}")
-    print(f"Rol: {user['role']}")
-    print(f"Permisos: {user['permissions']}")
-
-    # Verificar permisos específicos
-    if 'create' in user['permissions'].get('dashboard', []):
-        print('Usuario puede crear en dashboard')
+    print(f"Login exitoso: {claims['email']}")
+    print(f"Rol: {claims['role']}")
+    print(f"Permisos: {claims['permissions']}")
 else:
     print(f"Error: {result['error']['message']}")`,
         php: (baseUrl: string, apiKey: string) => `<?php
@@ -227,9 +220,10 @@ else:
 $url = '${baseUrl}/functions/v1/auth-login';
 $data = array(
   'api_key' => '${apiKey}',
-    'email' => 'usuario@ejemplo.com',
-    'password' => 'micontraseña123',
-    'application_id' => 'app_mk2k3j4h5k6l'
+  'email' => 'usuario@ejemplo.com',
+  'password' => 'micontraseña123',
+  'application_id' => 'app_mk2k3j4h5k6l',
+  'callback_url' => 'https://tuapp.com/callback'
 );
 
 $ch = curl_init($url);
@@ -239,23 +233,24 @@ curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
 curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
 
 $response = curl_exec($ch);
+$statusCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
 
 $result = json_decode($response, true);
 
-if ($result['success']) {
+if ($statusCode === 202 && $result['error']['code'] === 'MFA_REQUIRED') {
+    echo "Se requiere aprobación en la app móvil";
+} elseif ($statusCode === 202 && $result['error']['code'] === 'MFA_SETUP_REQUIRED') {
+    echo "Debes registrar Authenticator antes de continuar";
+} elseif ($result['success']) {
     $_SESSION['access_token'] = $result['data']['access_token'];
     $_SESSION['refresh_token'] = $result['data']['refresh_token'];
-    $_SESSION['user'] = $result['data']['user'];
+    $parts = explode('.', $result['data']['access_token']);
+    $claims = json_decode(base64_decode(strtr($parts[1], '-_', '+/')), true);
+    $_SESSION['user'] = $claims;
 
-    echo "Login exitoso: " . $result['data']['user']['name'];
-    echo "\\nRol: " . $result['data']['user']['role'];
-
-    // Verificar permisos
-    $permissions = $result['data']['user']['permissions'];
-    if (isset($permissions['dashboard']) && in_array('create', $permissions['dashboard'])) {
-        echo "\\nUsuario puede crear en dashboard";
-    }
+    echo "Login exitoso: " . $claims['name'];
+    echo "\\nRol: " . $claims['role'];
 } else {
     echo "Error: " . $result['error']['message'];
 }
@@ -267,7 +262,7 @@ import java.net.http.HttpResponse;
 import java.net.URI;
 
 HttpClient client = HttpClient.newHttpClient();
-String json = "{\\"api_key\\":\\"${apiKey}\\",\\"email\\":\\"usuario@ejemplo.com\\",\\"password\\":\\"micontraseña123\\",\\"application_id\\":\\"app_mk2k3j4h5k6l\\"}";
+String json = "{\\"api_key\\":\\"${apiKey}\\",\\"email\\":\\"usuario@ejemplo.com\\",\\"password\\":\\"micontraseña123\\",\\"application_id\\":\\"app_mk2k3j4h5k6l\\",\\"callback_url\\":\\"https://tuapp.com/callback\\"}";
 
 HttpRequest request = HttpRequest.newBuilder()
     .uri(URI.create("${baseUrl}/functions/v1/auth-login"))
@@ -284,7 +279,7 @@ System.out.println(response.body());`
       title: 'Intercambio de Código de Acceso',
       method: 'POST',
       path: '/functions/v1/auth-exchange-code',
-      description: 'Intercambia el código temporal devuelto por el login con callback por tokens de acceso y datos del usuario.',
+      description: 'Intercambia el code temporal de un solo uso por access_token y refresh_token. La function valida expiración, uso único, pertenencia a la aplicación y la firma HS256 del token guardado antes de devolverlo.',
       params: [
         { name: 'code', type: 'string', required: true, location: 'Body', description: 'Código temporal recibido en el callback (query param code)' },
         { name: 'application_id', type: 'string', required: true, location: 'Body', description: 'ID público de la aplicación (application_id)' }
@@ -307,19 +302,7 @@ System.out.println(response.body());`
     "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
     "refresh_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
     "token_type": "Bearer",
-    "expires_in": 86400,
-    "user": {
-      "id": "60187dc2-a013-40fa-9a00-68701cc92018",
-      "email": "usuario@ejemplo.com",
-      "name": "Usuario Ejemplo",
-      "role": "administrador",
-      "permissions": {
-        "dashboard": ["read", "create"]
-      }
-    },
-    "application": {
-      "id": "app_51ecb9e2-6b3"
-    }
+    "expires_in": 86400
   }
 }`,
         error: `{
@@ -345,10 +328,18 @@ System.out.println(response.body());`
     "code": "APPLICATION_MISMATCH",
     "message": "Application ID does not match"
   }
+}
+
+{
+  "success": false,
+  "error": {
+    "code": "INVALID_TOKEN_SIGNATURE",
+    "message": "El token asociado al código no tiene una firma válida"
+  }
 }`
       },
       examples: {
-        javascript: (baseUrl: string) => `// JavaScript/Fetch
+        javascript: (baseUrl: string, apiKey: string) => `// JavaScript/Fetch
 const response = await fetch('${baseUrl}/functions/v1/auth-exchange-code', {
   method: 'POST',
   headers: {
@@ -365,10 +356,24 @@ const data = await response.json();
 if (data.success) {
   localStorage.setItem('access_token', data.data.access_token);
   localStorage.setItem('refresh_token', data.data.refresh_token);
+
+  // Opción recomendada: traducir el JWT a una sesión normalizada
+  const verifyResponse = await fetch('${baseUrl}/functions/v1/auth-verify-token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      token: data.data.access_token,
+      application_id: 'app_51ecb9e2-6b3',
+      api_key: '${apiKey}'
+    })
+  });
+
+  const verifyData = await verifyResponse.json();
+  console.log('Sesión reconstruida:', verifyData.data);
 } else {
   console.error('Error:', data.error.message);
 }`,
-        python: (baseUrl: string) => `# Python/Requests
+        python: (baseUrl: string, apiKey: string) => `# Python/Requests
 import requests
 
 url = '${baseUrl}/functions/v1/auth-exchange-code'
@@ -381,10 +386,15 @@ response = requests.post(url, json=payload)
 result = response.json()
 
 if result['success']:
-    print('Code exchanged successfully')
+    verify_result = requests.post('${baseUrl}/functions/v1/auth-verify-token', json={
+        'token': result['data']['access_token'],
+        'application_id': 'app_51ecb9e2-6b3',
+        'api_key': '${apiKey}'
+    }).json()
+    print(verify_result)
 else:
     print(f"Error: {result['error']['message']}")`,
-        php: (baseUrl: string) => `<?php
+        php: (baseUrl: string, apiKey: string) => `<?php
 $url = '${baseUrl}/functions/v1/auth-exchange-code';
 $data = array(
     'code' => 'e83e749d-2376-43c3-b6ff-f65448515f47',
@@ -401,9 +411,28 @@ $response = curl_exec($ch);
 curl_close($ch);
 
 $result = json_decode($response, true);
-print_r($result);
+
+if ($result['success']) {
+    $verifyPayload = array(
+        'token' => $result['data']['access_token'],
+        'application_id' => 'app_51ecb9e2-6b3',
+        'api_key' => '${apiKey}'
+    );
+
+    $verify = curl_init('${baseUrl}/functions/v1/auth-verify-token');
+    curl_setopt($verify, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($verify, CURLOPT_POST, true);
+    curl_setopt($verify, CURLOPT_POSTFIELDS, json_encode($verifyPayload));
+    curl_setopt($verify, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
+    $verifyResponse = curl_exec($verify);
+    curl_close($verify);
+
+    echo $verifyResponse;
+} else {
+    print_r($result);
+}
 ?>`,
-        java: (baseUrl: string) => `// Java/HttpClient
+        java: (baseUrl: string, apiKey: string) => `// Java/HttpClient
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -423,16 +452,171 @@ System.out.println(response.body());`
       }
     },
     {
+      id: 'auth-verify-token',
+      title: 'Validar y Traducir Token',
+      method: 'POST',
+      path: '/functions/v1/auth-verify-token',
+      description: 'Valida la firma del access token contra el JWT secret de la aplicación y devuelve una sesión normalizada con claims, usuario, aplicación, ambiente, tenant y suscripción. Es la forma recomendada de reconstruir sesión en backends o callbacks.',
+      params: [
+        { name: 'token', type: 'string', required: true, location: 'Body', description: 'Access token JWT emitido por AuthSystem' },
+        { name: 'application_id', type: 'string', required: true, location: 'Body', description: 'ID público de la aplicación' },
+        { name: 'api_key', type: 'string', required: true, location: 'Body/Header', description: 'API key activa. Puede enviarse en body.api_key, header Authorization: Bearer <api_key> o header apikey.' }
+      ],
+      requestExample: (baseUrl: string, apiKey: string) => ({
+        url: `${baseUrl}/functions/v1/auth-verify-token`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: {
+          token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+          application_id: 'app_51ecb9e2-6b3',
+          api_key: apiKey
+        }
+      }),
+      response: {
+        success: `{
+  "success": true,
+  "data": {
+    "valid": true,
+    "token_type": "access",
+    "expires_at": "2026-06-01T20:41:01.000Z",
+    "claims": {
+      "sub": "294e2374-7b98-476d-99ee-b4c81f8ec95c",
+      "email": "usuario@ejemplo.com",
+      "name": "Usuario Ejemplo",
+      "app_id": "app_51ecb9e2-6b3",
+      "app_name": "Mi Aplicación",
+      "app_domain": "https://tuapp.com",
+      "role": "administrador",
+      "roles": ["administrador"],
+      "permissions": {
+        "dashboard": ["read", "create", "update"],
+        "users": ["read"]
+      },
+      "permissions_hierarchy": {
+        "dashboard": {
+          "actions": ["read", "create", "update"],
+          "submenus": {
+            "users": ["read"]
+          }
+        }
+      },
+      "environment": "testing",
+      "tenant_id": "tenant_uuid",
+      "tenant_name": "Acme"
+    },
+    "user": {
+      "id": "294e2374-7b98-476d-99ee-b4c81f8ec95c",
+      "email": "usuario@ejemplo.com",
+      "name": "Usuario Ejemplo",
+      "role": "administrador",
+      "permissions": {
+        "dashboard": ["read", "create", "update"],
+        "users": ["read"]
+      }
+    },
+    "application": {
+      "id": "app_51ecb9e2-6b3",
+      "name": "Mi Aplicación",
+      "domain": "https://tuapp.com"
+    },
+    "environment": "testing",
+    "tenant": null,
+    "subscription": null,
+    "license": null,
+    "has_access": true,
+    "available_plans": []
+  }
+}`,
+        error: `{
+  "success": false,
+  "error": {
+    "code": "INVALID_TOKEN",
+    "message": "Token inválido o con firma no válida"
+  }
+}
+
+{
+  "success": false,
+  "error": {
+    "code": "TOKEN_APPLICATION_MISMATCH",
+    "message": "El token no pertenece a la aplicación solicitada"
+  }
+}`
+      },
+      examples: {
+        javascript: (baseUrl: string, apiKey: string) => `const response = await fetch('${baseUrl}/functions/v1/auth-verify-token', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    token: localStorage.getItem('access_token'),
+    application_id: 'app_51ecb9e2-6b3',
+    api_key: '${apiKey}'
+  })
+});
+
+const data = await response.json();
+
+if (data.success && data.data.valid) {
+  localStorage.setItem('session', JSON.stringify({
+    user: data.data.user,
+    application: data.data.application,
+    claims: data.data.claims
+  }));
+}`,
+        python: (baseUrl: string, apiKey: string) => `import requests
+
+response = requests.post('${baseUrl}/functions/v1/auth-verify-token', json={
+    'token': access_token,
+    'application_id': 'app_51ecb9e2-6b3',
+    'api_key': '${apiKey}'
+})
+
+print(response.json())`,
+        php: (baseUrl: string, apiKey: string) => `<?php
+$payload = array(
+    'token' => $_SESSION['access_token'],
+    'application_id' => 'app_51ecb9e2-6b3',
+    'api_key' => '${apiKey}'
+);
+
+$ch = curl_init('${baseUrl}/functions/v1/auth-verify-token');
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_POST, true);
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
+
+$response = curl_exec($ch);
+curl_close($ch);
+
+echo $response;
+?>`,
+        java: (baseUrl: string, apiKey: string) => `HttpClient client = HttpClient.newHttpClient();
+String json = "{\\"token\\":\\"TOKEN_JWT\\",\\"application_id\\":\\"app_51ecb9e2-6b3\\",\\"api_key\\":\\"${apiKey}\\"}";
+
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create("${baseUrl}/functions/v1/auth-verify-token"))
+    .header("Content-Type", "application/json")
+    .POST(HttpRequest.BodyPublishers.ofString(json))
+    .build();
+
+HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+System.out.println(response.body());`
+      }
+    },
+    {
       id: 'auth-generate-test-code',
       title: 'Generar Código de Prueba',
       method: 'POST',
       path: '/functions/v1/auth-generate-test-code',
-      description: 'Endpoint de testing para generar un code temporal compatible con auth-exchange-code. Solo funciona si ALLOW_TEST_AUTH_CODE_API=true en la función.',
+      description: 'Endpoint de testing para generar un code temporal compatible con auth-exchange-code. Solo funciona si ALLOW_TEST_AUTH_CODE_API=true. La callback_url de salida se toma de la configuración confiable del ambiente; no se inyecta arbitrariamente desde el request.',
       params: [
         { name: 'application_id', type: 'string', required: true, location: 'Body', description: 'ID público de la aplicación (application_id)' },
         { name: 'api_key', type: 'string', required: true, location: 'Body', description: 'API Key activa de la aplicación' },
         { name: 'email', type: 'string', required: true, location: 'Body', description: 'Email de un usuario activo de la aplicación' },
-        { name: 'callback_url', type: 'string', required: false, location: 'Body', description: 'Si se envía, retorna callback_url con code+state' },
         { name: 'ttl_seconds', type: 'number', required: false, location: 'Body', description: 'TTL del code en segundos (60-900, default 300)' },
         { name: 'x-test-secret', type: 'string', required: false, location: 'Header', description: 'Requerido si TEST_AUTH_CODE_SECRET está configurado' }
       ],
@@ -447,7 +631,6 @@ System.out.println(response.body());`
           application_id: 'app_51ecb9e2-6b3',
           api_key: apiKey,
           email: 'usuario@ejemplo.com',
-          callback_url: 'https://test.clavecrm.com/callback',
           ttl_seconds: 300
         }
       }),
@@ -458,7 +641,7 @@ System.out.println(response.body());`
     "code": "44059454-9b4b-45f8-85f6-3a6b9ef5e128",
     "state": "authenticated",
     "expires_at": "2026-03-02T18:00:00.000Z",
-    "callback_url": "https://test.clavecrm.com/callback?code=44059454-9b4b-45f8-85f6-3a6b9ef5e128&state=authenticated",
+    "callback_url": "https://test.clavecrm.com/callback?code=44059454-9b4b-45f8-85f6-3a6b9ef5e128&application_id=app_51ecb9e2-6b3&state=authenticated",
     "exchange_endpoint": "/functions/v1/auth-exchange-code",
     "exchange_payload": {
       "code": "44059454-9b4b-45f8-85f6-3a6b9ef5e128",
@@ -495,7 +678,7 @@ const createCodeResponse = await fetch('${baseUrl}/functions/v1/auth-generate-te
     application_id: 'app_51ecb9e2-6b3',
     api_key: '${apiKey}',
     email: 'usuario@ejemplo.com',
-    callback_url: 'https://test.clavecrm.com/callback'
+    ttl_seconds: 300
   })
 });
 
@@ -523,7 +706,7 @@ generate_payload = {
     'application_id': 'app_51ecb9e2-6b3',
     'api_key': '${apiKey}',
     'email': 'usuario@ejemplo.com',
-    'callback_url': 'https://test.clavecrm.com/callback'
+    'ttl_seconds': 300
 }
 
 generate_result = requests.post(generate_url, json=generate_payload).json()
@@ -543,7 +726,7 @@ $generatePayload = array(
     'application_id' => 'app_51ecb9e2-6b3',
     'api_key' => '${apiKey}',
     'email' => 'usuario@ejemplo.com',
-    'callback_url' => 'https://test.clavecrm.com/callback'
+    'ttl_seconds' => 300
 );
 
 $ch = curl_init($generateUrl);
@@ -580,7 +763,7 @@ import java.net.URI;
 
 HttpClient client = HttpClient.newHttpClient();
 
-String generateJson = "{\\"application_id\\":\\"app_51ecb9e2-6b3\\",\\"api_key\\":\\"${apiKey}\\",\\"email\\":\\"usuario@ejemplo.com\\",\\"callback_url\\":\\"https://test.clavecrm.com/callback\\"}";
+String generateJson = "{\\"application_id\\":\\"app_51ecb9e2-6b3\\",\\"api_key\\":\\"${apiKey}\\",\\"email\\":\\"usuario@ejemplo.com\\",\\"ttl_seconds\\":300}";
 
 HttpRequest generateRequest = HttpRequest.newBuilder()
     .uri(URI.create("${baseUrl}/functions/v1/auth-generate-test-code"))
@@ -1604,7 +1787,8 @@ window.location.href = '${currentEnv.baseUrl}/register' +
             <div className="bg-white rounded-lg p-4 border border-gray-200">
               <p className="text-sm text-gray-600">
                 El usuario ve el formulario de login/registro con tu branding personalizado.
-                AuthSystem valida las credenciales, verifica la API key, y maneja toda la lógica de seguridad internamente.
+                AuthSystem valida las credenciales, verifica la API key y resuelve permisos, ambiente, tenant y suscripción.
+                Si MFA está activo, aquí mismo se resuelve el setup o la aprobación móvil antes de volver a tu app.
               </p>
             </div>
           </div>
@@ -1619,7 +1803,7 @@ window.location.href = '${currentEnv.baseUrl}/register' +
               <pre className="bg-gray-900 text-gray-100 p-3 rounded text-sm overflow-x-auto mb-3">
 {`https://tuapp.com/callback?code=AUTH_CODE_UUID&state=authenticated`}
               </pre>
-              <p className="text-sm text-gray-600">Tu aplicación procesa el callback:</p>
+              <p className="text-sm text-gray-600">Tu aplicación procesa el callback e intercambia el code:</p>
               <pre className="bg-gray-900 text-gray-100 p-3 rounded text-sm overflow-x-auto">
 {`// En tu página /callback
 const params = new URLSearchParams(window.location.search);
@@ -1642,6 +1826,24 @@ if (code && state === 'authenticated') {
   if (data.success) {
     localStorage.setItem('access_token', data.data.access_token);
     localStorage.setItem('refresh_token', data.data.refresh_token);
+
+    // Opción recomendada: pedir una sesión normalizada al backend
+    const verifyResponse = await fetch('${currentEnv.baseUrl}/functions/v1/auth-verify-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: data.data.access_token,
+        application_id: 'app_mk2k3j4h5k6l',
+        api_key: '${currentEnv.apiKey}'
+      })
+    });
+
+    const session = await verifyResponse.json();
+
+    if (session.success && session.data.valid) {
+      localStorage.setItem('session', JSON.stringify(session.data));
+    }
+
     window.location.href = '/dashboard';
   } else {
     window.location.href = '/login';
@@ -1657,10 +1859,14 @@ if (code && state === 'authenticated') {
           <div>
             <h4 className="font-semibold text-gray-900 mb-3 flex items-center space-x-2">
               <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">4</span>
-              <span>Intercambiar código por tokens</span>
+              <span>Intercambiar código y reconstruir sesión</span>
             </h4>
             <div className="bg-white rounded-lg p-4 border border-gray-200">
-              <p className="text-sm text-gray-600 mb-2">El código es de un solo uso y expira rápido. El parámetro <strong>state</strong> actualmente es fijo con valor <code>authenticated</code>. Debe validarse con:</p>
+              <p className="text-sm text-gray-600 mb-2">
+                El code es de un solo uso y expira rápido. El parámetro <strong>state</strong> hoy viaja con valor
+                <code> authenticated </code>. Después del exchange, puedes decodificar el JWT localmente o llamar a
+                <code> /functions/v1/auth-verify-token </code> para obtener una sesión traducida y validada.
+              </p>
               <pre className="bg-gray-900 text-gray-100 p-3 rounded text-sm overflow-x-auto">
 {`POST ${currentEnv.baseUrl}/functions/v1/auth-exchange-code
 {
@@ -1677,17 +1883,35 @@ if (code && state === 'authenticated') {
               <span>Datos en el Token JWT</span>
             </h4>
             <div className="bg-white rounded-lg p-4 border border-gray-200">
-              <p className="text-sm text-gray-600 mb-2">Una vez intercambiado el code, el access token contiene la información del usuario:</p>
+              <p className="text-sm text-gray-600 mb-2">Una vez intercambiado el code, el access token contiene la sesión firmada:</p>
               <pre className="bg-gray-900 text-gray-100 p-3 rounded text-sm overflow-x-auto">
 {`{
-  "sub": "user_123",              // ID del usuario
+  "sub": "user_123",
   "email": "usuario@ejemplo.com",
   "name": "Usuario Ejemplo",
   "app_id": "app_mk2k3j4h5k6l",
-  "roles": ["user", "admin"],
-  "permissions": ["read", "write"],
-  "iat": 1234567890,              // Fecha de emisión
-  "exp": 1234654290,              // Expiración
+  "app_name": "Mi Aplicación",
+  "app_domain": "https://tuapp.com",
+  "role": "administrador",
+  "roles": ["administrador"],
+  "permissions": {
+    "dashboard": ["read", "create", "update"],
+    "users": ["read"]
+  },
+  "permissions_hierarchy": {
+    "dashboard": {
+      "actions": ["read", "create", "update"],
+      "submenus": {
+        "users": ["read"]
+      }
+    }
+  },
+  "environment": "testing",
+  "tenant_id": "tenant_uuid",
+  "tenant_name": "Acme",
+  "has_access": true,
+  "iat": 1234567890,
+  "exp": 1234654290,
   "iss": "AuthSystem",
   "aud": "tuapp.com"
 }`}
@@ -1716,7 +1940,9 @@ if (code && state === 'authenticated') {
             <h3 className="text-xl font-bold text-gray-900 mb-2">Integración API Directa (Avanzado)</h3>
             <p className="text-gray-700">
               <strong>Solo para casos avanzados:</strong> Apps móviles nativas, CLIs, o servicios backend-to-backend.
-              Si estás construyendo una aplicación web, usa el flujo de redirección arriba.
+              Si estás construyendo una aplicación web, usa el flujo de redirección arriba. Si llamas directo a
+              <code> auth-login </code>, recuerda que el perfil del usuario ya no viaja plano en la respuesta:
+              debes decodificar el JWT o consultar <code>auth-verify-token</code>.
             </p>
           </div>
         </div>
@@ -1767,7 +1993,7 @@ if (code && state === 'authenticated') {
           <p>• <strong>API Key:</strong> <code className="bg-blue-100 px-2 py-1 rounded">{currentEnv.apiKey}</code></p>
           <p>• <strong>Importante:</strong> En Edge Functions, el API Key se envía en el <code className="bg-blue-100 px-2 py-1 rounded">body.api_key</code> o en <code className="bg-blue-100 px-2 py-1 rounded">header X-API-Key</code> (según endpoint)</p>
           <p>• Formato de respuesta: JSON</p>
-          <p>• Rate limiting: 10 requests por 15 minutos por IP</p>
+          <p>• Rate limiting: <code className="bg-blue-100 px-2 py-1 rounded">auth-login</code> limita intentos por IP; otros endpoints pueden tener políticas distintas según seguridad y ambiente</p>
         </div>
 
         <div className="mt-4 p-3 bg-yellow-100 rounded-lg border border-yellow-200">
