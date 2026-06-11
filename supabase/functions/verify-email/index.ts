@@ -160,11 +160,11 @@ Deno.serve(async (req: Request) => {
     }
 
     if (email && user.email.toLowerCase() !== email.toLowerCase()) {
-      console.warn(`[verify-email][${rid}] EMAIL_MISMATCH`, { provided: email, actual: user.email });
-      return new Response(
-        JSON.stringify({ success: false, error: { code: 'EMAIL_MISMATCH', message: 'El email no coincide con el token' } }),
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      console.warn(`[verify-email][${rid}] EMAIL_MISMATCH_IGNORED`, {
+        provided: email,
+        actual: user.email,
+        reason: 'token is already the source of truth for verification',
+      });
     }
 
     const ip = getClientIp(req);
@@ -252,6 +252,21 @@ Deno.serve(async (req: Request) => {
         ],
       });
 
+      console.log(`[verify-email][${rid}] welcome notification resolution`, {
+        enabled: welcomeNotification.enabled,
+        enabled_source: welcomeNotification.enabledSource,
+        template_name: welcomeNotification.templateName,
+        template_source: welcomeNotification.templateSource,
+        api_url: welcomeNotification.apiUrl,
+        api_url_source: welcomeNotification.apiUrlSource,
+        api_key_source: welcomeNotification.apiKeySource,
+        has_notification_entry: !!welcomeNotification.key,
+        has_app_email_url: !!emailConfig?.external_email_api_url,
+        has_app_email_key: !!emailConfig?.external_email_api_key,
+        has_env_email_url: !!Deno.env.get('EMAIL_API_URL'),
+        has_env_email_key: !!Deno.env.get('EMAIL_API_KEY'),
+      });
+
       if (welcomeNotification.enabled) {
         if (!welcomeNotification.apiUrl || !welcomeNotification.apiKey) {
           throw new Error('Missing external email API configuration for welcome email');
@@ -268,17 +283,61 @@ Deno.serve(async (req: Request) => {
           ? `${loginBaseUrl.replace(/\/$/, '')}/login?app_id=${encodeURIComponent(applicationSlug || '')}${publicApiKey ? `&api_key=${encodeURIComponent(publicApiKey)}` : ''}`
           : '';
 
-        await sendTemplatedEmail({
-          apiUrl: welcomeNotification.apiUrl,
-          apiKey: welcomeNotification.apiKey,
-          templateName: welcomeNotification.templateName || 'welcome-authsystem',
-          recipientEmail: user.email,
-          data: {
-            user_name: user.name || user.email,
-            application_name: application?.name || 'AuthSystem',
-            login_url: loginUrl,
-          },
-        });
+        const requestedTemplate = welcomeNotification.templateName || 'welcome-authsystem';
+        const attemptedTemplates = Array.from(
+          new Set([
+            requestedTemplate,
+            requestedTemplate === 'welcome-authsystem' ? 'welcome' : null,
+          ].filter(Boolean))
+        ) as string[];
+
+        let sentTemplate: string | null = null;
+        let lastTemplateError: Error | null = null;
+
+        for (const templateName of attemptedTemplates) {
+          try {
+            console.log(`[verify-email][${rid}] sending welcome email`, {
+              recipient: user.email,
+              template_name: templateName,
+              login_url: loginUrl,
+            });
+
+            await sendTemplatedEmail({
+              apiUrl: welcomeNotification.apiUrl,
+              apiKey: welcomeNotification.apiKey,
+              templateName,
+              recipientEmail: user.email,
+              data: {
+                user_name: user.name || user.email,
+                application_name: application?.name || 'AuthSystem',
+                login_url: loginUrl,
+              },
+            });
+
+            sentTemplate = templateName;
+            break;
+          } catch (templateError: any) {
+            lastTemplateError = templateError instanceof Error ? templateError : new Error(String(templateError));
+            const message = lastTemplateError.message || '';
+            const canRetryWithNextTemplate =
+              attemptedTemplates[attemptedTemplates.length - 1] !== templateName &&
+              (/template not found/i.test(message) || /404/.test(message));
+
+            console.warn(`[verify-email][${rid}] welcome template attempt failed`, {
+              template_name: templateName,
+              message,
+              can_retry_with_next_template: canRetryWithNextTemplate,
+            });
+
+            if (!canRetryWithNextTemplate) {
+              throw lastTemplateError;
+            }
+          }
+        }
+
+        if (!sentTemplate) {
+          throw lastTemplateError || new Error('Welcome email could not be sent');
+        }
 
         await supabase.from('email_logs').insert({
           to_email: user.email,
@@ -291,6 +350,12 @@ Deno.serve(async (req: Request) => {
           app_user_id: user.id,
           sent_at: new Date().toISOString(),
         });
+        console.log(`[verify-email][${rid}] welcome email sent`, {
+          recipient: user.email,
+          template_name: sentTemplate,
+        });
+      } else {
+        console.log(`[verify-email][${rid}] welcome email skipped because notification is disabled`);
       }
     } catch (welcomeError: any) {
       console.error(`[verify-email][${rid}] welcome email error`, welcomeError);

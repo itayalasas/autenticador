@@ -1377,7 +1377,7 @@ Deno.serve(async (req) => {
           });
         }
 
-        const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}&email=${encodeURIComponent(email)}`;
+        const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
 
         try {
           await sendExternalConfirmationEmail({

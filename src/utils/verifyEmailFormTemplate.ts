@@ -11,7 +11,13 @@ export default function VerifyEmailForm() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const token = searchParams.get('token');
-  const email = searchParams.get('email');
+  const rawEmail = searchParams.get('email');
+  const email = (() => {
+    if (!rawEmail) return '';
+    const trimmed = rawEmail.trim();
+    const match = trimmed.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/i);
+    return match?.[0] || '';
+  })();
 
   const [status, setStatus] = useState<'verifying' | 'success' | 'error'>('verifying');
   const [message, setMessage] = useState('Verificando tu cuenta...');
@@ -39,7 +45,7 @@ export default function VerifyEmailForm() {
         const res = await fetch(\`\${API_BASE}/verify-email\`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token, email })
+          body: JSON.stringify({ token })
         });
         const json = await res.json();
 
