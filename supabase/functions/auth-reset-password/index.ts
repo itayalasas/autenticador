@@ -23,6 +23,28 @@ function generateResetToken(): string {
   return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
+function resolveConfiguredValue<T>(candidates: Array<{ source: string; value: T | null | undefined }>): {
+  value: T | undefined;
+  source: string | null;
+} {
+  for (const candidate of candidates) {
+    const value = candidate.value;
+
+    if (typeof value === 'string') {
+      if (value.trim()) {
+        return { value: value as T, source: candidate.source };
+      }
+      continue;
+    }
+
+    if (value !== undefined && value !== null) {
+      return { value, source: candidate.source };
+    }
+  }
+
+  return { value: undefined, source: null };
+}
+
 async function sendResetPasswordEmailViaAPI(
   email: string,
   name: string,
@@ -34,22 +56,23 @@ async function sendResetPasswordEmailViaAPI(
 ): Promise<boolean> {
   try {
     const notificationCfg = emailConfig?.notifications?.password_reset || {};
-    const EMAIL_API_URL =
-      notificationCfg.api_url ||
-      emailConfig?.external_email_api_url ||
-      Deno.env.get('EMAIL_API_URL') ||
-      Deno.env.get('EXTERNAL_EMAIL_API_URL') ||
-      '';
-    const EMAIL_API_KEY =
-      notificationCfg.api_key ||
-      emailConfig?.external_email_api_key ||
-      Deno.env.get('EMAIL_API_KEY') ||
-      Deno.env.get('EXTERNAL_EMAIL_API_KEY') ||
-      '';
-    const TEMPLATE_NAME =
-      notificationCfg.template_name ||
-      emailConfig?.reset_password_template_name ||
-      'reset-password-authsystem';
+    const resolvedApiUrl = resolveConfiguredValue<string>([
+      { source: 'env.EMAIL_API_URL', value: Deno.env.get('EMAIL_API_URL') },
+      { source: 'env.EXTERNAL_EMAIL_API_URL', value: Deno.env.get('EXTERNAL_EMAIL_API_URL') },
+    ]);
+    const resolvedApiKey = resolveConfiguredValue<string>([
+      { source: 'env.EMAIL_API_KEY', value: Deno.env.get('EMAIL_API_KEY') },
+      { source: 'env.EXTERNAL_EMAIL_API_KEY', value: Deno.env.get('EXTERNAL_EMAIL_API_KEY') },
+    ]);
+    const resolvedTemplate = resolveConfiguredValue<string>([
+      { source: 'application.email_config.notifications.password_reset.template_name', value: notificationCfg.template_name },
+      { source: 'application.email_config.reset_password_template_name', value: emailConfig?.reset_password_template_name },
+      { source: 'default', value: 'reset-password-authsystem' },
+    ]);
+
+    const EMAIL_API_URL = resolvedApiUrl.value || '';
+    const EMAIL_API_KEY = resolvedApiKey.value || '';
+    const TEMPLATE_NAME = resolvedTemplate.value || 'reset-password-authsystem';
 
     if (!EMAIL_API_URL.trim() || !EMAIL_API_KEY.trim()) {
       throw new Error('Missing email API configuration');
@@ -59,7 +82,25 @@ async function sendResetPasswordEmailViaAPI(
     console.log('📧 API URL:', EMAIL_API_URL);
     console.log('📧 Template:', TEMPLATE_NAME);
     console.log('📧 Recipient:', email);
-    console.log('📧 Using app-specific key:', !!emailConfig?.external_email_api_key);
+    console.log('📧 Using environment email key:', resolvedApiKey.source?.startsWith('env.') ?? false);
+
+    console.log('📧 Email provider resolution:', {
+      api_url: EMAIL_API_URL,
+      api_url_source: resolvedApiUrl.source,
+      api_key_source: resolvedApiKey.source,
+      template_name: TEMPLATE_NAME,
+      template_source: resolvedTemplate.source,
+      use_env_only_for_email_provider: true,
+      recipient: email,
+      has_notification_specific_url: !!notificationCfg.api_url,
+      has_notification_specific_key: !!notificationCfg.api_key,
+      has_global_app_url: !!emailConfig?.external_email_api_url,
+      has_global_app_key: !!emailConfig?.external_email_api_key,
+      has_env_email_api_url: !!Deno.env.get('EMAIL_API_URL'),
+      has_env_external_email_api_url: !!Deno.env.get('EXTERNAL_EMAIL_API_URL'),
+      has_env_email_api_key: !!Deno.env.get('EMAIL_API_KEY'),
+      has_env_external_email_api_key: !!Deno.env.get('EXTERNAL_EMAIL_API_KEY'),
+    });
 
     const response = await fetch(EMAIL_API_URL.trim().replace(/\/$/, ''), {
       method: 'POST',

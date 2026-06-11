@@ -96,8 +96,8 @@ async function sendExternalConfirmationEmail(params: {
     emailConfig?.notifications?.email_verification ||
     emailConfig?.notifications?.confirmation ||
     {};
-  const apiUrl = notificationCfg.api_url || emailConfig?.external_email_api_url || Deno.env.get('EMAIL_API_URL') || '';
-  const apiKey = notificationCfg.api_key || emailConfig?.external_email_api_key || Deno.env.get('EMAIL_API_KEY') || '';
+  const apiUrl = Deno.env.get('EMAIL_API_URL') || Deno.env.get('EXTERNAL_EMAIL_API_URL') || '';
+  const apiKey = Deno.env.get('EMAIL_API_KEY') || Deno.env.get('EXTERNAL_EMAIL_API_KEY') || '';
   const normalizedApiUrl = apiUrl.trim().replace(/\/$/, '');
 
   if (!normalizedApiUrl || !apiKey.trim()) {

@@ -19,8 +19,6 @@ interface InviteRequest {
 function resolvePasskeyEmailConfig(emailConfig: Record<string, any> = {}) {
   const notificationCfg = emailConfig?.notifications?.passkey_setup || {};
   const apiUrl = (
-    notificationCfg.api_url ||
-    emailConfig?.external_email_api_url ||
     Deno.env.get('EMAIL_API_URL') ||
     Deno.env.get('EXTERNAL_EMAIL_API_URL') ||
     ''
@@ -29,8 +27,6 @@ function resolvePasskeyEmailConfig(emailConfig: Record<string, any> = {}) {
     .replace(/\/$/, '');
 
   const apiKey = (
-    notificationCfg.api_key ||
-    emailConfig?.external_email_api_key ||
     Deno.env.get('EMAIL_API_KEY') ||
     Deno.env.get('EXTERNAL_EMAIL_API_KEY') ||
     ''
