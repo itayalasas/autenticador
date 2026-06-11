@@ -1,5 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
+import { resolveApplicationAuthUrl } from '../_shared/application-auth-url.ts';
+import { resolveNotificationConfig, sendTemplatedEmail } from '../_shared/email-notifications.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -219,20 +221,95 @@ Deno.serve(async (req: Request) => {
       console.error(`[verify-email][${rid}] auth_log insert error`, logErr);
     }
 
+    const { data: application } = await supabase
+      .from('applications')
+      .select('id, application_id, name, domain, metadata, email_config')
+      .eq('id', user.application_id)
+      .maybeSingle();
+
     const { data: publicKey } = await supabase
       .from('api_keys')
-      .select('key')
+      .select('key, key_hash, environment')
       .eq('application_id', user.application_id)
       .eq('is_public', true)
       .eq('is_active', true)
+      .order('created_at', { ascending: true })
       .limit(1)
       .maybeSingle();
 
-    const applicationSlug = (user as any)?.applications?.application_id ?? null;
+    const publicApiKey = publicKey?.key ?? publicKey?.key_hash ?? null;
+    const applicationSlug = application?.application_id ?? (user as any)?.applications?.application_id ?? null;
+
+    try {
+      const emailConfig = application?.email_config || {};
+      const welcomeNotification = resolveNotificationConfig({
+        emailConfig,
+        notificationKeys: ['welcome'],
+        defaultTemplate: 'welcome-authsystem',
+        enabledDefault: false,
+        enabledCandidates: [
+          { source: 'application.email_config.send_welcome_email', value: emailConfig?.send_welcome_email },
+        ],
+      });
+
+      if (welcomeNotification.enabled) {
+        if (!welcomeNotification.apiUrl || !welcomeNotification.apiKey) {
+          throw new Error('Missing external email API configuration for welcome email');
+        }
+
+        const { baseUrl } = await resolveApplicationAuthUrl(
+          supabase,
+          user.application_id,
+          publicKey?.environment || null
+        );
+
+        const loginBaseUrl = baseUrl || application?.domain || '';
+        const loginUrl = loginBaseUrl
+          ? `${loginBaseUrl.replace(/\/$/, '')}/login?app_id=${encodeURIComponent(applicationSlug || '')}${publicApiKey ? `&api_key=${encodeURIComponent(publicApiKey)}` : ''}`
+          : '';
+
+        await sendTemplatedEmail({
+          apiUrl: welcomeNotification.apiUrl,
+          apiKey: welcomeNotification.apiKey,
+          templateName: welcomeNotification.templateName || 'welcome-authsystem',
+          recipientEmail: user.email,
+          data: {
+            user_name: user.name || user.email,
+            application_name: application?.name || 'AuthSystem',
+            login_url: loginUrl,
+          },
+        });
+
+        await supabase.from('email_logs').insert({
+          to_email: user.email,
+          from_email: emailConfig.from_email || 'noreply@authsystem.com',
+          from_name: emailConfig.from_name || application?.name || 'AuthSystem',
+          subject: `Bienvenido a ${application?.name || 'AuthSystem'}`,
+          html_content: '',
+          status: 'sent',
+          application_id: user.application_id,
+          app_user_id: user.id,
+          sent_at: new Date().toISOString(),
+        });
+      }
+    } catch (welcomeError: any) {
+      console.error(`[verify-email][${rid}] welcome email error`, welcomeError);
+      await supabase.from('email_logs').insert({
+        to_email: user.email,
+        from_email: application?.email_config?.from_email || 'noreply@authsystem.com',
+        from_name: application?.email_config?.from_name || application?.name || 'AuthSystem',
+        subject: `Bienvenido a ${application?.name || 'AuthSystem'}`,
+        html_content: '',
+        status: 'failed',
+        error_message: welcomeError?.message || 'Unknown error',
+        application_id: user.application_id,
+        app_user_id: user.id,
+      });
+    }
 
     console.log(`[verify-email][${rid}] SUCCESS`, {
       user_id: user.id,
-      has_public_key: !!publicKey?.key,
+      has_public_key: !!publicApiKey,
       application_slug: applicationSlug
     });
 
@@ -247,7 +324,7 @@ Deno.serve(async (req: Request) => {
           status: 'active',
           verified_at: verifiedAt,
           application_id: applicationSlug,
-          api_key: publicKey?.key ?? null
+          api_key: publicApiKey
         }
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

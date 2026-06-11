@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
 import { resolveApplicationAuthUrl } from '../_shared/application-auth-url.ts';
+import { resolveNotificationConfig, sendTemplatedEmail } from '../_shared/email-notifications.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -17,27 +18,12 @@ interface InviteRequest {
 }
 
 function resolvePasskeyEmailConfig(emailConfig: Record<string, any> = {}) {
-  const notificationCfg = emailConfig?.notifications?.passkey_setup || {};
-  const apiUrl = (
-    Deno.env.get('EMAIL_API_URL') ||
-    Deno.env.get('EXTERNAL_EMAIL_API_URL') ||
-    ''
-  )
-    .trim()
-    .replace(/\/$/, '');
-
-  const apiKey = (
-    Deno.env.get('EMAIL_API_KEY') ||
-    Deno.env.get('EXTERNAL_EMAIL_API_KEY') ||
-    ''
-  ).trim();
-
-  return {
-    enabled: notificationCfg.enabled === true,
-    templateName: String(notificationCfg.template_name || 'confirmation_passkey').trim(),
-    apiUrl,
-    apiKey,
-  };
+  return resolveNotificationConfig({
+    emailConfig,
+    notificationKeys: ['passkey_setup'],
+    defaultTemplate: 'confirmation_passkey',
+    enabledDefault: false,
+  });
 }
 
 Deno.serve(async (req) => {
@@ -279,43 +265,42 @@ Deno.serve(async (req) => {
       );
     }
 
-    const payload = {
-      template_name: templateName || 'confirmation_passkey',
-      recipient_email: user.email,
-      data: {
-        client_name: user.name || user.email,
-        passkey: token,
-      },
-    };
-
-    const emailResponse = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const emailText = await emailResponse.text();
-    let emailResult: any = null;
     try {
-      emailResult = emailText ? JSON.parse(emailText) : null;
-    } catch {
-      emailResult = null;
-    }
+      await sendTemplatedEmail({
+        apiUrl,
+        apiKey,
+        templateName: templateName || 'confirmation_passkey',
+        recipientEmail: user.email,
+        data: {
+          client_name: user.name || user.email,
+          passkey: token,
+          setup_url: setupUrl,
+          application_name: application.name,
+          expires_at: expiresAt,
+        },
+      });
+    } catch (emailError: any) {
+      await supabase.from('email_logs').insert({
+        application_id: application.id,
+        app_user_id: user.id,
+        to_email: user.email,
+        from_email: application.email_config?.from_email || 'noreply@authsystem.com',
+        from_name: application.email_config?.from_name || application.name || 'AuthSystem',
+        subject: `Configuracion de passkey - ${application.name}`,
+        html_content: '',
+        status: 'failed',
+        error_message: emailError?.message || 'Unknown error',
+      });
 
-    if (!emailResponse.ok || emailResult?.success === false) {
       console.error('Email API error:', {
-        status: emailResponse.status,
-        body: emailText,
+        message: emailError?.message || 'Unknown error',
       });
       return new Response(
         JSON.stringify({
           success: false,
           error: {
             code: 'EMAIL_SEND_ERROR',
-            message: emailResult?.error?.message || emailResult?.message || 'No se pudo enviar la invitacion por correo',
+            message: emailError?.message || 'No se pudo enviar la invitacion por correo',
             details: {
               api_url_configured: !!apiUrl,
               passkey_setup_enabled: enabled,
@@ -328,6 +313,18 @@ Deno.serve(async (req) => {
         }
       );
     }
+
+    await supabase.from('email_logs').insert({
+      application_id: application.id,
+      app_user_id: user.id,
+      to_email: user.email,
+      from_email: application.email_config?.from_email || 'noreply@authsystem.com',
+      from_name: application.email_config?.from_name || application.name || 'AuthSystem',
+      subject: `Configuracion de passkey - ${application.name}`,
+      html_content: '',
+      status: 'sent',
+      sent_at: new Date().toISOString(),
+    });
 
     await supabase.from('auth_logs').insert({
       application_id: application.id,

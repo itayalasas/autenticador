@@ -8,6 +8,7 @@ import { buildEnvironmentScopedMetadata, normalizeEnvironmentName } from '../_sh
 import { normalizeMercadoPagoConfig } from '../_shared/mercadopago.ts';
 import { resolveRoleAccess } from '../_shared/role-access.ts';
 import { issueAuthTokens, resolveApplicationJwtSecret } from '../_shared/auth-jwt.ts';
+import { resolveNotificationConfig, sendTemplatedEmail } from '../_shared/email-notifications.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -91,50 +92,84 @@ async function sendExternalConfirmationEmail(params: {
 }, emailConfig: Record<string, any> = {}) {
   const now = new Date();
   const requestDate = `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()}`;
-  const notificationCfg =
-    emailConfig?.notifications?.registration ||
-    emailConfig?.notifications?.email_verification ||
-    emailConfig?.notifications?.confirmation ||
-    {};
-  const apiUrl = Deno.env.get('EMAIL_API_URL') || Deno.env.get('EXTERNAL_EMAIL_API_URL') || '';
-  const apiKey = Deno.env.get('EMAIL_API_KEY') || Deno.env.get('EXTERNAL_EMAIL_API_KEY') || '';
-  const normalizedApiUrl = apiUrl.trim().replace(/\/$/, '');
+  const notification = resolveNotificationConfig({
+    emailConfig,
+    notificationKeys: ['email_confirmation', 'registration', 'email_verification', 'confirmation'],
+    defaultTemplate: 'confirmacion_registro',
+    enabledDefault: true,
+    enabledCandidates: [
+      { source: 'application.email_config.require_email_verification', value: emailConfig?.require_email_verification },
+    ],
+  });
 
-  if (!normalizedApiUrl || !apiKey.trim()) {
+  if (!notification.apiUrl || !notification.apiKey) {
     throw new Error('Missing external email API configuration');
   }
 
-  const payload = {
-    template_name: 'confirmacion_registro',
-    recipient_email: params.recipientEmail,
+  return await sendTemplatedEmail({
+    apiUrl: notification.apiUrl,
+    apiKey: notification.apiKey,
+    templateName: notification.templateName || 'confirmacion_registro',
+    recipientEmail: params.recipientEmail,
     data: {
       user_name: params.userName,
       aplication_name: params.applicationName,
+      application_name: params.applicationName,
       confirm_url: params.confirmUrl,
       request_date: requestDate,
       expires_in_hour: '24',
-      request_ip: params.requestIp
-    }
-  };
-
-  const response = await fetch(normalizedApiUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey.trim()
+      request_ip: params.requestIp,
     },
-    body: JSON.stringify(payload)
+  });
+}
+
+async function sendAdminNewUserNotification(params: {
+  adminEmail: string;
+  userName: string;
+  userEmail: string;
+  applicationName: string;
+  registeredAt: string;
+}, emailConfig: Record<string, any> = {}) {
+  const notification = resolveNotificationConfig({
+    emailConfig,
+    notificationKeys: ['admin_new_user'],
+    defaultTemplate: 'admin-new-user-authsystem',
+    enabledDefault: false,
+    enabledCandidates: [
+      { source: 'application.email_config.notify_admin_new_user', value: emailConfig?.notify_admin_new_user },
+    ],
+    adminEmailCandidates: [
+      { source: 'application.email_config.admin_notification_email', value: emailConfig?.admin_notification_email },
+    ],
   });
 
-  const text = await response.text();
-  let data: any = null;
-  try { data = text ? JSON.parse(text) : null; } catch { /* ignore */ }
-
-  if (!response.ok || !data?.success) {
-    throw new Error(data?.message || `External email API error ${response.status}`);
+  if (!notification.enabled) {
+    return { skipped: 'disabled', notification };
   }
 
-  return data;
+  if (!notification.adminEmail && !params.adminEmail) {
+    return { skipped: 'missing_admin_email', notification };
+  }
+
+  if (!notification.apiUrl || !notification.apiKey) {
+    throw new Error('Missing external email API configuration for admin notification');
+  }
+
+  const recipientEmail = notification.adminEmail || params.adminEmail;
+  await sendTemplatedEmail({
+    apiUrl: notification.apiUrl,
+    apiKey: notification.apiKey,
+    templateName: notification.templateName || 'admin-new-user-authsystem',
+    recipientEmail,
+    data: {
+      user_name: params.userName,
+      user_email: params.userEmail,
+      application_name: params.applicationName,
+      registration_date: params.registeredAt,
+    },
+  });
+
+  return { skipped: null, notification, recipientEmail };
 }
 
 interface EmailConfig {
@@ -863,9 +898,17 @@ Deno.serve(async (req) => {
       has_smtp_password: !!emailConfig.smtp_password
     });
     const appMetadata = (application as any).metadata || {};
-    const requireEmailVerification =
-      appMetadata.enable_email_verification === true ||
-      emailConfig.require_email_verification === true;
+    const emailConfirmationNotification = resolveNotificationConfig({
+      emailConfig,
+      notificationKeys: ['email_confirmation', 'registration', 'email_verification', 'confirmation'],
+      defaultTemplate: 'confirmacion_registro',
+      enabledDefault: false,
+      enabledCandidates: [
+        { source: 'application.metadata.enable_email_verification', value: appMetadata.enable_email_verification },
+        { source: 'application.email_config.require_email_verification', value: emailConfig.require_email_verification },
+      ],
+    });
+    const requireEmailVerification = emailConfirmationNotification.enabled;
     const userStatus = requireEmailVerification ? 'pending' : 'active';
      
     // If application is in tenant mode, resolve tenant_id (prefer the one provided in the request)
@@ -1236,6 +1279,48 @@ Deno.serve(async (req) => {
       if (logError) console.error('Error logging registration:', logError);
     } catch (logErr) {
       console.error('Exception logging registration:', logErr);
+    }
+
+    try {
+      const adminNotificationResult = await sendAdminNewUserNotification({
+        adminEmail: emailConfig.admin_notification_email || '',
+        userName: newUser.name || name,
+        userEmail: newUser.email || email,
+        applicationName: application.name,
+        registeredAt: newUser.created_at || new Date().toISOString(),
+      }, emailConfig);
+
+      if (!adminNotificationResult?.skipped) {
+        await supabase.from('email_logs').insert({
+          to_email: adminNotificationResult.recipientEmail,
+          from_email: emailConfig.from_email || 'noreply@authsystem.com',
+          from_name: emailConfig.from_name || 'AuthSystem',
+          subject: `Nuevo usuario registrado - ${application.name}`,
+          html_content: '',
+          status: 'sent',
+          application_id: application.id,
+          app_user_id: newUser.id,
+          sent_at: new Date().toISOString(),
+        });
+      } else {
+        console.log('Skipping admin_new_user notification:', {
+          reason: adminNotificationResult.skipped,
+          source: adminNotificationResult.notification?.enabledSource || null,
+        });
+      }
+    } catch (adminNotificationError: any) {
+      console.error('Error sending admin_new_user notification:', adminNotificationError);
+      await supabase.from('email_logs').insert({
+        to_email: emailConfig.admin_notification_email || 'admin-not-configured',
+        from_email: emailConfig.from_email || 'noreply@authsystem.com',
+        from_name: emailConfig.from_name || 'AuthSystem',
+        subject: `Nuevo usuario registrado - ${application.name}`,
+        html_content: '',
+        status: 'failed',
+        error_message: adminNotificationError?.message || 'Unknown error',
+        application_id: application.id,
+        app_user_id: newUser.id,
+      });
     }
 
     if (requireEmailVerification) {

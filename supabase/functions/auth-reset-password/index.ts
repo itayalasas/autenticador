@@ -57,10 +57,14 @@ async function sendResetPasswordEmailViaAPI(
   try {
     const notificationCfg = emailConfig?.notifications?.password_reset || {};
     const resolvedApiUrl = resolveConfiguredValue<string>([
+      { source: 'application.email_config.notifications.password_reset.api_url', value: notificationCfg.api_url },
+      { source: 'application.email_config.external_email_api_url', value: emailConfig?.external_email_api_url },
       { source: 'env.EMAIL_API_URL', value: Deno.env.get('EMAIL_API_URL') },
       { source: 'env.EXTERNAL_EMAIL_API_URL', value: Deno.env.get('EXTERNAL_EMAIL_API_URL') },
     ]);
     const resolvedApiKey = resolveConfiguredValue<string>([
+      { source: 'application.email_config.notifications.password_reset.api_key', value: notificationCfg.api_key },
+      { source: 'application.email_config.external_email_api_key', value: emailConfig?.external_email_api_key },
       { source: 'env.EMAIL_API_KEY', value: Deno.env.get('EMAIL_API_KEY') },
       { source: 'env.EXTERNAL_EMAIL_API_KEY', value: Deno.env.get('EXTERNAL_EMAIL_API_KEY') },
     ]);
@@ -82,7 +86,7 @@ async function sendResetPasswordEmailViaAPI(
     console.log('📧 API URL:', EMAIL_API_URL);
     console.log('📧 Template:', TEMPLATE_NAME);
     console.log('📧 Recipient:', email);
-    console.log('📧 Using environment email key:', resolvedApiKey.source?.startsWith('env.') ?? false);
+    console.log('📧 Using configured email key source:', resolvedApiKey.source || 'none');
 
     console.log('📧 Email provider resolution:', {
       api_url: EMAIL_API_URL,
@@ -90,7 +94,10 @@ async function sendResetPasswordEmailViaAPI(
       api_key_source: resolvedApiKey.source,
       template_name: TEMPLATE_NAME,
       template_source: resolvedTemplate.source,
-      use_env_only_for_email_provider: true,
+      uses_application_email_provider_config: Boolean(
+        resolvedApiUrl.source?.startsWith('application.') ||
+        resolvedApiKey.source?.startsWith('application.')
+      ),
       recipient: email,
       has_notification_specific_url: !!notificationCfg.api_url,
       has_notification_specific_key: !!notificationCfg.api_key,

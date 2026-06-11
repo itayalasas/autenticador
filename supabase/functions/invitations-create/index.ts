@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.43.2";
+import { resolveNotificationConfig, sendTemplatedEmail } from "../_shared/email-notifications.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -69,50 +70,60 @@ async function resolveAuthBaseUrl(supabase: any, appId: string, override?: strin
 async function sendInvitationEmail(params: {
   recipientEmail: string;
   inviteeName?: string;
+  inviterName?: string;
+  tenantName?: string;
   roleName: string;
   tenantId: string;
   invitationId: string;
-  confirmUrl: string;
+  acceptUrl: string;
   expiresAt: string;
 }, emailConfig: Record<string, any> = {}) {
-  const notificationCfg = emailConfig?.notifications?.invitations || emailConfig?.notifications?.invitation || {};
-  const apiUrl = Deno.env.get("EMAIL_API_URL") || Deno.env.get("EXTERNAL_EMAIL_API_URL") || "";
-  const apiKey = Deno.env.get("EMAIL_API_KEY") || Deno.env.get("EXTERNAL_EMAIL_API_KEY") || "";
-  const normalizedApiUrl = apiUrl.trim().replace(/\/$/, "");
+  const notification = resolveNotificationConfig({
+    emailConfig,
+    notificationKeys: ["tenant_invitation", "invitations", "invitation"],
+    defaultTemplate: "invitacion_usuario",
+    enabledDefault: true,
+  });
 
-  if (!normalizedApiUrl || !apiKey.trim()) {
-    throw new Error("Missing email API configuration");
+  if (!notification.enabled) {
+    return { skipped: "disabled", notification };
   }
 
-  const payload = {
-    template_name: "invitacion_usuario",
-    recipient_email: params.recipientEmail,
+  if (!notification.apiUrl || !notification.apiKey) {
+    throw new Error("Missing email API configuration for tenant invitation");
+  }
+
+  let expiresAtFormatted = params.expiresAt;
+  try {
+    expiresAtFormatted = new Date(params.expiresAt).toLocaleString("es-UY", {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: "America/Montevideo",
+    });
+  } catch {
+    expiresAtFormatted = params.expiresAt;
+  }
+
+  await sendTemplatedEmail({
+    apiUrl: notification.apiUrl,
+    apiKey: notification.apiKey,
+    templateName: notification.templateName || "invitacion_usuario",
+    recipientEmail: params.recipientEmail,
     data: {
       invitation_id: params.invitationId,
       user_name: params.inviteeName || params.recipientEmail,
+      inviter_name: params.inviterName || "",
+      tenant_name: params.tenantName || "",
       role_name: params.roleName,
       tenant_id: params.tenantId,
       expires_at: params.expiresAt,
-      confirm_url: params.confirmUrl,
+      expires_at_formatted: expiresAtFormatted,
+      accept_url: params.acceptUrl,
+      confirm_url: params.acceptUrl,
     },
-  };
-
-  const res = await fetch(normalizedApiUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey.trim(),
-    },
-    body: JSON.stringify(payload),
   });
 
-  const text = await res.text();
-  let json: any = null;
-  try { json = text ? JSON.parse(text) : null; } catch { /* ignore */ }
-  if (!res.ok || !json?.success) {
-    throw new Error(json?.message || `Email API error ${res.status}`);
-  }
-  return json;
+  return { skipped: null, notification };
 }
 
 Deno.serve(async (req: Request) => {
@@ -156,6 +167,12 @@ Deno.serve(async (req: Request) => {
         error: { code: "INVITER_NOT_FOUND", message: "El usuario que invita no existe o no tiene tenant asignado" },
       }, 403);
     }
+
+    const { data: tenant } = await supabase
+      .from("tenants")
+      .select("id, name")
+      .eq("id", inviter.tenant_id)
+      .maybeSingle();
 
     const { data: role } = await supabase
       .from("application_roles")
@@ -253,18 +270,24 @@ Deno.serve(async (req: Request) => {
     const emailSubject = `Invitación a ${app.name}`;
     const emailHtml = `<p>Has sido invitado a ${app.name} con el rol ${role.display_name || role.name}.</p><p><a href="${acceptUrl}">Aceptar invitación</a></p>`;
 
-    let emailStatus: "sent" | "failed" = "sent";
+    let emailStatus: "sent" | "failed" | "pending" = "sent";
     let emailError: string | null = null;
     try {
-      await sendInvitationEmail({
+      const invitationEmailResult = await sendInvitationEmail({
         recipientEmail: normalizedEmail,
         inviteeName: name,
+        inviterName: inviter.name || invited_by_email,
+        tenantName: tenant?.name || "",
         roleName: role.display_name || role.name,
         tenantId: inviter.tenant_id,
         invitationId,
-        confirmUrl: acceptUrl,
+        acceptUrl,
         expiresAt,
       }, (app as any).email_config || {});
+      if (invitationEmailResult?.skipped) {
+        emailStatus = "pending";
+        emailError = `notification_${invitationEmailResult.skipped}`;
+      }
     } catch (emailErr: any) {
       emailStatus = "failed";
       emailError = emailErr?.message ?? "unknown";
