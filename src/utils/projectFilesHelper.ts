@@ -42,6 +42,18 @@ export async function getStaticProjectFiles(
   force = false
 
 [[redirects]]
+  from = "/authorize"
+  to = "/login.html"
+  status = 200
+  force = false
+
+[[redirects]]
+  from = "/oauth/authorize"
+  to = "/login.html"
+  status = 200
+  force = false
+
+[[redirects]]
   from = "/register"
   to = "/register.html"
   status = 200
@@ -68,6 +80,8 @@ export async function getStaticProjectFiles(
   // _redirects for Netlify (estos PRESERVAN query params automáticamente)
   files['_redirects'] = `/auth /login.html 200
 /login /login.html 200
+/authorize /login.html 200
+/oauth/authorize /login.html 200
 /register /register.html 200
 /reset /reset.html 200
 /reset-password /reset.html 200
@@ -1077,6 +1091,8 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<PublicAuthRouter appId={appId} formType="login" />} />
+        <Route path="/authorize" element={<PublicAuthRouter appId={appId} formType="login" />} />
+        <Route path="/oauth/authorize" element={<PublicAuthRouter appId={appId} formType="login" />} />
         <Route path="/register" element={<PublicAuthRouter appId={appId} formType="register" />} />
         <Route path="/reset-password" element={<PublicAuthRouter appId={appId} formType="reset-password" />} />
         <Route path="/callback" element={<CallbackHandler />} />

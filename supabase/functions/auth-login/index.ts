@@ -3,7 +3,9 @@ import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
 import bcrypt from "npm:bcryptjs@2.4.3";
 import { buildRedirectUrl, normalizeUrl, resolveApplicationAuthUrl, resolveTrustedApplicationCallbackUrl } from '../_shared/application-auth-url.ts';
 import { resolveApplicationBillingAccess } from '../_shared/application-billing.ts';
+import { getAuthChannelConfig, isAuthChannelEnabled, normalizeAuthChannel } from '../_shared/auth-channel.ts';
 import { evaluateUserEnvironmentAccess, normalizeEnvironmentName } from '../_shared/environment-access.ts';
+import { isValidPkceValue, normalizePkceCodeChallengeMethod } from '../_shared/pkce.ts';
 import { resolveRoleAccess, type PermissionNode } from '../_shared/role-access.ts';
 import { issueAuthTokens, resolveApplicationJwtSecret } from '../_shared/auth-jwt.ts';
 
@@ -20,12 +22,24 @@ interface LoginRequest {
   application_id: string
   api_key: string
   callback_url?: string
+  redirect_uri?: string
+  channel?: string
+  code_challenge?: string
+  code_challenge_method?: string
+  state?: string
   client_ip?: string
 }
 
 const isExpoPushToken = (token: string) => /^ExponentPushToken\[[^\]]+\]$|^ExpoPushToken\[[^\]]+\]$/.test(token);
 
 const DYNAMIC_MFA_WINDOW_SECONDS = 60;
+
+function usesCustomRedirectScheme(value: string | null | undefined): boolean {
+  const raw = String(value || '').trim();
+  if (!raw) return false;
+
+  return /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw) && !/^https?:/i.test(raw);
+}
 
 function generatePairingCode(): string {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -207,7 +221,24 @@ Deno.serve(async (req) => {
       )
     }
 
-    const { email, password, application_id, api_key, callback_url, client_ip }: LoginRequest = requestBody
+    const {
+      email,
+      password,
+      application_id,
+      api_key,
+      callback_url,
+      redirect_uri,
+      channel,
+      code_challenge,
+      code_challenge_method,
+      state,
+      client_ip
+    }: LoginRequest = requestBody
+
+    const requestedCallbackUrl = callback_url || redirect_uri;
+    const authChannel = normalizeAuthChannel(channel || (usesCustomRedirectScheme(requestedCallbackUrl) ? 'mobile' : 'web'));
+    const pkceCodeChallengeMethod = normalizePkceCodeChallengeMethod(code_challenge_method);
+    const callbackState = typeof state === 'string' && state.trim() ? state.trim() : 'authenticated';
 
     if (!email || !password || !application_id || !api_key) {
       const ipAddress = client_ip || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || '0.0.0.0'
@@ -458,7 +489,24 @@ Deno.serve(async (req) => {
 
     console.log('✅ API Key belongs to application');
 
+    if (!isAuthChannelEnabled(application.metadata || null, authChannel)) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'AUTH_CHANNEL_NOT_ALLOWED',
+            message: `El canal ${authChannel} no estÃ¡ habilitado para esta aplicaciÃ³n`
+          }
+        }),
+        {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
     const apiKeyEnvironment = normalizeEnvironmentName((apiKeyData as any).environment || null);
+    const authChannelConfig = getAuthChannelConfig(application.metadata || null, authChannel);
 
     const { baseUrl: authBaseUrl, callbackUrl: resolvedCallbackUrl, environmentName: resolvedEnvironmentName } = await resolveApplicationAuthUrl(
       supabase,
@@ -467,24 +515,128 @@ Deno.serve(async (req) => {
     );
     const requestedEnvironment = apiKeyEnvironment || normalizeEnvironmentName(resolvedEnvironmentName || null);
     const configuredCallbackUrl = resolveTrustedApplicationCallbackUrl({
-      requestedCallbackUrl: callback_url,
+      requestedCallbackUrl,
       configuredCallbackUrl: resolvedCallbackUrl,
       configuredBaseUrl: authBaseUrl,
       applicationDomain: application.domain || null,
-      applicationMetadata: application.metadata || null
+      applicationMetadata: application.metadata || null,
+      channel: authChannel,
+      environmentName: requestedEnvironment,
     });
+
+    if (authChannel === 'mobile') {
+      if (!requestedCallbackUrl) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: {
+              code: 'MISSING_REDIRECT_URI',
+              message: 'redirect_uri es requerido para el canal mobile'
+            }
+          }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
+
+      if (!configuredCallbackUrl) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: {
+              code: 'INVALID_REDIRECT_URI',
+              message: 'La redirect_uri no estÃ¡ registrada para esta aplicaciÃ³n y ambiente'
+            }
+          }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
+
+      if (authChannelConfig.pkce_required !== false) {
+        if (!code_challenge) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: {
+                code: 'MISSING_CODE_CHALLENGE',
+                message: 'code_challenge es requerido para autenticaciÃ³n mobile con PKCE'
+              }
+            }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            }
+          );
+        }
+
+        if (!pkceCodeChallengeMethod) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: {
+                code: 'INVALID_CODE_CHALLENGE_METHOD',
+                message: 'code_challenge_method debe ser S256 o plain'
+              }
+            }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            }
+          );
+        }
+
+        const allowedMethods = (authChannelConfig.code_challenge_methods || ['S256']).map((value) => String(value).trim());
+        if (!allowedMethods.includes(pkceCodeChallengeMethod)) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: {
+                code: 'CODE_CHALLENGE_METHOD_NOT_ALLOWED',
+                message: `El mÃ©todo PKCE ${pkceCodeChallengeMethod} no estÃ¡ habilitado para esta aplicaciÃ³n`
+              }
+            }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            }
+          );
+        }
+
+        if (!isValidPkceValue(code_challenge, 43, 128)) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: {
+                code: 'INVALID_CODE_CHALLENGE',
+                message: 'El code_challenge no tiene un formato PKCE vÃ¡lido'
+              }
+            }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            }
+          );
+        }
+      }
+    }
 
     if (!authBaseUrl) {
       console.warn('⚠️ No auth_url resolved for application; callback redirects will be disabled');
     }
 
-    if (normalizeUrl(callback_url) && configuredCallbackUrl && normalizeUrl(callback_url) !== configuredCallbackUrl) {
+    if (normalizeUrl(requestedCallbackUrl) && configuredCallbackUrl && normalizeUrl(requestedCallbackUrl) !== configuredCallbackUrl) {
       console.warn('⚠️ Replacing requested callback_url with trusted application callback URL.', {
-        requested: normalizeUrl(callback_url),
+        requested: normalizeUrl(requestedCallbackUrl),
         configured: configuredCallbackUrl,
         api_key_environment: apiKeyEnvironment,
         resolved_callback_environment: resolvedEnvironmentName || null,
         effective_environment: requestedEnvironment,
+        channel: authChannel,
       });
     }
 
@@ -494,6 +646,7 @@ Deno.serve(async (req) => {
       effective_environment: requestedEnvironment,
       auth_base_url: authBaseUrl || null,
       trusted_callback_url: configuredCallbackUrl || null,
+      channel: authChannel,
     });
 
     const { data: user, error: userError } = await supabase
@@ -949,6 +1102,11 @@ Deno.serve(async (req) => {
               user_name: user.name,
               ip_address: ipAddress,
               verification_number: verificationNumber,
+              auth_channel: authChannel,
+              redirect_uri: configuredCallbackUrl || null,
+              code_challenge: code_challenge || null,
+              code_challenge_method: pkceCodeChallengeMethod || null,
+              state: callbackState,
             }
           })
           .select('id, expires_at')
@@ -1129,12 +1287,17 @@ Deno.serve(async (req) => {
         refresh_token: refreshToken,
         user_id: user.id,
         application_id: application.id,
-        expires_at: expiresAt
+        expires_at: expiresAt,
+        channel: authChannel,
+        redirect_uri: configuredCallbackUrl,
+        code_challenge: code_challenge || null,
+        code_challenge_method: pkceCodeChallengeMethod || null,
+        state: callbackState,
       });
 
       response.data.callback_url = buildRedirectUrl(configuredCallbackUrl, {
         code: authCode,
-        state: 'authenticated'
+        state: callbackState
       });
     }
 

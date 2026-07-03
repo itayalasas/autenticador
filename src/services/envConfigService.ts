@@ -11,7 +11,7 @@ declare global {
   }
 }
 
-const DEFAULT_ENV_CONFIG_URL = 'https://ffihaeatoundrjzgtpzk.supabase.co/functions/v1/get-env';
+const DEFAULT_ENV_CONFIG_URL = 'https://apis-pets-app.proudmoss-ff0cfe85.northcentralus.azurecontainerapps.io/api/get-env';
 const DEFAULT_ENV_CONFIG_ACCESS_KEY =
   '4a63305a316f04fe2acf33b2b63135925bd3a0523c1fd453a42fbf1fc49e6240';
 const ENV_PREFIX = 'VITE_';

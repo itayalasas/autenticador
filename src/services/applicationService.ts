@@ -1,5 +1,11 @@
 import { supabase } from '../lib/supabase';
-import { Application, Environment, BrandingConfig } from '../types';
+import type {
+  Application,
+  AuthChannel,
+  BrandingConfig,
+  Environment,
+  EnvironmentUrlsConfig
+} from '../types';
 
 type BrandingReadMode = 'draft' | 'published';
 
@@ -94,7 +100,10 @@ async function resolveBrandingEnvironment(
 }
 
 export const applicationService = {
-  async syncEnvironmentUrlRecords(applicationId: string, environmentUrls: Record<string, any> | null | undefined) {
+  async syncEnvironmentUrlRecords(
+    applicationId: string,
+    environmentUrls: Partial<EnvironmentUrlsConfig> | null | undefined
+  ) {
     if (!environmentUrls || typeof environmentUrls !== 'object') {
       return;
     }
@@ -106,9 +115,9 @@ export const applicationService = {
 
     if (envError) throw envError;
 
-    const updates = (environments || [])
+    const updates = ((environments || []) as Array<Pick<Environment, 'id' | 'name' | 'auth_url' | 'callback_url'>>)
       .map((environment) => {
-        const envConfig = environmentUrls?.[environment.name?.toLowerCase()];
+        const envConfig = environmentUrls?.[environment.name];
         if (!envConfig || typeof envConfig !== 'object') return null;
 
         const nextAuthUrl = envConfig.base_url || environment.auth_url;
@@ -158,6 +167,8 @@ export const applicationService = {
     environment: 'development' | 'testing' | 'production';
     auth_mode?: 'classic' | 'tenant';
     environment_urls?: any;
+    supported_auth_channels?: AuthChannel[];
+    auth_channel_config?: any;
     cors_origins?: string;
     webhook_url?: string;
     enable_email_verification?: boolean;
@@ -177,6 +188,8 @@ export const applicationService = {
         auth_mode: appData.auth_mode || 'classic',
         metadata: {
           environment_urls: appData.environment_urls,
+          supported_auth_channels: appData.supported_auth_channels || ['web'],
+          auth_channel_config: appData.auth_channel_config || {},
           cors_origins: appData.cors_origins,
           webhook_url: appData.webhook_url,
           enable_email_verification: appData.enable_email_verification ?? true,
@@ -300,7 +313,7 @@ export const applicationService = {
     if (appError) throw appError;
 
     // Get configured URLs from application metadata
-    const envUrls = app.metadata?.environment_urls || {};
+    const envUrls = (app.metadata?.environment_urls || {}) as Partial<EnvironmentUrlsConfig>;
     const envConfig = envUrls[environmentData.name];
     
     // Use configured URLs or generate defaults
@@ -328,7 +341,10 @@ export const applicationService = {
         is_active: true,
         metadata: {
           generated_urls: {
+            api_base: baseUrl,
             login: `${baseUrl}/login`,
+            authorize: `${baseUrl}/authorize`,
+            oauth_authorize: `${baseUrl}/oauth/authorize`,
             register: `${baseUrl}/register`,
             reset_password: `${baseUrl}/reset-password`,
             reset_password_confirm: `${baseUrl}/reset-password-confirm`,
@@ -347,7 +363,10 @@ export const applicationService = {
       base_url: baseUrl,
       callback_url: callbackUrl,
       generated_urls: {
+        api_base: baseUrl,
         login: `${baseUrl}/login`,
+        authorize: `${baseUrl}/authorize`,
+        oauth_authorize: `${baseUrl}/oauth/authorize`,
         register: `${baseUrl}/register`,
         reset_password: `${baseUrl}/reset-password`,
         reset_password_confirm: `${baseUrl}/reset-password-confirm`,
@@ -394,7 +413,7 @@ export const applicationService = {
   },
 
   // Test environment URLs
-  async testEnvironmentUrls(environmentId: string, urlsToTest: Record<string, string>) {
+  async testEnvironmentUrls(_environmentId: string, urlsToTest: Record<string, string>) {
     const testResults: Record<string, any> = {};
     
     // Probar cada URL real
@@ -415,10 +434,11 @@ export const applicationService = {
         };
         
       } catch (error) {
+        const message = error instanceof Error ? error.message : 'Error desconocido';
         testResults[endpoint] = {
           status: 'error',
           url: url,
-          error: error.message,
+          error: message,
           details: 'No se pudo conectar con la URL'
         };
       }
@@ -428,7 +448,7 @@ export const applicationService = {
   },
 
   // Test individual URL
-  async testSingleUrl(url: string, endpoint: string) {
+  async testSingleUrl(url: string, _endpoint: string) {
     // Simular diferentes tipos de respuesta basados en la URL
     const delay = Math.random() * 500 + 100; // 100-600ms
     await new Promise(resolve => setTimeout(resolve, delay));
@@ -694,7 +714,7 @@ export const applicationService = {
 
     if (brandingError) throw brandingError;
 
-    const snapshot = extractBrandingConfig(brandingRow) || {};
+    const snapshot: Partial<BrandingConfig> = extractBrandingConfig(brandingRow) || {};
 
     const { data: environment, error: environmentError } = await supabase
       .from('environments')

@@ -1,3 +1,13 @@
+export type PublicAuthChannel = 'web' | 'mobile';
+
+function hasExplicitScheme(value: string): boolean {
+  return /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value);
+}
+
+function isWebProtocol(protocol: string): boolean {
+  return protocol === 'http:' || protocol === 'https:';
+}
+
 export function normalizePublicUrl(raw: string | null | undefined): string {
   const value = (raw || '').trim();
   if (!value) return '';
@@ -6,11 +16,19 @@ export function normalizePublicUrl(raw: string | null | undefined): string {
     return `${window.location.origin}${value}`.replace(/\/$/, '');
   }
 
-  const withScheme = value.startsWith('http://') || value.startsWith('https://')
+  const withScheme = hasExplicitScheme(value)
     ? value
     : `https://${value}`;
 
-  return withScheme.replace(/\/$/, '');
+  try {
+    const parsed = new URL(withScheme);
+    const serialized = parsed.toString();
+    return isWebProtocol(parsed.protocol)
+      ? serialized.replace(/\/$/, '')
+      : serialized;
+  } catch {
+    return withScheme.replace(/\/$/, '');
+  }
 }
 
 function normalizePublicOrigin(raw: string | null | undefined): string {
@@ -18,7 +36,12 @@ function normalizePublicOrigin(raw: string | null | undefined): string {
   if (!normalized) return '';
 
   try {
-    return new URL(normalized).origin.toLowerCase();
+    const parsed = new URL(normalized);
+    if (!isWebProtocol(parsed.protocol)) {
+      return '';
+    }
+
+    return parsed.origin.toLowerCase();
   } catch {
     return '';
   }
@@ -63,6 +86,27 @@ function getEnvironmentEntries(environmentUrls: Record<string, any> | null | und
       callbackUrl: normalizePublicUrl((envConfig as any)?.callback_url),
     }))
     .filter((entry) => !!entry.callbackUrl);
+}
+
+function getMobileRedirectUris(environmentUrls: Record<string, any> | null | undefined): string[] {
+  if (!environmentUrls || typeof environmentUrls !== 'object') {
+    return [];
+  }
+
+  const redirectUris = new Set<string>();
+
+  Object.values(environmentUrls).forEach((envConfig: any) => {
+    if (!Array.isArray(envConfig?.mobile_redirect_uris)) return;
+
+    envConfig.mobile_redirect_uris.forEach((uri: unknown) => {
+      const normalized = normalizePublicUrl(String(uri || '').trim());
+      if (normalized) {
+        redirectUris.add(normalized);
+      }
+    });
+  });
+
+  return Array.from(redirectUris);
 }
 
 function getEnvironmentOrigins(environmentUrls: Record<string, any> | null | undefined): string[] {
@@ -124,14 +168,24 @@ export function getTrustedCallbackUrl(
   requestedUrl: string | null | undefined,
   preferredEnvironment?: string | null,
   allowedOrigins?: string[] | string | null,
+  channel: PublicAuthChannel = 'web',
 ): string | null {
   const normalizedRequested = normalizePublicUrl(requestedUrl);
   const requestedOrigin = normalizePublicOrigin(requestedUrl);
   const envEntries = getEnvironmentEntries(environmentUrls);
+  const mobileRedirectUris = getMobileRedirectUris(environmentUrls);
   const trustedOrigins = new Set<string>([
     ...getEnvironmentOrigins(environmentUrls),
     ...getAllowedOrigins(allowedOrigins)
   ]);
+
+  if (channel === 'mobile') {
+    if (normalizedRequested && mobileRedirectUris.includes(normalizedRequested)) {
+      return normalizedRequested;
+    }
+
+    return null;
+  }
 
   if (normalizedRequested) {
     const requestedEntry = envEntries.find((entry) => entry.callbackUrl === normalizedRequested);

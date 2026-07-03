@@ -83,7 +83,10 @@ export default function MenusManager({ applicationId, onClose }: MenusManagerPro
     try {
       if (!editingMenu) return;
 
-      await permissionsService.updateMenu(editingMenu.id, menuForm);
+      await permissionsService.updateMenu(editingMenu.id, {
+        ...menuForm,
+        parent_menu_id: menuForm.parent_menu_id || null,
+      });
 
       showNotification('success', 'Éxito', 'Menú actualizado exitosamente');
       setEditingMenu(null);

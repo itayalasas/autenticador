@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, ArrowLeft, Save, Globe, Settings, Palette, Users, Check } from 'lucide-react';
-import { Application } from '../../types';
+import { ArrowRight, ArrowLeft, Save, Globe, Settings, Palette, Users, Check, Smartphone } from 'lucide-react';
+import type { Application, AuthChannel, EnvironmentUrlsConfig } from '../../types';
 
 interface EditApplicationWizardProps {
   isOpen: boolean;
@@ -11,6 +11,58 @@ interface EditApplicationWizardProps {
 }
 
 const TOTAL_STEPS = 4;
+const ENVIRONMENTS = ['development', 'testing', 'production'] as const;
+
+type EnvironmentName = typeof ENVIRONMENTS[number];
+type MobileChallengeMethod = 'S256' | 'plain';
+
+interface EditApplicationWizardFormData {
+  name: string;
+  description: string;
+  domain: string;
+  environment_urls: EnvironmentUrlsConfig;
+  supported_auth_channels: AuthChannel[];
+  auth_channel_config: {
+    web: { enabled: boolean };
+    mobile: {
+      enabled: boolean;
+      pkce_required: boolean;
+      code_challenge_methods: MobileChallengeMethod[];
+    };
+  };
+  cors_origins: string;
+  webhook_url: string;
+  enable_email_verification: boolean;
+  allow_public_registration: boolean;
+  auth_mode: 'classic' | 'tenant';
+}
+
+function createDefaultEnvironmentUrls(): EnvironmentUrlsConfig {
+  return {
+    development: { base_url: '', callback_url: '', mobile_redirect_uris: [] },
+    testing: { base_url: '', callback_url: '', mobile_redirect_uris: [] },
+    production: { base_url: '', callback_url: '', mobile_redirect_uris: [] }
+  };
+}
+
+function createDefaultFormData(): EditApplicationWizardFormData {
+  return {
+    name: '',
+    description: '',
+    domain: '',
+    environment_urls: createDefaultEnvironmentUrls(),
+    supported_auth_channels: ['web'],
+    auth_channel_config: {
+      web: { enabled: true },
+      mobile: { enabled: false, pkce_required: true, code_challenge_methods: ['S256'] }
+    },
+    cors_origins: '',
+    webhook_url: '',
+    enable_email_verification: true,
+    allow_public_registration: true,
+    auth_mode: 'classic'
+  };
+}
 
 export default function EditApplicationWizard({
   isOpen,
@@ -20,21 +72,7 @@ export default function EditApplicationWizard({
   application
 }: EditApplicationWizardProps) {
   const [currentStep, setCurrentStep] = useState(1);
-  const [formData, setFormData] = useState({
-    name: '',
-    description: '',
-    domain: '',
-    environment_urls: {
-      development: { base_url: '', callback_url: '' },
-      testing: { base_url: '', callback_url: '' },
-      production: { base_url: '', callback_url: '' }
-    },
-    cors_origins: '',
-    webhook_url: '',
-    enable_email_verification: true,
-    allow_public_registration: true,
-    auth_mode: 'classic' as 'classic' | 'tenant'
-  });
+  const [formData, setFormData] = useState<EditApplicationWizardFormData>(createDefaultFormData());
 
   const steps = [
     { id: 1, title: 'Información Básica', icon: Globe },
@@ -45,22 +83,33 @@ export default function EditApplicationWizard({
 
   useEffect(() => {
     if (isOpen && application) {
-      const envUrls = application.metadata?.environment_urls || application.environment_urls || {
-        development: { base_url: '', callback_url: '' },
-        testing: { base_url: '', callback_url: '' },
-        production: { base_url: '', callback_url: '' }
-      };
+      const envUrls: EnvironmentUrlsConfig = application.metadata?.environment_urls
+        || application.environment_urls
+        || createDefaultEnvironmentUrls();
 
       setFormData({
         name: application.name,
         description: application.description || '',
         domain: application.domain,
         environment_urls: envUrls,
-        cors_origins: application.metadata?.cors_origins || '',
+        supported_auth_channels: application.metadata?.supported_auth_channels || ['web'],
+        auth_channel_config: {
+          web: {
+            enabled: application.metadata?.auth_channel_config?.web?.enabled ?? true
+          },
+          mobile: {
+            enabled: application.metadata?.auth_channel_config?.mobile?.enabled ?? false,
+            pkce_required: application.metadata?.auth_channel_config?.mobile?.pkce_required ?? true,
+            code_challenge_methods: application.metadata?.auth_channel_config?.mobile?.code_challenge_methods ?? ['S256']
+          }
+        },
+        cors_origins: Array.isArray(application.metadata?.cors_origins)
+          ? application.metadata.cors_origins.join('\n')
+          : application.metadata?.cors_origins || '',
         webhook_url: application.metadata?.webhook_url || '',
         enable_email_verification: application.metadata?.enable_email_verification ?? true,
         allow_public_registration: application.metadata?.allow_public_registration ?? true,
-        auth_mode: (application as any).auth_mode || 'classic'
+        auth_mode: application.auth_mode || 'classic'
       });
       setCurrentStep(1);
     }
@@ -72,36 +121,79 @@ export default function EditApplicationWizard({
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleEnvironmentUrlChange = (env: string, field: string, value: string) => {
+  const handleEnvironmentUrlChange = (env: EnvironmentName, field: 'base_url' | 'callback_url', value: string) => {
     setFormData(prev => ({
       ...prev,
       environment_urls: {
         ...prev.environment_urls,
-        [env]: { ...(prev.environment_urls?.[env] || {}), [field]: value }
+        [env]: { ...prev.environment_urls[env], [field]: value }
       }
     }));
   };
 
-  const generatePlaceholderUrls = (domain: string) => {
-    if (!domain) return {} as any;
+  const handleMobileRedirectUrisChange = (env: EnvironmentName, value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      environment_urls: {
+        ...prev.environment_urls,
+        [env]: {
+          ...prev.environment_urls[env],
+          mobile_redirect_uris: value
+            .split('\n')
+            .map((item) => item.trim())
+            .filter(Boolean)
+        }
+      }
+    }));
+  };
+
+  const toggleAuthChannel = (channel: 'web' | 'mobile') => {
+    setFormData((prev) => {
+      const current = prev.supported_auth_channels;
+      const next = current.includes(channel)
+        ? current.filter((value) => value !== channel)
+        : [...current, channel];
+
+      const normalized: AuthChannel[] = next.length > 0 ? next : ['web'];
+
+      return {
+        ...prev,
+        supported_auth_channels: normalized,
+        auth_channel_config: {
+          ...prev.auth_channel_config,
+          mobile: {
+            ...prev.auth_channel_config.mobile,
+            enabled: normalized.includes('mobile'),
+          }
+        }
+      };
+    });
+  };
+
+  const generatePlaceholderUrls = (domain: string): EnvironmentUrlsConfig => {
+    if (!domain) return createDefaultEnvironmentUrls();
     return {
       development: {
         base_url: `https://auth-dev.${domain}`,
-        callback_url: `https://${domain}/callback`
+        callback_url: `https://${domain}/callback`,
+        mobile_redirect_uris: []
       },
       testing: {
         base_url: `https://auth-test.${domain}`,
-        callback_url: `https://${domain}/callback`
+        callback_url: `https://${domain}/callback`,
+        mobile_redirect_uris: []
       },
       production: {
         base_url: `https://auth.${domain}`,
-        callback_url: `https://${domain}/callback`
+        callback_url: `https://${domain}/callback`,
+        mobile_redirect_uris: []
       }
     };
   };
 
   const isStepValid = (step: number) => {
     if (step === 1) return !!(formData.name && formData.domain);
+    if (step === 4) return formData.supported_auth_channels.length > 0;
     return true;
   };
 
@@ -166,15 +258,18 @@ export default function EditApplicationWizard({
                       environment_urls: {
                         development: {
                           base_url: prev.environment_urls?.development?.base_url || ph.development.base_url,
-                          callback_url: prev.environment_urls?.development?.callback_url || ph.development.callback_url
+                          callback_url: prev.environment_urls?.development?.callback_url || ph.development.callback_url,
+                          mobile_redirect_uris: prev.environment_urls?.development?.mobile_redirect_uris || []
                         },
                         testing: {
                           base_url: prev.environment_urls?.testing?.base_url || ph.testing.base_url,
-                          callback_url: prev.environment_urls?.testing?.callback_url || ph.testing.callback_url
+                          callback_url: prev.environment_urls?.testing?.callback_url || ph.testing.callback_url,
+                          mobile_redirect_uris: prev.environment_urls?.testing?.mobile_redirect_uris || []
                         },
                         production: {
                           base_url: prev.environment_urls?.production?.base_url || ph.production.base_url,
-                          callback_url: prev.environment_urls?.production?.callback_url || ph.production.callback_url
+                          callback_url: prev.environment_urls?.production?.callback_url || ph.production.callback_url,
+                          mobile_redirect_uris: prev.environment_urls?.production?.mobile_redirect_uris || []
                         }
                       }
                     }));
@@ -203,7 +298,7 @@ export default function EditApplicationWizard({
               </p>
             </div>
 
-            {(['development', 'testing', 'production'] as const).map((env) => (
+            {ENVIRONMENTS.map((env) => (
               <div key={env} className="bg-gray-50 rounded-lg p-4">
                 <h5 className="text-sm font-medium text-gray-800 mb-3 flex items-center space-x-2">
                   <span className={`w-2 h-2 rounded-full ${env === 'development' ? 'bg-blue-500' : env === 'testing' ? 'bg-yellow-500' : 'bg-green-500'}`} />
@@ -231,6 +326,19 @@ export default function EditApplicationWizard({
                       placeholder={ph[env]?.callback_url || `https://${formData.domain || 'midominio.com'}/callback`}
                     />
                   </div>
+                  {formData.supported_auth_channels.includes('mobile') && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Redirect URIs mobile</label>
+                      <textarea
+                        value={(formData.environment_urls?.[env]?.mobile_redirect_uris || []).join('\n')}
+                        onChange={(e) => handleMobileRedirectUrisChange(env, e.target.value)}
+                        rows={3}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        placeholder={`sendcraft://${env}/callback\ncom.sendcraft.${env}://auth/callback`}
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Una URI por línea. Para mobile se validan por coincidencia exacta.</p>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -306,6 +414,81 @@ export default function EditApplicationWizard({
               <p className="text-sm text-gray-600">
                 Cambia cómo se registrarán e identificarán los usuarios en esta aplicación
               </p>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-4">
+              <div>
+                <h5 className="text-sm font-semibold text-slate-900">Canales soportados</h5>
+                <p className="text-sm text-slate-600 mt-1">
+                  Web mantiene los formularios actuales. Mobile agrega `authorization code + PKCE` sobre AuthSystem.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => toggleAuthChannel('web')}
+                  className={`rounded-xl border p-4 text-left transition-colors ${
+                    formData.supported_auth_channels.includes('web')
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-slate-200 bg-white'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-slate-900">Canal Web</span>
+                    {formData.supported_auth_channels.includes('web') && (
+                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Activo</span>
+                    )}
+                  </div>
+                  <p className="text-sm text-slate-600 mt-2">Usa `/login`, `/register`, `/reset-password` y `callback_url` web.</p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => toggleAuthChannel('mobile')}
+                  className={`rounded-xl border p-4 text-left transition-colors ${
+                    formData.supported_auth_channels.includes('mobile')
+                      ? 'border-emerald-500 bg-emerald-50'
+                      : 'border-slate-200 bg-white'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+                      <Smartphone className="w-4 h-4" />
+                      Canal Mobile
+                    </span>
+                    {formData.supported_auth_channels.includes('mobile') && (
+                      <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">Activo</span>
+                    )}
+                  </div>
+                  <p className="text-sm text-slate-600 mt-2">Habilita `/authorize` y `/oauth/authorize` con `redirect_uri`, `state` y PKCE.</p>
+                </button>
+              </div>
+
+              {formData.supported_auth_channels.includes('mobile') && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <label className="flex items-center rounded-lg border border-emerald-200 bg-white px-3 py-3">
+                    <input
+                      type="checkbox"
+                      checked={formData.auth_channel_config.mobile.pkce_required}
+                      onChange={(e) => handleInputChange('auth_channel_config', {
+                        ...formData.auth_channel_config,
+                        mobile: {
+                          ...formData.auth_channel_config.mobile,
+                          pkce_required: e.target.checked,
+                        }
+                      })}
+                      className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <span className="ml-2 text-sm text-slate-700">Requerir PKCE en mobile</span>
+                  </label>
+
+                  <div className="rounded-lg border border-slate-200 bg-white px-3 py-3">
+                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Métodos habilitados</p>
+                    <p className="text-sm text-slate-700 mt-1">S256</p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Opción Clásica */}

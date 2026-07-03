@@ -15,6 +15,20 @@ interface VerifyRequest {
   application_id?: string;
 }
 
+function extractVerificationToken(...rawCandidates: Array<string | null | undefined>): string {
+  for (const rawToken of rawCandidates) {
+    const value = (rawToken || '').trim();
+    if (!value) continue;
+
+    const match = value.match(/[a-f0-9]{64}/i);
+    if (match?.[0]) {
+      return match[0];
+    }
+  }
+
+  return '';
+}
+
 function getClientIp(req: Request): string {
   return (
     req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
@@ -47,7 +61,10 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === 'GET') {
       const url = new URL(req.url);
-      token = url.searchParams.get('token');
+      token = extractVerificationToken(
+        url.searchParams.get('token'),
+        req.url
+      );
       email = url.searchParams.get('email');
     } else if (req.method === 'POST') {
       const raw = await req.text();
@@ -56,7 +73,10 @@ Deno.serve(async (req: Request) => {
       try { body = raw ? JSON.parse(raw) : {}; } catch (e) {
         console.error(`[verify-email][${rid}] JSON parse error`, e);
       }
-      token = body.token || null;
+      token = extractVerificationToken(
+        body.token || null,
+        raw
+      );
       email = body.email || null;
     } else {
       return new Response(
@@ -68,7 +88,8 @@ Deno.serve(async (req: Request) => {
     console.log(`[verify-email][${rid}] parsed`, {
       token_length: token?.length ?? 0,
       token_preview: token ? `${token.slice(0, 8)}...${token.slice(-6)}` : null,
-      email
+      email,
+      request_url_preview: req.url.slice(0, 220)
     });
 
     if (!token) {

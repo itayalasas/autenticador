@@ -18,6 +18,8 @@ export interface Application {
   platform?: 'web' | 'mobile' | 'desktop' | 'api';
   logo?: string;
   status: 'active' | 'inactive' | 'deleted';
+  auth_mode?: 'classic' | 'tenant';
+  environment_urls?: EnvironmentUrlsConfig;
   environment: Environment;
   branding: BrandingConfig;
   users_count: number;
@@ -27,23 +29,30 @@ export interface Application {
   updated_at: string;
 }
 
+export type AuthChannel = 'web' | 'mobile';
+
+export interface AuthChannelSettings {
+  enabled?: boolean;
+  pkce_required?: boolean;
+  code_challenge_methods?: Array<'S256' | 'plain'>;
+}
+
+export interface EnvironmentAuthUrlsConfig {
+  base_url: string;
+  callback_url: string;
+  mobile_redirect_uris?: string[];
+}
+
 export interface EnvironmentUrlsConfig {
-  development: {
-    base_url: string;
-    callback_url: string;
-  };
-  testing: {
-    base_url: string;
-    callback_url: string;
-  };
-  production: {
-    base_url: string;
-    callback_url: string;
-  };
+  development: EnvironmentAuthUrlsConfig;
+  testing: EnvironmentAuthUrlsConfig;
+  production: EnvironmentAuthUrlsConfig;
 }
 
 export interface ApplicationMetadata {
   environment_urls?: EnvironmentUrlsConfig;
+  supported_auth_channels?: AuthChannel[];
+  auth_channel_config?: Partial<Record<AuthChannel, AuthChannelSettings>>;
   cors_origins?: string[];
   webhook_url?: string;
   enable_email_verification?: boolean;
@@ -120,6 +129,9 @@ export interface Environment {
   metadata?: {
     generated_urls?: {
       login: string;
+      api_base?: string;
+      authorize?: string;
+      oauth_authorize?: string;
       register: string;
       reset_password: string;
       reset_password_confirm?: string;
@@ -296,6 +308,8 @@ export interface AuthFormConfig {
   register_url: string;
   forgot_password_url: string;
   callback_url: string;
+  authorize_url?: string;
+  oauth_authorize_url?: string;
 }
 
 // Subscription types

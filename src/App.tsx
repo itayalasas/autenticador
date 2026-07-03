@@ -72,6 +72,7 @@ function PublicAuthRoute() {
   // Map auth actions to form types
   const actionTypeMap: Record<string, string> = {
     'login': 'login',
+    'authorize': 'login',
     'register': 'register',
     'reset-password': 'reset-password',
     'reset-password-confirm': 'reset-password-confirm',
@@ -263,6 +264,7 @@ function App() {
         <Route path="/passkey-setup" element={<PasskeySetupPage />} />
         <Route path="/auth/callback" element={<CallbackHandler />} />
         <Route path="/github/callback" element={<GitHubCallback />} />
+        <Route path="/oauth/:action" element={<PublicAuthRoute />} />
         {INTERNAL_SECTION_PATHS.map((sectionPath) => (
           <Route key={sectionPath} path={`/${sectionPath}`} element={<MainApp />} />
         ))}

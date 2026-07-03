@@ -1,5 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
+import { normalizeUrl } from '../_shared/application-auth-url.ts';
+import { normalizePkceCodeChallengeMethod, isValidPkceValue, verifyPkceCodeVerifier } from '../_shared/pkce.ts';
 import { resolveApplicationJwtSecret, verifyAuthToken } from '../_shared/auth-jwt.ts';
 
 const corsHeaders = {
@@ -12,6 +14,8 @@ const corsHeaders = {
 interface ExchangeRequest {
   code: string;
   application_id?: string;
+  redirect_uri?: string;
+  code_verifier?: string;
 }
 
 Deno.serve(async (req) => {
@@ -60,7 +64,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { code, application_id }: ExchangeRequest = requestBody;
+    const { code, application_id, redirect_uri, code_verifier }: ExchangeRequest = requestBody;
 
     if (!code) {
       return new Response(
@@ -177,12 +181,119 @@ Deno.serve(async (req) => {
       );
     }
 
-    await supabase
-      .from('auth_codes')
-      .update({ used_at: new Date().toISOString() })
-      .eq('code', code);
-
     const jwtSecret = await resolveApplicationJwtSecret(supabase, authCode.application_id, application.jwt_secret);
+
+    const requiresPkce = authCode.channel === 'mobile' || !!authCode.code_challenge;
+    const normalizedStoredRedirectUri = normalizeUrl(authCode.redirect_uri);
+    const normalizedRequestedRedirectUri = normalizeUrl(redirect_uri);
+
+    if (requiresPkce) {
+      if (!normalizedRequestedRedirectUri) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: {
+              code: 'MISSING_REDIRECT_URI',
+              message: 'redirect_uri es requerido para intercambiar este authorization code'
+            }
+          }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
+
+      if (!normalizedStoredRedirectUri || normalizedStoredRedirectUri !== normalizedRequestedRedirectUri) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: {
+              code: 'REDIRECT_URI_MISMATCH',
+              message: 'La redirect_uri no coincide con la registrada para este authorization code'
+            }
+          }),
+          {
+            status: 403,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
+    }
+
+    if (authCode.code_challenge) {
+      const codeChallengeMethod = normalizePkceCodeChallengeMethod(authCode.code_challenge_method);
+
+      if (!codeChallengeMethod) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: {
+              code: 'INVALID_CODE_CHALLENGE_METHOD',
+              message: 'El authorization code tiene un code_challenge_method invÃ¡lido'
+            }
+          }),
+          {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
+
+      if (!code_verifier) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: {
+              code: 'MISSING_CODE_VERIFIER',
+              message: 'code_verifier es requerido para intercambiar este authorization code'
+            }
+          }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
+
+      if (!isValidPkceValue(code_verifier, 43, 128)) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: {
+              code: 'INVALID_CODE_VERIFIER',
+              message: 'El code_verifier no tiene un formato PKCE vÃ¡lido'
+            }
+          }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
+
+      const verifierIsValid = await verifyPkceCodeVerifier({
+        codeVerifier: code_verifier,
+        expectedCodeChallenge: String(authCode.code_challenge),
+        method: codeChallengeMethod,
+      });
+
+      if (!verifierIsValid) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: {
+              code: 'INVALID_CODE_VERIFIER',
+              message: 'El code_verifier no coincide con el code_challenge original'
+            }
+          }),
+          {
+            status: 401,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
+    }
 
     try {
       await verifyAuthToken(authCode.access_token, jwtSecret);
@@ -202,6 +313,11 @@ Deno.serve(async (req) => {
         }
       );
     }
+
+    await supabase
+      .from('auth_codes')
+      .update({ used_at: new Date().toISOString() })
+      .eq('code', code);
 
     console.log('Code exchanged successfully');
 

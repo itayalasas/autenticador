@@ -36,6 +36,8 @@ interface Environment {
   metadata?: {
     generated_urls?: {
       login: string;
+      authorize?: string;
+      oauth_authorize?: string;
       register: string;
       reset_password: string;
       reset_password_confirm?: string;
@@ -82,6 +84,96 @@ interface ActiveEnvironmentApiKeyRecord {
   key_preview: string;
   environment: string;
   is_active: boolean;
+}
+
+interface DeployedAuthUrls {
+  base_url: string;
+  callback_url?: string;
+  login_url: string;
+  authorize_url?: string;
+  oauth_authorize_url?: string;
+  register_url: string;
+  reset_password_url: string;
+  reset_password_confirm_url?: string;
+  register_tenant_url?: string;
+  deployed_at?: string;
+  [key: string]: any;
+}
+
+function buildWebQuerySuffix(applicationId: string, callbackUrl: string, apiKey?: string): string {
+  const appId = String(applicationId || '').trim();
+  const redirectUri = encodeURIComponent(callbackUrl);
+
+  return apiKey
+    ? `?app_id=${appId}&redirect_uri=${redirectUri}&api_key=${apiKey}`
+    : `?app_id=${appId}&redirect_uri=${redirectUri}`;
+}
+
+function buildAuthorizeQuerySuffix(applicationId: string, apiKey?: string): string {
+  const appId = String(applicationId || '').trim();
+
+  return apiKey
+    ? `?app_id=${appId}&api_key=${apiKey}`
+    : `?app_id=${appId}`;
+}
+
+function buildDeployedAuthUrls({
+  baseUrl,
+  callbackUrl,
+  applicationId,
+  apiKey,
+  authMode,
+  extraFields = {},
+}: {
+  baseUrl: string;
+  callbackUrl: string;
+  applicationId: string;
+  apiKey?: string;
+  authMode?: string | null;
+  extraFields?: Record<string, any>;
+}): DeployedAuthUrls {
+  const webQuerySuffix = buildWebQuerySuffix(applicationId, callbackUrl, apiKey);
+  const authorizeQuerySuffix = buildAuthorizeQuerySuffix(applicationId, apiKey);
+
+  return {
+    base_url: baseUrl,
+    callback_url: callbackUrl,
+    login_url: `${baseUrl}/login${webQuerySuffix}`,
+    authorize_url: `${baseUrl}/authorize${authorizeQuerySuffix}`,
+    oauth_authorize_url: `${baseUrl}/oauth/authorize${authorizeQuerySuffix}`,
+    register_url: `${baseUrl}/register${webQuerySuffix}`,
+    reset_password_url: `${baseUrl}/reset-password${webQuerySuffix}`,
+    reset_password_confirm_url: `${baseUrl}/reset-password-confirm${webQuerySuffix}`,
+    ...(authMode === 'tenant'
+      ? { register_tenant_url: `${baseUrl}/register-tenant${webQuerySuffix}` }
+      : {}),
+    ...extraFields,
+  };
+}
+
+function ensureDerivedDeployedUrls(urls: DeployedAuthUrls, authMode?: string | null): DeployedAuthUrls {
+  if (!urls?.base_url) {
+    return urls;
+  }
+
+  const rawLoginQuery = urls.login_url?.split('?')[1] || '';
+  const webParams = new URLSearchParams(rawLoginQuery);
+  const authorizeParams = new URLSearchParams(webParams.toString());
+  authorizeParams.delete('redirect_uri');
+
+  const webQuerySuffix = webParams.toString() ? `?${webParams.toString()}` : '';
+  const authorizeQuerySuffix = authorizeParams.toString() ? `?${authorizeParams.toString()}` : '';
+
+  return {
+    ...urls,
+    authorize_url: urls.authorize_url || `${urls.base_url}/authorize${authorizeQuerySuffix}`,
+    oauth_authorize_url: urls.oauth_authorize_url || `${urls.base_url}/oauth/authorize${authorizeQuerySuffix}`,
+    reset_password_confirm_url:
+      urls.reset_password_confirm_url || `${urls.base_url}/reset-password-confirm${webQuerySuffix}`,
+    register_tenant_url:
+      urls.register_tenant_url
+      || (authMode === 'tenant' ? `${urls.base_url}/register-tenant${webQuerySuffix}` : undefined),
+  };
 }
 
 export default function EnvironmentsManager() {
@@ -2005,23 +2097,18 @@ export default function EnvironmentsManager() {
 
         // Preparar las URLs de autenticación
         const callbackUrl = environment.callback_url || `https://${selectedApplication.domain}/callback`;
-        const redirectUri = encodeURIComponent(callbackUrl);
-        const urlParams = `?app_id=${app.application_id}&redirect_uri=${redirectUri}&api_key=${apiKey}`;
-
-        const authUrls: Record<string, any> = {
-          base_url: baseUrl,
-          login_url: `${baseUrl}/login${urlParams}`,
-          register_url: `${baseUrl}/register${urlParams}`,
-          reset_password_url: `${baseUrl}/reset-password${urlParams}`,
-          reset_password_confirm_url: `${baseUrl}/reset-password-confirm${urlParams}`,
-          deployed_at: new Date().toISOString(),
-          netlify_deploy_id: finalDeploy.id,
-          netlify_site_id: siteId
-        };
-
-        if (app.auth_mode === 'tenant') {
-          authUrls.register_tenant_url = `${baseUrl}/register-tenant${urlParams}`;
-        }
+        const authUrls = buildDeployedAuthUrls({
+          baseUrl,
+          callbackUrl,
+          applicationId: app.application_id,
+          apiKey,
+          authMode: app.auth_mode,
+          extraFields: {
+            deployed_at: new Date().toISOString(),
+            netlify_deploy_id: finalDeploy.id,
+            netlify_site_id: siteId
+          }
+        });
 
         // Merge con metadata existente
         const updatedMetadata = {
@@ -2048,6 +2135,8 @@ export default function EnvironmentsManager() {
 
         addLog('   ✓ URLs de autenticación guardadas exitosamente', 'success');
         addLog(`   Login: ${authUrls.login_url}`, 'info');
+        addLog(`   Authorize: ${authUrls.authorize_url}`, 'info');
+        addLog(`   OAuth Authorize: ${authUrls.oauth_authorize_url}`, 'info');
         addLog(`   Register: ${authUrls.register_url}`, 'info');
         addLog(`   Reset Password: ${authUrls.reset_password_url}`, 'info');
         if (authUrls.register_tenant_url) {
@@ -2389,21 +2478,28 @@ export default function EnvironmentsManager() {
           addLog('', 'info');
           addLog('📋 Los formularios estarán disponibles en:', 'info');
 
-          const redirectUri = encodeURIComponent(pendingDeployData.environment.callback_url || `https://${selectedApplication.domain}/callback`);
-
-          const loginUrl = `${siteUrl}/login?app_id=${pendingDeployData.applicationId}&redirect_uri=${redirectUri}&api_key=${pendingDeployData.apiKey}`;
-          const registerUrl = `${siteUrl}/register?app_id=${pendingDeployData.applicationId}&redirect_uri=${redirectUri}&api_key=${pendingDeployData.apiKey}`;
-          const resetUrl = `${siteUrl}/reset-password?app_id=${pendingDeployData.applicationId}&redirect_uri=${redirectUri}&api_key=${pendingDeployData.apiKey}`;
+          const callbackUrl = pendingDeployData.environment.callback_url || `https://${selectedApplication.domain}/callback`;
           const currentAppForDeploy = applications.find(a => a.id === selectedApp);
-          const registerTenantUrl = currentAppForDeploy?.auth_mode === 'tenant'
-            ? `${siteUrl}/register-tenant?app_id=${pendingDeployData.applicationId}&redirect_uri=${redirectUri}&api_key=${pendingDeployData.apiKey}`
-            : null;
+          const authUrls = buildDeployedAuthUrls({
+            baseUrl: siteUrl,
+            callbackUrl,
+            applicationId: pendingDeployData.applicationId,
+            apiKey: pendingDeployData.apiKey,
+            authMode: currentAppForDeploy?.auth_mode,
+            extraFields: {
+              deployed_at: new Date().toISOString(),
+              netlify_site_id: siteId,
+              netlify_site_name: siteName
+            }
+          });
 
-          addLog(`   Login: ${loginUrl}`, 'info');
-          addLog(`   Register: ${registerUrl}`, 'info');
-          addLog(`   Reset: ${resetUrl}`, 'info');
-          if (registerTenantUrl) {
-            addLog(`   Register Tenant: ${registerTenantUrl}`, 'info');
+          addLog(`   Login: ${authUrls.login_url}`, 'info');
+          addLog(`   Authorize: ${authUrls.authorize_url}`, 'info');
+          addLog(`   OAuth Authorize: ${authUrls.oauth_authorize_url}`, 'info');
+          addLog(`   Register: ${authUrls.register_url}`, 'info');
+          addLog(`   Reset: ${authUrls.reset_password_url}`, 'info');
+          if (authUrls.register_tenant_url) {
+            addLog(`   Register Tenant: ${authUrls.register_tenant_url}`, 'info');
           }
           addLog('', 'info');
           addLog('✨ Características incluidas:', 'info');
@@ -2434,12 +2530,7 @@ export default function EnvironmentsManager() {
                   netlify_site_name: siteName,
                   netlify_site_url: siteUrl,
                   github_repo: pendingDeployData.repo.repo_full_name,
-                  deployed_urls: {
-                    login_url: loginUrl,
-                    register_url: registerUrl,
-                    reset_password_url: resetUrl,
-                    ...(registerTenantUrl ? { register_tenant_url: registerTenantUrl } : {})
-                  }
+                  deployed_urls: authUrls
                 }
               })
               .eq('id', currentDeploymentLogId);
@@ -2458,19 +2549,6 @@ export default function EnvironmentsManager() {
               .single();
 
             if (fetchError) throw fetchError;
-
-            const authUrls: Record<string, any> = {
-              base_url: siteUrl,
-              login_url: loginUrl,
-              register_url: registerUrl,
-              reset_password_url: resetUrl,
-              deployed_at: new Date().toISOString(),
-              netlify_site_id: siteId,
-              netlify_site_name: siteName
-            };
-            if (registerTenantUrl) {
-              authUrls.register_tenant_url = registerTenantUrl;
-            }
 
             const updatedMetadata = {
               ...(currentApp?.metadata || {}),
@@ -3039,9 +3117,14 @@ export default function EnvironmentsManager() {
 
                           if (lastLog?.metadata?.deployed_urls) {
                             envUrls = {
+                              base_url: lastLog.metadata.deployed_urls.base_url,
+                              callback_url: lastLog.metadata.deployed_urls.callback_url,
                               login_url: lastLog.metadata.deployed_urls.login_url,
+                              authorize_url: lastLog.metadata.deployed_urls.authorize_url,
+                              oauth_authorize_url: lastLog.metadata.deployed_urls.oauth_authorize_url,
                               register_url: lastLog.metadata.deployed_urls.register_url,
                               reset_password_url: lastLog.metadata.deployed_urls.reset_password_url,
+                              reset_password_confirm_url: lastLog.metadata.deployed_urls.reset_password_confirm_url,
                               register_tenant_url: lastLog.metadata.deployed_urls.register_tenant_url,
                               deployed_at: lastLog.completed_at || lastLog.created_at
                             };
@@ -3055,6 +3138,10 @@ export default function EnvironmentsManager() {
                           const loginUrlObj = envUrls.login_url ? envUrls.login_url.split('?') : [];
                           const queryParams = loginUrlObj.length > 1 ? `?${loginUrlObj[1]}` : '';
                           envUrls = { ...envUrls, register_tenant_url: `${baseUrl}/register-tenant${queryParams}` };
+                        }
+
+                        if (envUrls) {
+                          envUrls = ensureDerivedDeployedUrls(envUrls as DeployedAuthUrls, app?.auth_mode);
                         }
 
                         if (envUrls) {
@@ -3092,6 +3179,60 @@ export default function EnvironmentsManager() {
                                     </svg>
                                   </button>
                                 </div>
+
+                                {envUrls.authorize_url && (
+                                  <div className="flex items-center space-x-2">
+                                    <span className="text-xs text-gray-600 min-w-[60px]">Auth:</span>
+                                    <a
+                                      href={envUrls.authorize_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-xs text-blue-600 hover:text-blue-800 flex-1 hover:underline block overflow-hidden whitespace-nowrap text-ellipsis"
+                                      title={envUrls.authorize_url}
+                                    >
+                                      {envUrls.authorize_url}
+                                    </a>
+                                    <button
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(envUrls.authorize_url);
+                                        showNotification('success', 'Copiado', 'URL copiada al portapapeles');
+                                      }}
+                                      className="p-1 hover:bg-green-100 rounded flex-shrink-0"
+                                      title="Copiar URL"
+                                    >
+                                      <svg className="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                )}
+
+                                {envUrls.oauth_authorize_url && (
+                                  <div className="flex items-center space-x-2">
+                                    <span className="text-xs text-gray-600 min-w-[60px]">OAuth:</span>
+                                    <a
+                                      href={envUrls.oauth_authorize_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-xs text-blue-600 hover:text-blue-800 flex-1 hover:underline block overflow-hidden whitespace-nowrap text-ellipsis"
+                                      title={envUrls.oauth_authorize_url}
+                                    >
+                                      {envUrls.oauth_authorize_url}
+                                    </a>
+                                    <button
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(envUrls.oauth_authorize_url);
+                                        showNotification('success', 'Copiado', 'URL copiada al portapapeles');
+                                      }}
+                                      className="p-1 hover:bg-green-100 rounded flex-shrink-0"
+                                      title="Copiar URL"
+                                    >
+                                      <svg className="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                )}
 
                                 <div className="flex items-center space-x-2">
                                   <span className="text-xs text-gray-600 min-w-[60px]">Register:</span>
@@ -3480,6 +3621,52 @@ export default function EnvironmentsManager() {
                             </button>
                           </div>
                         </div>
+
+                        {urls.authorize && (
+                          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div>
+                              <p className="font-medium text-gray-900">Authorize Mobile</p>
+                              <p className="text-sm text-gray-600 truncate">{urls.authorize}</p>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <button
+                                onClick={() => copyToClipboard(urls.authorize || '')}
+                                className="p-2 text-gray-600 hover:bg-gray-200 rounded"
+                              >
+                                ðŸ“‹
+                              </button>
+                              <button
+                                onClick={() => window.open(urls.authorize, '_blank')}
+                                className="p-2 text-blue-600 hover:bg-blue-100 rounded"
+                              >
+                                <ExternalLink className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {urls.oauth_authorize && (
+                          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div>
+                              <p className="font-medium text-gray-900">OAuth Authorize</p>
+                              <p className="text-sm text-gray-600 truncate">{urls.oauth_authorize}</p>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <button
+                                onClick={() => copyToClipboard(urls.oauth_authorize || '')}
+                                className="p-2 text-gray-600 hover:bg-gray-200 rounded"
+                              >
+                                ðŸ“‹
+                              </button>
+                              <button
+                                onClick={() => window.open(urls.oauth_authorize, '_blank')}
+                                className="p-2 text-blue-600 hover:bg-blue-100 rounded"
+                              >
+                                <ExternalLink className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
 
                         <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                           <div>

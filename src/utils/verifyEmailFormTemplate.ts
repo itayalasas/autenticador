@@ -7,17 +7,45 @@ import { CheckCircle, AlertCircle, Loader2, Mail } from 'lucide-react';
 const SUPABASE_URL = 'https://sfqtmnncgiqkveaoqckt.supabase.co';
 const API_BASE = \`\${SUPABASE_URL}/functions/v1\`;
 
+function extractTokenFromCandidates(...candidates: Array<string | null | undefined>): string {
+  for (const candidate of candidates) {
+    const trimmed = (candidate || '').trim();
+    if (!trimmed) continue;
+
+    const match = trimmed.match(/[a-f0-9]{64}/i);
+    if (match?.[0]) {
+      return match[0];
+    }
+  }
+
+  return '';
+}
+
+function extractEmailFromCandidates(...candidates: Array<string | null | undefined>): string {
+  for (const candidate of candidates) {
+    const trimmed = (candidate || '').trim();
+    if (!trimmed) continue;
+
+    const match = trimmed.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/i);
+    if (match?.[0]) {
+      return match[0];
+    }
+  }
+
+  return '';
+}
+
 export default function VerifyEmailForm() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const token = searchParams.get('token');
-  const rawEmail = searchParams.get('email');
-  const email = (() => {
-    if (!rawEmail) return '';
-    const trimmed = rawEmail.trim();
-    const match = trimmed.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/i);
-    return match?.[0] || '';
-  })();
+  const token = extractTokenFromCandidates(
+    searchParams.get('token'),
+    typeof window !== 'undefined' ? window.location.href : ''
+  );
+  const email = extractEmailFromCandidates(
+    searchParams.get('email'),
+    typeof window !== 'undefined' ? window.location.href : ''
+  );
 
   const [status, setStatus] = useState<'verifying' | 'success' | 'error'>('verifying');
   const [message, setMessage] = useState('Verificando tu cuenta...');
@@ -70,7 +98,7 @@ export default function VerifyEmailForm() {
     };
 
     verify();
-  }, [token, email]);
+  }, [token]);
 
   useEffect(() => {
     if (status !== 'success') return;

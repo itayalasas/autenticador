@@ -122,6 +122,12 @@ Deno.serve(async (req) => {
     }
 
     let callback_url: string | null = null;
+    const challengeMetadata = (challenge.metadata && typeof challenge.metadata === 'object')
+      ? challenge.metadata as Record<string, any>
+      : {};
+    const callbackState = typeof challengeMetadata.state === 'string' && challengeMetadata.state.trim()
+      ? challengeMetadata.state.trim()
+      : 'authenticated';
 
     if (challenge.callback_url) {
       const authCode = crypto.randomUUID();
@@ -134,12 +140,23 @@ Deno.serve(async (req) => {
         user_id: challenge.app_user_id,
         application_id: application.id,
         expires_at: expiresAt,
+        channel: String(challengeMetadata.auth_channel || 'web').trim().toLowerCase() === 'mobile' ? 'mobile' : 'web',
+        redirect_uri: typeof challengeMetadata.redirect_uri === 'string' && challengeMetadata.redirect_uri.trim()
+          ? challengeMetadata.redirect_uri.trim()
+          : challenge.callback_url,
+        code_challenge: typeof challengeMetadata.code_challenge === 'string' && challengeMetadata.code_challenge.trim()
+          ? challengeMetadata.code_challenge.trim()
+          : null,
+        code_challenge_method: typeof challengeMetadata.code_challenge_method === 'string' && challengeMetadata.code_challenge_method.trim()
+          ? challengeMetadata.code_challenge_method.trim()
+          : null,
+        state: callbackState,
       });
 
       callback_url = buildRedirectUrl(challenge.callback_url, {
         code: authCode,
         application_id: application.application_id,
-        state: 'authenticated'
+        state: callbackState
       });
     }
 

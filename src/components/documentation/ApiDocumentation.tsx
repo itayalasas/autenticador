@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Copy, CheckCircle, AlertCircle, Globe, Key, Shield } from 'lucide-react';
+import { Copy, CheckCircle, AlertCircle, Globe, Key, Shield, Smartphone } from 'lucide-react';
 import ArchitectureOverview from './ArchitectureOverview';
 
 export default function ApiDocumentation() {
@@ -1928,6 +1928,219 @@ if (code && state === 'authenticated') {
               <li>✓ Más simple de implementar</li>
               <li>✓ No necesitas construir formularios de login/registro</li>
             </ul>
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile Integration Flow - PKCE */}
+      <div className="bg-gradient-to-r from-violet-50 to-cyan-50 border-2 border-violet-300 rounded-lg p-6">
+        <div className="flex items-start space-x-3 mb-4">
+          <div className="bg-violet-500 text-white rounded-full w-8 h-8 flex items-center justify-center">
+            <Smartphone className="w-4 h-4" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Integración Mobile Recomendada (Authorization Code + PKCE)</h3>
+            <p className="text-gray-700 mb-4">
+              <strong>Este es el flujo final recomendado para apps móviles.</strong> Reutiliza el mismo AuthSystem hosted que ya tienes para web,
+              pero el retorno vuelve a un <code>deep link</code> de la app y el intercambio del <code>code</code> exige <code>redirect_uri</code> exacta
+              más <code>code_verifier</code>. Los formularios web existentes no se reemplazan ni se rompen: simplemente conviven como otro canal.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div>
+            <h4 className="font-semibold text-gray-900 mb-3 flex items-center space-x-2">
+              <span className="bg-violet-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">1</span>
+              <span>Configurar el canal mobile en la aplicación</span>
+            </h4>
+            <div className="bg-white rounded-lg p-4 border border-gray-200">
+              <p className="text-sm text-gray-600 mb-3">
+                En la aplicación debes habilitar el canal <code>mobile</code> y cargar las <code>redirect_uri</code> por ambiente.
+                La validación es por coincidencia exacta.
+              </p>
+              <pre className="bg-gray-900 text-gray-100 p-3 rounded text-sm overflow-x-auto">
+{`development:
+  - sendcraft-dev://auth/callback
+  - com.sendcraft.dev://oauth/callback
+
+testing:
+  - sendcraft-test://auth/callback
+
+production:
+  - sendcraft://auth/callback
+  - com.sendcraft://oauth/callback`}
+              </pre>
+              <p className="text-xs text-gray-500 mt-3">
+                Después del deploy del ambiente usa la URL pública hosted generada para iniciar login:
+                <code className="ml-1">/authorize</code> o <code>/oauth/authorize</code>.
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <h4 className="font-semibold text-gray-900 mb-3 flex items-center space-x-2">
+              <span className="bg-violet-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">2</span>
+              <span>Generar PKCE y state en la app</span>
+            </h4>
+            <div className="bg-white rounded-lg p-4 border border-gray-200">
+              <p className="text-sm text-gray-600 mb-2">
+                Antes de abrir AuthSystem genera un <code>code_verifier</code>, calcula el <code>code_challenge</code> y crea un
+                <code> state</code> único. Guarda el verifier y el state hasta recibir el callback.
+              </p>
+              <pre className="bg-gray-900 text-gray-100 p-3 rounded text-sm overflow-x-auto">
+{`// Ejemplo genérico JS. En React Native / nativo usa Web Crypto o equivalente.
+function toBase64Url(bytes) {
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\\+/g, '-')
+    .replace(/\\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+async function createPkcePair() {
+  const verifierBytes = crypto.getRandomValues(new Uint8Array(64));
+  const verifier = toBase64Url(verifierBytes);
+
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(verifier)
+  );
+
+  const challenge = toBase64Url(new Uint8Array(digest));
+  const state = crypto.randomUUID();
+
+  return { verifier, challenge, state };
+}`}
+              </pre>
+            </div>
+          </div>
+
+          <div>
+            <h4 className="font-semibold text-gray-900 mb-3 flex items-center space-x-2">
+              <span className="bg-violet-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">3</span>
+              <span>Abrir AuthSystem usando la URL hosted mobile</span>
+            </h4>
+            <div className="bg-white rounded-lg p-4 border border-gray-200">
+              <p className="text-sm text-gray-600 mb-2">
+                La app abre el navegador seguro del sistema, custom tab o auth session. El login mobile recomendado empieza en
+                <code> /authorize</code>. Si quieres registro público hosted, usa <code>/register</code> con los mismos parámetros mobile.
+              </p>
+              <pre className="bg-gray-900 text-gray-100 p-3 rounded text-sm overflow-x-auto">
+{`const redirectUri = 'sendcraft://auth/callback';
+const { verifier, challenge, state } = await createPkcePair();
+
+const authorizeUrl =
+  '${currentEnv.baseUrl}/authorize' +
+  '?app_id=app_mk2k3j4h5k6l' +
+  '&api_key=${currentEnv.apiKey}' +
+  '&channel=mobile' +
+  '&redirect_uri=' + encodeURIComponent(redirectUri) +
+  '&state=' + encodeURIComponent(state) +
+  '&code_challenge=' + encodeURIComponent(challenge) +
+  '&code_challenge_method=S256';
+
+// También puedes usar ${currentEnv.baseUrl}/oauth/authorize
+// Guarda verifier + state antes de abrir el navegador
+openSystemBrowser(authorizeUrl);`}
+              </pre>
+            </div>
+          </div>
+
+          <div>
+            <h4 className="font-semibold text-gray-900 mb-3 flex items-center space-x-2">
+              <span className="bg-violet-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">4</span>
+              <span>Procesar el deep link de retorno</span>
+            </h4>
+            <div className="bg-white rounded-lg p-4 border border-gray-200">
+              <p className="text-sm text-gray-600 mb-2">
+                Después del login exitoso, AuthSystem redirige a la URI registrada de la app. Debes validar el <code>state</code> antes de continuar.
+              </p>
+              <pre className="bg-gray-900 text-gray-100 p-3 rounded text-sm overflow-x-auto mb-3">
+{`sendcraft://auth/callback?code=AUTH_CODE_UUID&state=9cddf1ef-0b65-4b56-bacf-4b931be6f0d1`}
+              </pre>
+              <pre className="bg-gray-900 text-gray-100 p-3 rounded text-sm overflow-x-auto">
+{`const callbackUrl = new URL(receivedDeepLink);
+const code = callbackUrl.searchParams.get('code');
+const returnedState = callbackUrl.searchParams.get('state');
+
+if (!code || returnedState !== stateGuardado) {
+  throw new Error('Callback mobile inválido');
+}`}
+              </pre>
+            </div>
+          </div>
+
+          <div>
+            <h4 className="font-semibold text-gray-900 mb-3 flex items-center space-x-2">
+              <span className="bg-violet-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">5</span>
+              <span>Intercambiar el code por tokens</span>
+            </h4>
+            <div className="bg-white rounded-lg p-4 border border-gray-200">
+              <p className="text-sm text-gray-600 mb-2">
+                Para mobile el exchange debe incluir <code>redirect_uri</code> y <code>code_verifier</code>. Si alguno no coincide,
+                AuthSystem rechaza el intercambio.
+              </p>
+              <pre className="bg-gray-900 text-gray-100 p-3 rounded text-sm overflow-x-auto">
+{`const exchangeResponse = await fetch('${currentEnv.baseUrl}/functions/v1/auth-exchange-code', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    code,
+    application_id: 'app_mk2k3j4h5k6l',
+    redirect_uri: 'sendcraft://auth/callback',
+    code_verifier: verifierGuardado
+  })
+});
+
+const exchangeData = await exchangeResponse.json();
+
+if (!exchangeData.success) {
+  throw new Error(exchangeData.error?.message || 'No se pudo intercambiar el code');
+}`}
+              </pre>
+            </div>
+          </div>
+
+          <div>
+            <h4 className="font-semibold text-gray-900 mb-3 flex items-center space-x-2">
+              <span className="bg-violet-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">6</span>
+              <span>Traducir el JWT a una sesión normalizada</span>
+            </h4>
+            <div className="bg-white rounded-lg p-4 border border-gray-200">
+              <p className="text-sm text-gray-600 mb-2">
+                Igual que en web, después del exchange puedes validar el access token y pedir la sesión normalizada a <code>auth-verify-token</code>.
+              </p>
+              <pre className="bg-gray-900 text-gray-100 p-3 rounded text-sm overflow-x-auto">
+{`const verifyResponse = await fetch('${currentEnv.baseUrl}/functions/v1/auth-verify-token', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    token: exchangeData.data.access_token,
+    application_id: 'app_mk2k3j4h5k6l',
+    api_key: '${currentEnv.apiKey}'
+  })
+});
+
+const session = await verifyResponse.json();
+
+if (session.success && session.data.valid) {
+  secureStore.set('access_token', exchangeData.data.access_token);
+  secureStore.set('refresh_token', exchangeData.data.refresh_token);
+  secureStore.set('session', JSON.stringify(session.data));
+}`}
+              </pre>
+            </div>
+          </div>
+
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <h4 className="font-semibold text-amber-900 mb-2">Checklist de seguridad para mobile</h4>
+            <div className="text-sm text-amber-800 space-y-1">
+              <p>• Usa <code>state</code> único por intento y rechaza callbacks con state distinto.</p>
+              <p>• No reutilices el mismo <code>code_verifier</code>.</p>
+              <p>• La <code>redirect_uri</code> del exchange debe ser exactamente la misma que usaste al abrir AuthSystem.</p>
+              <p>• Guarda tokens en almacenamiento seguro del dispositivo, no en memoria global ni logs.</p>
+              <p>• Si la app soporta registro hosted, usa <code>/register</code> con los mismos parámetros de mobile PKCE.</p>
+            </div>
           </div>
         </div>
       </div>

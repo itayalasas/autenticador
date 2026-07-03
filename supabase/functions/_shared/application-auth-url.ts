@@ -1,12 +1,32 @@
+function hasExplicitScheme(value: string): boolean {
+  return /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value);
+}
+
+function isWebProtocol(protocol: string): boolean {
+  return protocol === 'http:' || protocol === 'https:';
+}
+
 export function normalizeUrl(raw: string | null | undefined): string {
   const value = (raw || '').trim();
   if (!value) return '';
 
-  const withScheme = value.startsWith('http://') || value.startsWith('https://')
+  if (value.startsWith('/')) {
+    return value.replace(/\/$/, '');
+  }
+
+  const withScheme = hasExplicitScheme(value)
     ? value
     : `https://${value}`;
 
-  return withScheme.replace(/\/$/, '');
+  try {
+    const parsed = new URL(withScheme);
+    const serialized = parsed.toString();
+    return isWebProtocol(parsed.protocol)
+      ? serialized.replace(/\/$/, '')
+      : serialized;
+  } catch {
+    return withScheme.replace(/\/$/, '');
+  }
 }
 
 function normalizeOrigin(raw: string | null | undefined): string {
@@ -14,7 +34,12 @@ function normalizeOrigin(raw: string | null | undefined): string {
   if (!normalized) return '';
 
   try {
-    return new URL(normalized).origin.toLowerCase();
+    const parsed = new URL(normalized);
+    if (!isWebProtocol(parsed.protocol)) {
+      return '';
+    }
+
+    return parsed.origin.toLowerCase();
   } catch {
     return '';
   }
@@ -75,15 +100,72 @@ function collectMetadataOrigins(metadata: Record<string, any> | null | undefined
   return origins;
 }
 
+function collectMetadataMobileRedirectUris(
+  metadata: Record<string, any> | null | undefined,
+  environmentName?: string | null,
+): Set<string> {
+  const redirectUris = new Set<string>();
+  if (!metadata || typeof metadata !== 'object') return redirectUris;
+
+  const normalizedEnvironmentName = String(environmentName || '').trim().toLowerCase();
+  const environmentUrls = metadata.environment_urls;
+
+  const addUris = (config: any) => {
+    if (!config || typeof config !== 'object' || !Array.isArray(config.mobile_redirect_uris)) return;
+
+    config.mobile_redirect_uris.forEach((value: unknown) => {
+      const normalized = normalizeUrl(String(value || '').trim());
+      if (normalized) {
+        redirectUris.add(normalized);
+      }
+    });
+  };
+
+  if (environmentUrls && typeof environmentUrls === 'object') {
+    if (normalizedEnvironmentName && environmentUrls[normalizedEnvironmentName]) {
+      addUris(environmentUrls[normalizedEnvironmentName]);
+    }
+
+    Object.values(environmentUrls).forEach((config: any) => addUris(config));
+  }
+
+  if (Array.isArray(metadata.mobile_redirect_uris)) {
+    metadata.mobile_redirect_uris.forEach((value: unknown) => {
+      const normalized = normalizeUrl(String(value || '').trim());
+      if (normalized) {
+        redirectUris.add(normalized);
+      }
+    });
+  }
+
+  return redirectUris;
+}
+
 export function resolveTrustedApplicationCallbackUrl(options: {
   requestedCallbackUrl?: string | null;
   configuredCallbackUrl?: string | null;
   configuredBaseUrl?: string | null;
   applicationDomain?: string | null;
   applicationMetadata?: Record<string, any> | null;
+  channel?: 'web' | 'mobile' | string | null;
+  environmentName?: string | null;
 }): string {
+  const channel = String(options.channel || 'web').trim().toLowerCase() === 'mobile' ? 'mobile' : 'web';
   const normalizedRequested = normalizeUrl(options.requestedCallbackUrl);
   const normalizedConfigured = normalizeUrl(options.configuredCallbackUrl);
+
+  if (channel === 'mobile') {
+    const allowedExactUrls = collectMetadataMobileRedirectUris(
+      options.applicationMetadata,
+      options.environmentName,
+    );
+
+    if (normalizedRequested && allowedExactUrls.has(normalizedRequested)) {
+      return normalizedRequested;
+    }
+
+    return '';
+  }
 
   if (!normalizedRequested) {
     return normalizedConfigured;

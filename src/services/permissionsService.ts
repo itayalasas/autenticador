@@ -46,6 +46,17 @@ export interface RolePermissionDetail extends RolePermission {
 }
 
 class PermissionsService {
+  private normalizeMenuPayload<T extends { parent_menu_id?: string | null }>(menuData: T): T {
+    if (!Object.prototype.hasOwnProperty.call(menuData, 'parent_menu_id')) {
+      return menuData;
+    }
+
+    return {
+      ...menuData,
+      parent_menu_id: menuData.parent_menu_id || null,
+    };
+  }
+
   private flattenMenus(items: MenuWithActions[]): MenuWithActions[] {
     const result: MenuWithActions[] = [];
     const walk = (menusToWalk: MenuWithActions[]) => {
@@ -164,9 +175,11 @@ class PermissionsService {
     icon?: string;
     order_index?: number;
   }): Promise<ApplicationMenu> {
+    const normalizedMenuData = this.normalizeMenuPayload(menuData);
+
     const { data, error } = await supabase
       .from('application_menus')
-      .insert([menuData])
+      .insert([normalizedMenuData])
       .select()
       .single();
 
@@ -175,9 +188,11 @@ class PermissionsService {
   }
 
   async updateMenu(menuId: string, menuData: Partial<ApplicationMenu>): Promise<ApplicationMenu> {
+    const normalizedMenuData = this.normalizeMenuPayload(menuData);
+
     const { data, error } = await supabase
       .from('application_menus')
-      .update(menuData)
+      .update(normalizedMenuData)
       .eq('id', menuId)
       .select()
       .single();

@@ -252,6 +252,24 @@ export default function App() {
         }
       />
       <Route
+        path="/authorize"
+        element={
+          <PublicAuthRouter
+            appId={appId}
+            formType="login"
+          />
+        }
+      />
+      <Route
+        path="/oauth/authorize"
+        element={
+          <PublicAuthRouter
+            appId={appId}
+            formType="login"
+          />
+        }
+      />
+      <Route
         path="/register"
         element={
           <PublicAuthRouter
@@ -626,6 +644,10 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
     try {
       const urlParams = new URLSearchParams(window.location.search);
       const callbackUrl = urlParams.get('callback_url') || urlParams.get('redirect_uri');
+      const channel = urlParams.get('channel') || (callbackUrl && /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(callbackUrl) && !/^https?:/i.test(callbackUrl) ? 'mobile' : 'web');
+      const state = urlParams.get('state');
+      const codeChallenge = urlParams.get('code_challenge');
+      const codeChallengeMethod = urlParams.get('code_challenge_method');
 
       // Get client IP
       const ipResponse = await fetch('https://api.ipify.org?format=json');
@@ -655,7 +677,12 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
             password: formData.password,
             application_id: appId,
             api_key: apiKey,
-            callback_url: callbackUrl,
+            callback_url: channel === 'web' ? callbackUrl : undefined,
+            redirect_uri: callbackUrl,
+            channel,
+            state: state || undefined,
+            code_challenge: channel === 'mobile' ? codeChallenge || undefined : undefined,
+            code_challenge_method: channel === 'mobile' ? codeChallengeMethod || undefined : undefined,
             client_ip: clientIp
           };
           break;
@@ -670,7 +697,12 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
             name: formData.name,
             application_id: appId,
             api_key: apiKey,
-            callback_url: callbackUrl,
+            callback_url: channel === 'web' ? callbackUrl : undefined,
+            redirect_uri: callbackUrl,
+            channel,
+            state: state || undefined,
+            code_challenge: channel === 'mobile' ? codeChallenge || undefined : undefined,
+            code_challenge_method: channel === 'mobile' ? codeChallengeMethod || undefined : undefined,
             role: formData.role || undefined,
             client_ip: clientIp
           };

@@ -1,0 +1,492 @@
+{
+  "info": {
+    "_postman_id": "9a8e8dd5-f8cd-4d0d-9c31-3d4d4866f1a2",
+    "name": "AuthSystem Mobile PKCE",
+    "description": "Postman collection to validate AuthSystem mobile authentication using hosted authorize URLs, direct mobile API requests, PKCE and authorization-code exchange.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "auth_base_url", "value": "https://auth.sendcraft.net" },
+    { "key": "functions_base_url", "value": "https://sfqtmnncgiqkveaoqckt.supabase.co/functions/v1" },
+    { "key": "application_id", "value": "app_51ecb9e2-6b3" },
+    { "key": "api_key", "value": "ak_testing_replace_me" },
+    { "key": "redirect_uri", "value": "sendcraft://auth/callback" },
+    { "key": "login_email", "value": "usuario@ejemplo.com" },
+    { "key": "login_password", "value": "supersecret" },
+    { "key": "register_name", "value": "Usuario Mobile" },
+    { "key": "register_email_generated", "value": "" },
+    { "key": "state", "value": "" },
+    { "key": "code_verifier", "value": "" },
+    { "key": "code_challenge", "value": "" },
+    { "key": "code_challenge_method", "value": "S256" },
+    { "key": "auth_code", "value": "" },
+    { "key": "hosted_authorize_url", "value": "" },
+    { "key": "hosted_oauth_authorize_url", "value": "" },
+    { "key": "hosted_register_url", "value": "" },
+    { "key": "last_callback_url", "value": "" },
+    { "key": "access_token", "value": "" },
+    { "key": "refresh_token", "value": "" },
+    { "key": "last_error_code", "value": "" },
+    { "key": "mfa_challenge_id", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Hosted browser flow",
+      "description": "Build hosted mobile URLs and use the returned authorization code in the exchange requests.",
+      "item": [
+        {
+          "name": "Build hosted /authorize URL",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{auth_base_url}}/authorize?app_id={{application_id}}&api_key={{api_key}}&channel=mobile&redirect_uri={{redirect_uri}}&state={{state}}&code_challenge={{code_challenge}}&code_challenge_method={{code_challenge_method}}",
+            "description": "Generates PKCE values in the pre-request script and calls the hosted mobile authorize page exposed by the deployed public app. Use this when your mobile app opens the AuthSystem hosted login experience."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function base64Url(wordArray) {",
+                  "  return CryptoJS.enc.Base64.stringify(wordArray)",
+                  "    .replace(/\\+/g, '-')",
+                  "    .replace(/\\//g, '_')",
+                  "    .replace(/=+$/g, '');",
+                  "}",
+                  "",
+                  "const verifier = base64Url(CryptoJS.lib.WordArray.random(64));",
+                  "const challenge = base64Url(CryptoJS.SHA256(verifier));",
+                  "const state = 'mobile-state-' + Date.now() + '-' + Math.floor(Math.random() * 1000000);",
+                  "",
+                  "pm.collectionVariables.set('code_verifier', verifier);",
+                  "pm.collectionVariables.set('code_challenge', challenge);",
+                  "pm.collectionVariables.set('state', state);",
+                  "pm.collectionVariables.set('code_challenge_method', 'S256');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const resolvedUrl = pm.variables.replaceIn(pm.request.url.toString());",
+                  "pm.collectionVariables.set('hosted_authorize_url', resolvedUrl);",
+                  "console.log('Hosted authorize URL:', resolvedUrl);",
+                  "pm.test('Authorize request responded', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 302]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Build hosted /oauth/authorize URL",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{auth_base_url}}/oauth/authorize?app_id={{application_id}}&api_key={{api_key}}&channel=mobile&redirect_uri={{redirect_uri}}&state={{state}}&code_challenge={{code_challenge}}&code_challenge_method={{code_challenge_method}}",
+            "description": "Alias hosted OAuth mobile URL. Functionalmente es equivalente a /authorize, pero se deja separado para validar exactamente la URL que consumirá el cliente mobile si usa la convención OAuth."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function base64Url(wordArray) {",
+                  "  return CryptoJS.enc.Base64.stringify(wordArray)",
+                  "    .replace(/\\+/g, '-')",
+                  "    .replace(/\\//g, '_')",
+                  "    .replace(/=+$/g, '');",
+                  "}",
+                  "",
+                  "const verifier = base64Url(CryptoJS.lib.WordArray.random(64));",
+                  "const challenge = base64Url(CryptoJS.SHA256(verifier));",
+                  "const state = 'mobile-oauth-state-' + Date.now() + '-' + Math.floor(Math.random() * 1000000);",
+                  "",
+                  "pm.collectionVariables.set('code_verifier', verifier);",
+                  "pm.collectionVariables.set('code_challenge', challenge);",
+                  "pm.collectionVariables.set('state', state);",
+                  "pm.collectionVariables.set('code_challenge_method', 'S256');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const resolvedUrl = pm.variables.replaceIn(pm.request.url.toString());",
+                  "pm.collectionVariables.set('hosted_oauth_authorize_url', resolvedUrl);",
+                  "console.log('Hosted oauth authorize URL:', resolvedUrl);",
+                  "pm.test('OAuth authorize request responded', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 302]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Build hosted register URL",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{auth_base_url}}/register?app_id={{application_id}}&api_key={{api_key}}&channel=mobile&redirect_uri={{redirect_uri}}&state={{state}}&code_challenge={{code_challenge}}&code_challenge_method={{code_challenge_method}}",
+            "description": "Hosted registro mobile. Usa la misma semántica PKCE que /authorize, pero abre el alta pública en el canal mobile."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function base64Url(wordArray) {",
+                  "  return CryptoJS.enc.Base64.stringify(wordArray)",
+                  "    .replace(/\\+/g, '-')",
+                  "    .replace(/\\//g, '_')",
+                  "    .replace(/=+$/g, '');",
+                  "}",
+                  "",
+                  "const verifier = base64Url(CryptoJS.lib.WordArray.random(64));",
+                  "const challenge = base64Url(CryptoJS.SHA256(verifier));",
+                  "const state = 'mobile-register-state-' + Date.now() + '-' + Math.floor(Math.random() * 1000000);",
+                  "",
+                  "pm.collectionVariables.set('code_verifier', verifier);",
+                  "pm.collectionVariables.set('code_challenge', challenge);",
+                  "pm.collectionVariables.set('state', state);",
+                  "pm.collectionVariables.set('code_challenge_method', 'S256');",
+                  "pm.collectionVariables.set('register_email_generated', 'mobile+' + Date.now() + '@example.com');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const resolvedUrl = pm.variables.replaceIn(pm.request.url.toString());",
+                  "pm.collectionVariables.set('hosted_register_url', resolvedUrl);",
+                  "console.log('Hosted register URL:', resolvedUrl);",
+                  "pm.test('Register request responded', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 302]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Exchange mobile code from hosted browser flow",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{auth_code}}\",\n  \"application_id\": \"{{application_id}}\",\n  \"redirect_uri\": \"{{redirect_uri}}\",\n  \"code_verifier\": \"{{code_verifier}}\"\n}"
+            },
+            "url": "{{functions_base_url}}/auth-exchange-code",
+            "description": "Use this after completing login/register in the hosted browser flow and copying the code query parameter into collection variable auth_code. This exchanges the one-time auth code plus PKCE verifier for tokens."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success && json.data) {",
+                  "  pm.collectionVariables.set('access_token', json.data.access_token || '');",
+                  "  pm.collectionVariables.set('refresh_token', json.data.refresh_token || '');",
+                  "}",
+                  "pm.test('Exchange succeeded', function () {",
+                  "  pm.expect(json.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. Direct mobile API flow",
+      "description": "Use the edge functions directly with channel=mobile to validate redirect_uri and PKCE behavior without opening the hosted forms.",
+      "item": [
+        {
+          "name": "Direct auth-login (mobile + PKCE)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"api_key\": \"{{api_key}}\",\n  \"email\": \"{{login_email}}\",\n  \"password\": \"{{login_password}}\",\n  \"application_id\": \"{{application_id}}\",\n  \"redirect_uri\": \"{{redirect_uri}}\",\n  \"channel\": \"mobile\",\n  \"state\": \"{{state}}\",\n  \"code_challenge\": \"{{code_challenge}}\",\n  \"code_challenge_method\": \"{{code_challenge_method}}\"\n}"
+            },
+            "url": "{{functions_base_url}}/auth-login",
+            "description": "Backend-only login request. This does not hit /authorize; it calls the real edge function auth-login directly with channel=mobile and PKCE fields."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function base64Url(wordArray) {",
+                  "  return CryptoJS.enc.Base64.stringify(wordArray)",
+                  "    .replace(/\\+/g, '-')",
+                  "    .replace(/\\//g, '_')",
+                  "    .replace(/=+$/g, '');",
+                  "}",
+                  "",
+                  "const verifier = base64Url(CryptoJS.lib.WordArray.random(64));",
+                  "const challenge = base64Url(CryptoJS.SHA256(verifier));",
+                  "const state = 'direct-login-state-' + Date.now() + '-' + Math.floor(Math.random() * 1000000);",
+                  "",
+                  "pm.collectionVariables.set('code_verifier', verifier);",
+                  "pm.collectionVariables.set('code_challenge', challenge);",
+                  "pm.collectionVariables.set('state', state);",
+                  "pm.collectionVariables.set('code_challenge_method', 'S256');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('last_error_code', json.error?.code || '');",
+                  "if (json.data?.access_token) {",
+                  "  pm.collectionVariables.set('access_token', json.data.access_token);",
+                  "}",
+                  "if (json.data?.refresh_token) {",
+                  "  pm.collectionVariables.set('refresh_token', json.data.refresh_token);",
+                  "}",
+                  "if (json.data?.callback_url) {",
+                  "  pm.collectionVariables.set('last_callback_url', json.data.callback_url);",
+                  "  try {",
+                  "    const callback = new URL(json.data.callback_url);",
+                  "    const code = callback.searchParams.get('code');",
+                  "    if (code) pm.collectionVariables.set('auth_code', code);",
+                  "  } catch (error) {",
+                  "    console.log('Could not parse callback_url:', error.message);",
+                  "  }",
+                  "}",
+                  "if (json.data?.challenge_id) {",
+                  "  pm.collectionVariables.set('mfa_challenge_id', json.data.challenge_id);",
+                  "}",
+                  "pm.test('auth-login handled response', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 202, 400, 401, 403, 429]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Direct auth-register (mobile + PKCE)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"api_key\": \"{{api_key}}\",\n  \"email\": \"{{register_email_generated}}\",\n  \"password\": \"{{login_password}}\",\n  \"name\": \"{{register_name}}\",\n  \"application_id\": \"{{application_id}}\",\n  \"redirect_uri\": \"{{redirect_uri}}\",\n  \"channel\": \"mobile\",\n  \"state\": \"{{state}}\",\n  \"code_challenge\": \"{{code_challenge}}\",\n  \"code_challenge_method\": \"{{code_challenge_method}}\",\n  \"metadata\": {\n    \"source\": \"postman-mobile-pkce\"\n  }\n}"
+            },
+            "url": "{{functions_base_url}}/auth-register",
+            "description": "Backend-only register request. This does not use the hosted /register page; it calls auth-register directly for mobile PKCE validation."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function base64Url(wordArray) {",
+                  "  return CryptoJS.enc.Base64.stringify(wordArray)",
+                  "    .replace(/\\+/g, '-')",
+                  "    .replace(/\\//g, '_')",
+                  "    .replace(/=+$/g, '');",
+                  "}",
+                  "",
+                  "const verifier = base64Url(CryptoJS.lib.WordArray.random(64));",
+                  "const challenge = base64Url(CryptoJS.SHA256(verifier));",
+                  "const state = 'direct-register-state-' + Date.now() + '-' + Math.floor(Math.random() * 1000000);",
+                  "const email = 'mobile+' + Date.now() + '@example.com';",
+                  "",
+                  "pm.collectionVariables.set('register_email_generated', email);",
+                  "pm.collectionVariables.set('code_verifier', verifier);",
+                  "pm.collectionVariables.set('code_challenge', challenge);",
+                  "pm.collectionVariables.set('state', state);",
+                  "pm.collectionVariables.set('code_challenge_method', 'S256');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('last_error_code', json.error?.code || '');",
+                  "if (json.data?.access_token) {",
+                  "  pm.collectionVariables.set('access_token', json.data.access_token);",
+                  "}",
+                  "if (json.data?.refresh_token) {",
+                  "  pm.collectionVariables.set('refresh_token', json.data.refresh_token);",
+                  "}",
+                  "if (json.data?.callback_url) {",
+                  "  pm.collectionVariables.set('last_callback_url', json.data.callback_url);",
+                  "  try {",
+                  "    const callback = new URL(json.data.callback_url);",
+                  "    const code = callback.searchParams.get('code');",
+                  "    if (code) pm.collectionVariables.set('auth_code', code);",
+                  "  } catch (error) {",
+                  "    console.log('Could not parse callback_url:', error.message);",
+                  "  }",
+                  "}",
+                  "pm.test('auth-register handled response', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 400, 401, 403, 429]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Exchange should fail with wrong verifier",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{auth_code}}\",\n  \"application_id\": \"{{application_id}}\",\n  \"redirect_uri\": \"{{redirect_uri}}\",\n  \"code_verifier\": \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\n}"
+            },
+            "url": "{{functions_base_url}}/auth-exchange-code",
+            "description": "Negative test. Run this after direct auth-login or auth-register stored auth_code. The same code can still be exchanged correctly afterwards because this request should fail before used_at is set."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('Wrong verifier is rejected', function () {",
+                  "  pm.expect(json.success).to.eql(false);",
+                  "  pm.expect(json.error.code).to.eql('INVALID_CODE_VERIFIER');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Exchange auth_code (mobile PKCE)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{auth_code}}\",\n  \"application_id\": \"{{application_id}}\",\n  \"redirect_uri\": \"{{redirect_uri}}\",\n  \"code_verifier\": \"{{code_verifier}}\"\n}"
+            },
+            "url": "{{functions_base_url}}/auth-exchange-code",
+            "description": "Positive PKCE exchange using the code_verifier stored from the request that created auth_code."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success && json.data) {",
+                  "  pm.collectionVariables.set('access_token', json.data.access_token || '');",
+                  "  pm.collectionVariables.set('refresh_token', json.data.refresh_token || '');",
+                  "}",
+                  "pm.test('Exchange succeeded', function () {",
+                  "  pm.expect(json.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Verify mobile access token",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{access_token}}\",\n  \"application_id\": \"{{application_id}}\",\n  \"api_key\": \"{{api_key}}\"\n}"
+            },
+            "url": "{{functions_base_url}}/auth-verify-token",
+            "description": "Translates the access token into a normalized session payload so you can validate claims, environment, tenant, permissions and subscription."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('Token is valid', function () {",
+                  "  pm.expect(json.success).to.eql(true);",
+                  "  pm.expect(json.data.valid).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Hosted routes summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{auth_base_url}}/authorize?app_id={{application_id}}&api_key={{api_key}}",
+            "description": "Reference request only. Reminds which hosted routes exist for mobile: GET /authorize and GET /oauth/authorize. The real API endpoint remains POST /auth-login."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Hosted routes summary placeholder', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 302, 400]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    }
+  ]
+}

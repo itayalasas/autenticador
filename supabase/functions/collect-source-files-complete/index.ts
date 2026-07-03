@@ -214,6 +214,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<PublicAuthRouter appId={appId} formType="login" />} />
+      <Route path="/authorize" element={<PublicAuthRouter appId={appId} formType="login" />} />
+      <Route path="/oauth/authorize" element={<PublicAuthRouter appId={appId} formType="login" />} />
       <Route path="/register" element={<PublicAuthRouter appId={appId} formType="register" />} />
       <Route path="/reset-password" element={<PublicAuthRouter appId={appId} formType="reset-password" />} />
       <Route path="/" element={<Navigate to="/login" replace />} />
@@ -536,10 +538,35 @@ function PublicAuthForms({
       params.set('api_key', currentApiKey);
     }
 
+    const env = searchParams.get('env');
+    if (env) {
+      params.set('env', env);
+    }
+
     // Support both callback_url and redirect_uri
     const callbackUrl = searchParams.get('callback_url') || searchParams.get('redirect_uri');
     if (callbackUrl) {
       params.set('redirect_uri', callbackUrl);
+    }
+
+    const channel = searchParams.get('channel');
+    if (channel) {
+      params.set('channel', channel);
+    }
+
+    const state = searchParams.get('state');
+    if (state) {
+      params.set('state', state);
+    }
+
+    const codeChallenge = searchParams.get('code_challenge');
+    if (codeChallenge) {
+      params.set('code_challenge', codeChallenge);
+    }
+
+    const codeChallengeMethod = searchParams.get('code_challenge_method');
+    if (codeChallengeMethod) {
+      params.set('code_challenge_method', codeChallengeMethod);
     }
 
     const url = \`\${path}?\${params.toString()}\`;
@@ -563,6 +590,10 @@ function PublicAuthForms({
       // Obtener parámetros de la URL
       const urlParams = new URLSearchParams(window.location.search);
       const callbackUrl = urlParams.get('callback_url') || urlParams.get('redirect_uri');
+      const channel = urlParams.get('channel') || (callbackUrl && /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(callbackUrl) && !/^https?:/i.test(callbackUrl) ? 'mobile' : 'web');
+      const state = urlParams.get('state');
+      const codeChallenge = urlParams.get('code_challenge');
+      const codeChallengeMethod = urlParams.get('code_challenge_method');
 
       if (!apiKey) {
         throw new Error('API key no disponible para esta aplicación');
@@ -587,7 +618,12 @@ function PublicAuthForms({
             password: formData.password,
             application_id: applicationId,
             api_key: apiKey,
-            callback_url: callbackUrl,
+            callback_url: channel === 'web' ? callbackUrl : undefined,
+            redirect_uri: callbackUrl,
+            channel,
+            state: state || undefined,
+            code_challenge: channel === 'mobile' ? codeChallenge || undefined : undefined,
+            code_challenge_method: channel === 'mobile' ? codeChallengeMethod || undefined : undefined,
             client_ip: clientIp
           };
           break;
@@ -602,7 +638,12 @@ function PublicAuthForms({
             name: formData.name,
             application_id: applicationId,
             api_key: apiKey,
-            callback_url: callbackUrl,
+            callback_url: channel === 'web' ? callbackUrl : undefined,
+            redirect_uri: callbackUrl,
+            channel,
+            state: state || undefined,
+            code_challenge: channel === 'mobile' ? codeChallenge || undefined : undefined,
+            code_challenge_method: channel === 'mobile' ? codeChallengeMethod || undefined : undefined,
             role: selectedRole || undefined,
             client_ip: clientIp
           };

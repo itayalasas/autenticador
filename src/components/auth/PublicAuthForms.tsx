@@ -6,7 +6,7 @@ import { applicationService } from '../../services/applicationService';
 import { ipService } from '../../services/ipService';
 import { getSupabaseAnonKey, getSupabaseUrl } from '../../lib/supabaseRuntime';
 import { applyFaviconToDocument } from '../../utils/favicon';
-import { getTrustedCallbackUrl } from '../../utils/publicCallbackUrl';
+import { getTrustedCallbackUrl, type PublicAuthChannel } from '../../utils/publicCallbackUrl';
 import { storeTokenResponseAuthData } from '../../utils/authHelpers';
 import { AuthSystemBadge } from '../ui/BrandedComponents';
 
@@ -69,6 +69,12 @@ function PublicAuthForms({
   onSuccess,
   onError
 }: PublicAuthFormsProps) {
+  const usesCustomRedirectScheme = (value: string | null | undefined) => {
+    const raw = String(value || '').trim();
+    if (!raw) return false;
+    return /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw) && !/^https?:/i.test(raw);
+  };
+
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [checkingIP, setCheckingIP] = useState(true);
@@ -94,11 +100,18 @@ function PublicAuthForms({
   const [searchParams] = useSearchParams();
   const preferredEnvironment = (searchParams.get('env') || 'development').toLowerCase();
   const requestedCallbackUrl = searchParams.get('callback_url') || searchParams.get('redirect_uri');
+  const authChannel: PublicAuthChannel = searchParams.get('channel') === 'mobile' || usesCustomRedirectScheme(requestedCallbackUrl)
+    ? 'mobile'
+    : 'web';
+  const authState = searchParams.get('state');
+  const codeChallenge = searchParams.get('code_challenge');
+  const codeChallengeMethod = searchParams.get('code_challenge_method');
   const trustedCallbackUrl = getTrustedCallbackUrl(
     appInfo?.metadata?.environment_urls || null,
     requestedCallbackUrl,
     preferredEnvironment,
-    appInfo?.metadata?.cors_origins || null
+    appInfo?.metadata?.cors_origins || null,
+    authChannel,
   );
   
   const [formData, setFormData] = useState({
@@ -267,12 +280,33 @@ function PublicAuthForms({
       params.set('api_key', currentApiKey);
     }
 
+    const env = searchParams.get('env');
+    if (env) {
+      params.set('env', env);
+    }
+
+    if (authChannel === 'mobile') {
+      params.set('channel', 'mobile');
+    }
+
     if (trustedCallbackUrl) {
       params.set('redirect_uri', trustedCallbackUrl);
     }
 
+    if (authState) {
+      params.set('state', authState);
+    }
+
+    if (codeChallenge) {
+      params.set('code_challenge', codeChallenge);
+    }
+
+    if (codeChallengeMethod) {
+      params.set('code_challenge_method', codeChallengeMethod);
+    }
+
     const url = `${path}?${params.toString()}`;
-    console.log('🔗 buildNavUrl:', { path, callbackUrl: trustedCallbackUrl, url });
+    console.log('🔗 buildNavUrl:', { path, callbackUrl: trustedCallbackUrl, channel: authChannel, url });
     return url;
   };
 
@@ -382,7 +416,10 @@ function PublicAuthForms({
         apiBaseUrl: API_BASE_URL,
         applicationId,
         apiKey: apiKey.substring(0, 20) + '...',
-        callbackUrl: trustedCallbackUrl
+        callbackUrl: trustedCallbackUrl,
+        channel: authChannel,
+        state: authState,
+        codeChallengeMethod,
       });
 
       let endpoint = '';
@@ -396,7 +433,12 @@ function PublicAuthForms({
             password: formData.password,
             application_id: applicationId,
             api_key: apiKey,
-            callback_url: trustedCallbackUrl || undefined,
+            callback_url: authChannel === 'web' ? trustedCallbackUrl || undefined : undefined,
+            redirect_uri: trustedCallbackUrl || undefined,
+            channel: authChannel,
+            state: authState || undefined,
+            code_challenge: authChannel === 'mobile' ? codeChallenge || undefined : undefined,
+            code_challenge_method: authChannel === 'mobile' ? codeChallengeMethod || undefined : undefined,
             client_ip: clientIp
           };
           break;
@@ -411,7 +453,12 @@ function PublicAuthForms({
             name: formData.name,
             application_id: applicationId,
             api_key: apiKey,
-            callback_url: trustedCallbackUrl || undefined,
+            callback_url: authChannel === 'web' ? trustedCallbackUrl || undefined : undefined,
+            redirect_uri: trustedCallbackUrl || undefined,
+            channel: authChannel,
+            state: authState || undefined,
+            code_challenge: authChannel === 'mobile' ? codeChallenge || undefined : undefined,
+            code_challenge_method: authChannel === 'mobile' ? codeChallengeMethod || undefined : undefined,
             role: selectedRole || undefined,
             client_ip: clientIp
           };

@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Search, MoreVertical, Users, Globe, Palette, Settings, Trash2, Eye, Calendar, Shield, CreditCard as Edit, Copy, ExternalLink, Rocket, Building2 } from 'lucide-react';
-import { Application } from '../../types';
+import { useState, useEffect } from 'react';
+import { Plus, Search, MoreVertical, Users, Globe, Palette, Settings, Trash2, Calendar, Shield, CreditCard as Edit, Copy, ExternalLink, Rocket, Building2 } from 'lucide-react';
+import type { Application, EnvironmentUrlsConfig } from '../../types';
 import { applicationService } from '../../services/applicationService';
 import { userService } from '../../services/userService';
 import { useNotification } from '../../hooks/useNotification';
@@ -25,18 +25,21 @@ export default function ApplicationsList() {
   const [showUrlConfigModal, setShowUrlConfigModal] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
   
-  const [urlConfig, setUrlConfig] = useState({
+  const [urlConfig, setUrlConfig] = useState<EnvironmentUrlsConfig>({
     development: {
       base_url: '',
-      callback_url: ''
+      callback_url: '',
+      mobile_redirect_uris: []
     },
     testing: {
       base_url: '',
-      callback_url: ''
+      callback_url: '',
+      mobile_redirect_uris: []
     },
     production: {
       base_url: '',
-      callback_url: ''
+      callback_url: '',
+      mobile_redirect_uris: []
     }
   });
   
@@ -182,6 +185,8 @@ export default function ApplicationsList() {
         metadata: {
           ...editingApplication.metadata,
           environment_urls: appData.environment_urls,
+          supported_auth_channels: appData.supported_auth_channels || ['web'],
+          auth_channel_config: appData.auth_channel_config || { web: { enabled: true }, mobile: { enabled: false, pkce_required: true, code_challenge_methods: ['S256'] } },
           cors_origins: appData.cors_origins,
           webhook_url: appData.webhook_url,
           enable_email_verification: appData.enable_email_verification,

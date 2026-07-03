@@ -193,22 +193,27 @@ Deno.serve(async (req) => {
     );
     const externalApplicationId = String(application.application_id || '').trim();
     const redirectUri = encodeURIComponent(callbackUrl);
-    const querySuffix = apiKey
+    const webQuerySuffix = apiKey
       ? `?app_id=${externalApplicationId}&redirect_uri=${redirectUri}&api_key=${apiKey}`
       : `?app_id=${externalApplicationId}&redirect_uri=${redirectUri}`;
+    const authorizeQuerySuffix = apiKey
+      ? `?app_id=${externalApplicationId}&api_key=${apiKey}`
+      : `?app_id=${externalApplicationId}`;
 
     const deployedUrls: Record<string, any> = {
       base_url: deployedBaseUrl,
       callback_url: callbackUrl,
-      login_url: `${deployedBaseUrl}/login${querySuffix}`,
-      register_url: `${deployedBaseUrl}/register${querySuffix}`,
-      reset_password_url: `${deployedBaseUrl}/reset-password${querySuffix}`,
+      login_url: `${deployedBaseUrl}/login${webQuerySuffix}`,
+      authorize_url: `${deployedBaseUrl}/authorize${authorizeQuerySuffix}`,
+      oauth_authorize_url: `${deployedBaseUrl}/oauth/authorize${authorizeQuerySuffix}`,
+      register_url: `${deployedBaseUrl}/register${webQuerySuffix}`,
+      reset_password_url: `${deployedBaseUrl}/reset-password${webQuerySuffix}`,
       deployed_at: new Date().toISOString(),
       deployment_provider: deploymentProvider,
     };
 
     if (application.auth_mode === 'tenant') {
-      deployedUrls.register_tenant_url = `${deployedBaseUrl}/register-tenant${querySuffix}`;
+      deployedUrls.register_tenant_url = `${deployedBaseUrl}/register-tenant${webQuerySuffix}`;
     }
 
     const updatedEnvironmentMetadata = {
