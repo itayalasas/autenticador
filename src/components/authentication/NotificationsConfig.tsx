@@ -137,7 +137,7 @@ const NOTIFICATION_DEFINITIONS: Array<{
 export function buildDefaultNotifications(): NotificationsMap {
   return NOTIFICATION_DEFINITIONS.reduce((acc, def) => {
     acc[def.key] = {
-      enabled: def.key === 'password_reset',
+      enabled: def.key === 'password_reset' || def.key === 'tenant_invitation',
       template_name: def.defaultTemplate,
       api_key: '',
       api_url: '',

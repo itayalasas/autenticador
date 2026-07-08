@@ -26,6 +26,7 @@ import GitHubCallback from './components/github/GitHubCallback';
 import DeploymentManager from './components/deployments/DeploymentManager';
 import FormStylesPrototype from './components/auth/FormStylesPrototype';
 import RegisterTenantForm from './components/auth/RegisterTenantForm';
+import PrivacyPolicyPage from './components/legal/PrivacyPolicyPage';
 
 const INTERNAL_SECTION_PATHS = [
   'dashboard',
@@ -257,6 +258,8 @@ function App() {
     <Router>
       <Routes>
         <Route path="/prototype" element={<FormStylesPrototype />} />
+        <Route path="/privacidad" element={<PrivacyPolicyPage />} />
+        <Route path="/privacy" element={<PrivacyPolicyPage />} />
         <Route path="/reset-password" element={<ResetPasswordForm />} />
         <Route path="/reset-password-confirm" element={<ResetPasswordForm />} />
         <Route path="/register-tenant" element={<RegisterTenantForm />} />

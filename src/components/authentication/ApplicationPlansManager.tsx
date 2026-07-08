@@ -61,7 +61,7 @@ const EMPTY_FEATURE_DRAFT: PlanEditorFeatureValue = {
   value_type: 'boolean',
   default_value: 'false',
   value: 'false',
-  category: 'features',
+  category: 'limits',
   unit: '',
   active: true,
 };
@@ -73,6 +73,18 @@ const BILLING_ENVIRONMENT_LABELS: Record<BillingEnvironmentName, string> = {
   testing: 'Testing',
   production: 'Production',
 };
+
+const FEATURE_CATEGORY_OPTIONS = [
+  { value: 'limits', label: 'Limits' },
+  { value: 'integrations', label: 'Integrations' },
+  { value: 'security', label: 'Security' },
+  { value: 'support', label: 'Support' },
+  { value: 'branding', label: 'Branding' },
+  { value: 'analytics', label: 'Analytics' },
+  { value: 'developer_experience', label: 'Developer Experience' },
+] as const;
+
+const FEATURE_CATEGORY_VALUES = new Set(FEATURE_CATEGORY_OPTIONS.map((option) => option.value));
 
 type BillingBooleanConfigKey =
   | 'enabled'
@@ -153,6 +165,39 @@ function slugify(value: string) {
     .substring(0, 60);
 }
 
+function normalizeFeatureCode(value: string) {
+  return slugify(value).replace(/-/g, '_');
+}
+
+function normalizeFeatureCategory(value: string) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (FEATURE_CATEGORY_VALUES.has(normalized)) {
+    return normalized;
+  }
+
+  if (normalized === 'features') {
+    return 'developer_experience';
+  }
+
+  return 'limits';
+}
+
+function getFeatureCategoryOptions(currentCategory?: string) {
+  const normalizedCurrent = String(currentCategory || '').trim().toLowerCase();
+  if (!normalizedCurrent || FEATURE_CATEGORY_VALUES.has(normalizedCurrent)) {
+    return FEATURE_CATEGORY_OPTIONS;
+  }
+
+  return [
+    ...FEATURE_CATEGORY_OPTIONS,
+    { value: normalizedCurrent, label: `${normalizedCurrent} (legacy)` },
+  ];
+}
+
+function getBillingFeatureValueTypeLabel(valueType: BillingFeatureValueType) {
+  return valueType === 'text' ? 'string' : valueType;
+}
+
 function normalizeFeatureValue(value: unknown, valueType: BillingFeatureValueType) {
   if (value === null || value === undefined || value === '') {
     return valueType === 'boolean' ? 'false' : '';
@@ -183,7 +228,7 @@ function buildFeatureDraftFromCatalog(
     value_type: feature.value_type,
     default_value: normalizeFeatureValue(feature.default_value ?? '', feature.value_type),
     value,
-    category: feature.category || 'features',
+    category: normalizeFeatureCategory(feature.category || 'limits'),
     unit: feature.unit || '',
     active: feature.active !== false,
   };
@@ -204,7 +249,7 @@ function toEditorValues(plan?: ApplicationBillingPlan | null): PlanEditorValues 
           : 'text',
         default_value: normalizeFeatureValue(feature.value, (feature.value_type as BillingFeatureValueType) || 'text'),
         value: normalizeFeatureValue(feature.value, (feature.value_type as BillingFeatureValueType) || 'text'),
-        category: String(feature.category || 'features').trim() || 'features',
+        category: normalizeFeatureCategory(String(feature.category || 'limits')),
         unit: feature.unit || '',
         active: true,
       }))
@@ -250,8 +295,16 @@ function getCategoryTone(category: string) {
       return 'bg-blue-100 text-blue-800';
     case 'support':
       return 'bg-amber-100 text-amber-800';
-    default:
+    case 'integrations':
+      return 'bg-cyan-100 text-cyan-800';
+    case 'branding':
+      return 'bg-pink-100 text-pink-800';
+    case 'analytics':
+      return 'bg-indigo-100 text-indigo-800';
+    case 'developer_experience':
       return 'bg-emerald-100 text-emerald-800';
+    default:
+      return 'bg-slate-100 text-slate-800';
   }
 }
 
@@ -545,11 +598,15 @@ export default function ApplicationPlansManager({
       }
 
       if (key === 'name' && !current.code && creatingCustomFeature) {
-        next.code = slugify(value).replace(/-/g, '_');
+        next.code = normalizeFeatureCode(value);
       }
 
       if (key === 'code') {
-        next.code = value.trim();
+        next.code = normalizeFeatureCode(value);
+      }
+
+      if (key === 'category') {
+        next.category = normalizeFeatureCategory(value);
       }
 
       return next;
@@ -561,13 +618,23 @@ export default function ApplicationPlansManager({
     setCreatingCustomFeature(true);
     setFeatureDraft({
       ...EMPTY_FEATURE_DRAFT,
-      code: featureSearch ? featureSearch.trim().replace(/\s+/g, '_') : '',
+      code: featureSearch ? normalizeFeatureCode(featureSearch) : '',
       name: featureSearch || '',
     });
   };
 
-  const handleConfirmFeatureAssignment = () => {
-    const normalizedCode = featureDraft.code.trim();
+  const upsertCatalogFeatureInState = (feature: ApplicationBillingFeatureCatalogItem) => {
+    setFeatureCatalog((current) => {
+      const next = current.filter((item) => item.code !== feature.code);
+      next.push(feature);
+      return next.sort((left, right) =>
+        `${left.category}-${left.name}`.localeCompare(`${right.category}-${right.name}`, 'es')
+      );
+    });
+  };
+
+  const handleConfirmFeatureAssignment = async () => {
+    const normalizedCode = normalizeFeatureCode(featureDraft.code);
     const normalizedName = featureDraft.name.trim();
 
     if (!normalizedCode) {
@@ -590,16 +657,48 @@ export default function ApplicationPlansManager({
       return;
     }
 
-    const normalizedFeature: PlanEditorFeatureValue = {
+    let normalizedFeature: PlanEditorFeatureValue = {
       ...featureDraft,
       code: normalizedCode,
       name: normalizedName,
       description: featureDraft.description.trim(),
-      category: featureDraft.category.trim() || 'features',
+      category: normalizeFeatureCategory(featureDraft.category),
       default_value: normalizeFeatureValue(featureDraft.default_value, featureDraft.value_type),
       value: normalizeFeatureValue(featureDraft.value, featureDraft.value_type),
       unit: featureDraft.unit ? featureDraft.unit.trim() : '',
     };
+
+    try {
+      if (creatingCustomFeature || !normalizedFeature.feature_id) {
+        const createdFeature = await applicationBillingService.createFeatureCatalogItem({
+          code: normalizedFeature.code,
+          name: normalizedFeature.name,
+          description: normalizedFeature.description,
+          value_type: normalizedFeature.value_type,
+          default_value: normalizedFeature.default_value,
+          category: normalizedFeature.category,
+          unit: normalizedFeature.unit || null,
+          active: normalizedFeature.active !== false,
+        });
+
+        upsertCatalogFeatureInState(createdFeature);
+        normalizedFeature = {
+          ...normalizedFeature,
+          feature_id: createdFeature.id,
+          code: createdFeature.code,
+          name: createdFeature.name,
+          description: createdFeature.description,
+          category: normalizeFeatureCategory(createdFeature.category),
+          unit: createdFeature.unit || '',
+        };
+      }
+    } catch (error: any) {
+      onError(
+        'No se pudo registrar la funcionalidad',
+        error?.message || 'No pudimos guardar la funcionalidad en el catalogo.'
+      );
+      return;
+    }
 
     setEditorValues((current) => {
       const nextFeatures = [...current.plan_features];
@@ -613,7 +712,7 @@ export default function ApplicationPlansManager({
         ...current,
         plan_features: nextFeatures,
       };
-    });
+      });
 
     closeFeatureModal();
   };
@@ -707,12 +806,12 @@ export default function ApplicationPlansManager({
 
   const handleSaveCustomCatalogFeature = async () => {
     const input: CreateBillingFeatureInput = {
-      code: featureDraft.code.trim(),
+      code: normalizeFeatureCode(featureDraft.code),
       name: featureDraft.name.trim(),
       description: featureDraft.description.trim(),
       value_type: featureDraft.value_type,
       default_value: normalizeFeatureValue(featureDraft.default_value, featureDraft.value_type),
-      category: featureDraft.category.trim() || 'features',
+      category: normalizeFeatureCategory(featureDraft.category),
       unit: featureDraft.unit ? featureDraft.unit.trim() : null,
       active: featureDraft.active !== false,
     };
@@ -724,11 +823,7 @@ export default function ApplicationPlansManager({
 
     try {
       const createdFeature = await applicationBillingService.createFeatureCatalogItem(input);
-      setFeatureCatalog((current) => {
-        const next = current.filter((item) => item.code !== createdFeature.code);
-        next.push(createdFeature);
-        return next.sort((left, right) => `${left.category}-${left.name}`.localeCompare(`${right.category}-${right.name}`, 'es'));
-      });
+      upsertCatalogFeatureInState(createdFeature);
       setSelectedCatalogFeatureId(createdFeature.id);
       setCreatingCustomFeature(false);
       setFeatureDraft(buildFeatureDraftFromCatalog(createdFeature, featureDraft.value));
@@ -1431,7 +1526,7 @@ export default function ApplicationPlansManager({
                                 {feature.category}
                               </span>
                               <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-800">
-                                {feature.value_type}
+                                {getBillingFeatureValueTypeLabel(feature.value_type)}
                               </span>
                             </div>
 
@@ -1619,26 +1714,26 @@ export default function ApplicationPlansManager({
 
                   <div className="mt-5 grid gap-4 md:grid-cols-2">
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Codigo</label>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Code</label>
                       <input
                         type="text"
                         value={featureDraft.code}
                         onChange={(event) => handleFeatureDraftChange('code', event.target.value)}
                         disabled={!creatingCustomFeature && Boolean(selectedCatalogFeature)}
                         className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:bg-slate-100 disabled:text-slate-500"
-                        placeholder="max_users"
+                        placeholder="sdk_download"
                       />
                     </div>
 
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Nombre</label>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Name</label>
                       <input
                         type="text"
                         value={featureDraft.name}
                         onChange={(event) => handleFeatureDraftChange('name', event.target.value)}
                         disabled={!creatingCustomFeature && Boolean(selectedCatalogFeature)}
                         className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:bg-slate-100 disabled:text-slate-500"
-                        placeholder="Maximo de Usuarios"
+                        placeholder="Descarga de SDKs"
                       />
                     </div>
 
@@ -1664,20 +1759,24 @@ export default function ApplicationPlansManager({
                       >
                         <option value="boolean">boolean</option>
                         <option value="number">number</option>
-                        <option value="text">text</option>
+                        <option value="text">string</option>
                       </select>
                     </div>
 
                     <div>
                       <label className="mb-2 block text-sm font-medium text-slate-700">Categoria</label>
-                      <input
-                        type="text"
+                      <select
                         value={featureDraft.category}
                         onChange={(event) => handleFeatureDraftChange('category', event.target.value)}
                         disabled={!creatingCustomFeature && Boolean(selectedCatalogFeature)}
                         className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:bg-slate-100 disabled:text-slate-500"
-                        placeholder="limits"
-                      />
+                      >
+                        {getFeatureCategoryOptions(featureDraft.category).map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
                     </div>
 
                     <div>
@@ -1746,7 +1845,7 @@ export default function ApplicationPlansManager({
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                   <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500">
                     <span className="rounded-full bg-white px-3 py-1 shadow-sm">Code: {featureDraft.code || 'sin definir'}</span>
-                    <span className="rounded-full bg-white px-3 py-1 shadow-sm">Tipo: {featureDraft.value_type}</span>
+                    <span className="rounded-full bg-white px-3 py-1 shadow-sm">Tipo: {getBillingFeatureValueTypeLabel(featureDraft.value_type)}</span>
                     <span className="rounded-full bg-white px-3 py-1 shadow-sm">Valor: {formatFeatureValue(featureDraft)}</span>
                   </div>
                 </div>
@@ -1775,7 +1874,11 @@ export default function ApplicationPlansManager({
                     className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
                   >
                     <Plus className="h-4 w-4" />
-                    {editingFeatureIndex !== null ? 'Guardar funcionalidad' : 'Agregar al plan'}
+                    {editingFeatureIndex !== null
+                      ? 'Guardar funcionalidad'
+                      : creatingCustomFeature
+                        ? 'Crear y agregar al plan'
+                        : 'Agregar al plan'}
                   </button>
                 </div>
               </div>

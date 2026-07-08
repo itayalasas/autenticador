@@ -272,6 +272,7 @@ Deno.serve(async (req: Request) => {
 
     let emailStatus: "sent" | "failed" | "pending" = "sent";
     let emailError: string | null = null;
+    let emailSkipped: string | null = null;
     try {
       const invitationEmailResult = await sendInvitationEmail({
         recipientEmail: normalizedEmail,
@@ -286,6 +287,7 @@ Deno.serve(async (req: Request) => {
       }, (app as any).email_config || {});
       if (invitationEmailResult?.skipped) {
         emailStatus = "pending";
+        emailSkipped = invitationEmailResult.skipped;
         emailError = `notification_${invitationEmailResult.skipped}`;
       }
     } catch (emailErr: any) {
@@ -316,6 +318,10 @@ Deno.serve(async (req: Request) => {
         expires_at: expiresAt,
         accept_url: acceptUrl,
         resent,
+        email_sent: emailStatus === "sent",
+        email_status: emailStatus,
+        ...(emailError ? { email_error: emailError } : {}),
+        ...(emailSkipped ? { email_skipped: emailSkipped } : {}),
       },
     });
   } catch (err: any) {

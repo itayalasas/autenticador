@@ -64,6 +64,16 @@ export interface CancelManagedSubscriptionInput {
   cancel_reason?: string;
 }
 
+const STANDARD_FEATURE_CATEGORIES = new Set([
+  'limits',
+  'integrations',
+  'security',
+  'support',
+  'branding',
+  'analytics',
+  'developer_experience',
+]);
+
 type RawPlanFeatureRelation = {
   id?: string;
   value?: string | number | boolean | null;
@@ -72,10 +82,48 @@ type RawPlanFeatureRelation = {
 };
 
 function normalizeValueType(value: unknown): BillingFeatureValueType {
-  if (value === 'boolean' || value === 'number' || value === 'text') {
-    return value;
+  if (value === 'boolean' || value === 'number' || value === 'text' || value === 'string') {
+    return value === 'string' ? 'text' : value;
   }
   return 'text';
+}
+
+function normalizeFeatureCode(value: unknown) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .substring(0, 60);
+}
+
+function normalizeFeatureCategory(value: unknown) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (STANDARD_FEATURE_CATEGORIES.has(normalized)) {
+    return normalized;
+  }
+
+  if (normalized === 'features') {
+    return 'developer_experience';
+  }
+
+  return 'limits';
+}
+
+function normalizeFeatureName(value: unknown, fallbackCode = '') {
+  const normalized = String(value || '').trim();
+  return normalized || fallbackCode;
+}
+
+function normalizeFeatureDescription(value: unknown) {
+  return String(value || '').trim();
+}
+
+function normalizeFeatureUnit(value: unknown) {
+  const normalized = String(value || '').trim();
+  return normalized || null;
 }
 
 function stringifyFeatureValue(value: unknown, valueType?: BillingFeatureValueType | string) {
@@ -93,13 +141,13 @@ function stringifyFeatureValue(value: unknown, valueType?: BillingFeatureValueTy
 function normalizeCatalogFeature(row: any): ApplicationBillingFeatureCatalogItem {
   return {
     id: row.id,
-    code: String(row.code || '').trim(),
-    name: String(row.name || '').trim(),
-    description: String(row.description || '').trim(),
+    code: normalizeFeatureCode(row.code),
+    name: normalizeFeatureName(row.name, normalizeFeatureCode(row.code)),
+    description: normalizeFeatureDescription(row.description),
     value_type: normalizeValueType(row.value_type),
     default_value: stringifyFeatureValue(row.default_value, row.value_type),
-    category: String(row.category || 'features').trim() || 'features',
-    unit: row.unit ? String(row.unit).trim() : null,
+    category: normalizeFeatureCategory(row.category),
+    unit: normalizeFeatureUnit(row.unit),
     active: row.active !== false,
     is_system: row.is_system === true,
     created_by: row.created_by || null,
@@ -112,17 +160,18 @@ function normalizeEntitlementFeature(raw: any, fallback?: Partial<ApplicationBil
   const valueType = normalizeValueType(raw?.value_type ?? fallback?.value_type);
   const defaultValue = stringifyFeatureValue(raw?.default_value ?? fallback?.default_value, valueType);
   const value = stringifyFeatureValue(raw?.value ?? defaultValue, valueType);
+  const normalizedCode = normalizeFeatureCode(raw?.code || fallback?.code || '');
 
   return {
     feature_id: raw?.feature_id || fallback?.id,
-    code: String(raw?.code || fallback?.code || '').trim(),
-    name: String(raw?.name || fallback?.name || raw?.code || '').trim(),
-    description: String(raw?.description || fallback?.description || '').trim(),
+    code: normalizedCode,
+    name: normalizeFeatureName(raw?.name || fallback?.name, normalizedCode),
+    description: normalizeFeatureDescription(raw?.description || fallback?.description),
     value_type: valueType,
     default_value: defaultValue,
     value,
-    category: String(raw?.category || fallback?.category || 'features').trim() || 'features',
-    unit: raw?.unit ?? fallback?.unit ?? null,
+    category: normalizeFeatureCategory(raw?.category || fallback?.category || 'limits'),
+    unit: normalizeFeatureUnit(raw?.unit ?? fallback?.unit),
     active: raw?.active ?? fallback?.active ?? true,
   };
 }
@@ -152,19 +201,19 @@ function buildEntitlements(values: PlanEditorValues) {
   return {
     features: values.plan_features.map((feature) => ({
       feature_id: feature.feature_id,
-      code: feature.code.trim(),
-      name: feature.name.trim(),
-      description: feature.description.trim(),
+      code: normalizeFeatureCode(feature.code),
+      name: normalizeFeatureName(feature.name, feature.code),
+      description: normalizeFeatureDescription(feature.description),
       value: stringifyFeatureValue(feature.value, feature.value_type),
       value_type: feature.value_type,
-      unit: feature.unit || null,
-      category: feature.category.trim() || 'features',
+      unit: normalizeFeatureUnit(feature.unit),
+      category: normalizeFeatureCategory(feature.category),
     })),
   };
 }
 
 async function ensureFeatureCatalogEntry(input: CreateBillingFeatureInput): Promise<ApplicationBillingFeatureCatalogItem> {
-  const normalizedCode = String(input.code || '').trim();
+  const normalizedCode = normalizeFeatureCode(input.code);
   if (!normalizedCode) {
     throw new Error('El codigo de la funcionalidad es obligatorio');
   }
@@ -180,12 +229,12 @@ async function ensureFeatureCatalogEntry(input: CreateBillingFeatureInput): Prom
 
   const payload = {
     code: normalizedCode,
-    name: String(input.name || '').trim(),
-    description: String(input.description || '').trim(),
+    name: normalizeFeatureName(input.name, normalizedCode),
+    description: normalizeFeatureDescription(input.description),
     value_type: normalizeValueType(input.value_type),
     default_value: stringifyFeatureValue(input.default_value, input.value_type),
-    category: String(input.category || 'features').trim() || 'features',
-    unit: input.unit ? String(input.unit).trim() : null,
+    category: normalizeFeatureCategory(input.category),
+    unit: normalizeFeatureUnit(input.unit),
     active: input.active !== false,
   };
 
@@ -335,13 +384,13 @@ export const applicationBillingService = {
   async savePlan(plan: EditableApplicationBillingPlan, editorValues: PlanEditorValues) {
     const normalizedPlanFeatures = editorValues.plan_features.map((feature) => ({
       ...feature,
-      code: feature.code.trim(),
-      name: feature.name.trim(),
-      description: feature.description.trim(),
-      category: feature.category.trim() || 'features',
+      code: normalizeFeatureCode(feature.code),
+      name: normalizeFeatureName(feature.name, feature.code),
+      description: normalizeFeatureDescription(feature.description),
+      category: normalizeFeatureCategory(feature.category),
       value: stringifyFeatureValue(feature.value, feature.value_type),
       default_value: stringifyFeatureValue(feature.default_value, feature.value_type),
-      unit: feature.unit ? String(feature.unit).trim() : null,
+      unit: normalizeFeatureUnit(feature.unit),
     }));
 
     const payload = {
