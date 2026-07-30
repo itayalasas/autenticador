@@ -1250,7 +1250,6 @@ export const applicationService = {
   }
 }
 
-const DEFAULT_ENV_CONFIG_URL = 'https://ffihaeatoundrjzgtpzk.supabase.co/functions/v1/get-env';
 const DEFAULT_ENV_CONFIG_ACCESS_KEY = '4a63305a316f04fe2acf33b2b63135925bd3a0523c1fd453a42fbf1fc49e6240';
 const DEFAULT_SUPABASE_URL = 'https://sfqtmnncgiqkveaoqckt.supabase.co';
 const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNmcXRtbm5jZ2lxa3ZlYW9xY2t0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4MDEyNDMsImV4cCI6MjA3NTM3NzI0M30.n2yaYrfHDLAFePP1tA3-250P6bgKmf696fYJFHfRZaQ';
@@ -1293,8 +1292,7 @@ class EnvConfigService {
 
     const candidates = [
       '/get-env',
-      configuredUrl,
-      DEFAULT_ENV_CONFIG_URL
+      configuredUrl
     ].filter((value, index, array): value is string => !!value && array.indexOf(value) === index);
 
     for (const url of candidates) {

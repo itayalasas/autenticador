@@ -14,8 +14,6 @@ Deno.serve(async (req)=>{
   }
   try {
     const { applicationId, apiKey, supabaseUrl, supabaseAnonKey, branding, internalApplicationId } = await req.json();
-    console.log('📦 Collecting source files for deployment...');
-    console.log('Application ID:', applicationId);
     // Initialize Supabase client to fetch roles
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
     // Fetch available roles
@@ -25,10 +23,8 @@ Deno.serve(async (req)=>{
         const { data, error } = await supabase.from('application_roles').select('*').eq('application_id', internalApplicationId).eq('available_for_registration', true).eq('is_active', true).order('role_name');
         if (!error && data) {
           rolesData = data;
-          console.log(`✅ Loaded ${rolesData.length} roles for application`);
         }
       } catch (error) {
-        console.error('Error loading roles:', error);
       }
     }
     const files = {};
@@ -250,7 +246,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
     const loadApplicationData = async () => {
       try {
         setLoading(true);
-        console.log('Loading application data for:', appId);
 
         const { data: app, error: appError } = await supabase
           .from('applications')
@@ -259,7 +254,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
           .maybeSingle();
 
         if (appError || !app) {
-          console.error('Application not found:', appId, appError);
           setError('Application not found');
           return;
         }
@@ -287,7 +281,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
         });
 
       } catch (error) {
-        console.error('Error loading application:', error);
         setError('Failed to load application');
       } finally {
         setLoading(false);
@@ -323,10 +316,7 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
       branding={appData?.branding}
       onSubmit={async (data) => {
         // Handle auth here
-        console.log('Auth submit:', data);
       }}
-      onSuccess={(data) => console.log('Auth success:', data)}
-      onError={(error) => console.error('Auth error:', error)}
     />
   );
 }
@@ -476,14 +466,11 @@ function PublicAuthForms({
         if (!isMounted) return;
 
         if (result.is_blocked) {
-          console.log('🚫 IP is blocked:', result);
           setIpBlocked(true);
           setBlockedInfo(result.blocked_info);
         } else {
-          console.log('✅ IP is not blocked:', result.ip_address);
         }
       } catch (error) {
-        console.error('❌ Error checking IP status:', error);
         if (isMounted) setIpBlocked(false);
       } finally {
         if (isMounted) setCheckingIP(false);
@@ -500,7 +487,6 @@ function PublicAuthForms({
           }
         }
       } catch (error) {
-        console.error('Error loading custom texts:', error);
       }
 
       // Load roles for register form
@@ -515,7 +501,6 @@ function PublicAuthForms({
             }
           }
         } catch (error) {
-          console.error('Error loading available roles:', error);
         }
       }
     };
@@ -570,7 +555,6 @@ function PublicAuthForms({
     }
 
     const url = \`\${path}?\${params.toString()}\`;
-    console.log('\\ud83d\\udd17 buildNavUrl:', { path, callbackUrl, url });
     return url;
   };
 
@@ -601,7 +585,6 @@ function PublicAuthForms({
 
       // Get client IP first
       const clientIp = await ipService.getClientIP();
-      console.log('📍 Client IP:', clientIp);
 
       // Use Supabase Edge Functions URL
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -660,11 +643,6 @@ function PublicAuthForms({
           break;
       }
 
-      console.log('🚀 Making API request:', {
-        endpoint,
-        apiKey: apiKey.substring(0, 20) + '...',
-        payload: { ...payload, password: '***' }
-      });
 
       // Llamar a la Edge Function de Supabase
       const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -680,22 +658,13 @@ function PublicAuthForms({
       });
 
       const result = await response.json();
-      console.log('📥 API Response:', {
-        success: result.success,
-        status: response.status,
-        error: result.error?.code,
-        message: result.error?.message
-      });
 
       // Log the response status for debugging
-      console.log('📊 Response status:', response.status, response.ok);
 
       if (!result.success) {
-        console.log('❌ Authentication failed:', result.error);
 
         // Show more detailed error for debugging
         if (result.error?.code === 'DATABASE_ERROR' || result.error?.message?.includes('Database error')) {
-          console.error('🔍 Database error details:', result.error);
           setMessage({
             type: 'error',
             text: 'Error de base de datos. Por favor contacta al administrador del sistema.'
@@ -722,7 +691,6 @@ function PublicAuthForms({
         throw new Error(result.error?.message || 'Error en la autenticación');
       }
 
-      console.log('✅ Authentication successful:', result.data);
 
       // Manejar diferentes tipos de respuesta
       if (formType === 'register' && result.data?.email_verification_required) {
@@ -755,13 +723,11 @@ function PublicAuthForms({
 
         // Si hay callback URL, redirigir después de un breve delay
         if (result.data?.callback_url) {
-          console.log('🔄 Redirecting to callback URL:', result.data.callback_url);
           setTimeout(() => {
             window.location.href = result.data.callback_url;
           }, 2000);
         } else {
           // Si no hay callback, mostrar los datos del usuario para desarrollo
-          console.log('Autenticación exitosa:', result.data);
 
           // Guardar tokens en localStorage para desarrollo
           if (result.data.access_token) {
@@ -796,10 +762,6 @@ function PublicAuthForms({
               environment: claims.environment || null,
             }));
 
-            console.log('💾 Tokens guardados en localStorage:', {
-              access_token: result.data.access_token.substring(0, 20) + '...',
-              user_email: claims.email || null
-            });
           }
         }
       }
@@ -2645,7 +2607,6 @@ export const rolesService = {
       .order('display_name', { ascending: true });
 
     if (error) {
-      console.error('Error loading roles:', error);
       return [];
     }
     return data || [];
@@ -2665,7 +2626,6 @@ export const applicationService = {
       .maybeSingle();
 
     if (error) {
-      console.error('Error loading branding:', error);
       return null;
     }
     return data;
@@ -2682,11 +2642,9 @@ export const applicationService = {
 
       if (response.ok) {
         const data = await response.json();
-        console.log('Detected client IP:', data.ip);
         return data.ip;
       }
     } catch (error) {
-      console.error('Error detecting client IP:', error);
     }
 
     return '0.0.0.0';
@@ -2703,7 +2661,6 @@ export const applicationService = {
       const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
       const apiUrl = \`\\${supabaseUrl}/functions/v1/check-ip-status\`;
 
-      console.log('🔍 Checking IP status for:', ipToCheck);
 
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -2715,10 +2672,8 @@ export const applicationService = {
         body: JSON.stringify({ client_ip: ipToCheck })
       });
 
-      console.log('📡 Response status:', response.status);
 
       const result = await response.json();
-      console.log('📦 Response data:', result);
 
       if (result.success) {
         return {
@@ -2734,7 +2689,6 @@ export const applicationService = {
         ip_address: ipToCheck
       };
     } catch (error) {
-      console.error('❌ Error checking IP status:', error);
       return {
         is_blocked: false,
         blocked_info: null,
@@ -2746,8 +2700,6 @@ export const applicationService = {
 `;
 
     // === TEMPLATES END ===
-    console.log('✅ Source collection complete!');
-    console.log(`📦 Total files collected: ${Object.keys(files).length}`);
     return new Response(JSON.stringify({
       success: true,
       files,
@@ -2764,7 +2716,6 @@ export const applicationService = {
       }
     });
   } catch (error) {
-    console.error('❌ Error collecting source files:', error);
     return new Response(JSON.stringify({
       success: false,
       error: error.message || 'Unknown error occurred'

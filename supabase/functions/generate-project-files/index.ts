@@ -218,7 +218,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
     const loadApplicationData = async () => {
       try {
         setLoading(true);
-        console.log('Loading application data for:', appId);
 
         try {
           const { data: app, error: appError } = await supabase
@@ -228,7 +227,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
             .single();
 
           if (appError || !app) {
-            console.error('Application not found:', appId, appError);
             setError('Application not found');
             return;
           }
@@ -241,7 +239,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
             .limit(1);
 
           if (apiKeyError || !apiKeys || apiKeys.length === 0) {
-            console.warn('No active API keys found');
           } else {
             setApiKey(apiKeys[0].key_hash);
           }
@@ -253,22 +250,18 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
               branding: branding || {}
             });
           } catch (brandingError) {
-            console.warn('Could not load branding, using defaults:', brandingError);
             setAppData({
               ...app,
               branding: {}
             });
           }
 
-          console.log('Application loaded:', app);
 
         } catch (supabaseError) {
-          console.error('Supabase connection error:', supabaseError);
           setError('Failed to connect to database');
         }
 
       } catch (error) {
-        console.error('Error loading application:', error);
         setError('Failed to load application');
       } finally {
         setLoading(false);
@@ -304,10 +297,7 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
       branding={appData?.branding}
       onSubmit={async (data) => {
         // Handle auth here
-        console.log('Auth submit:', data);
       }}
-      onSuccess={(data) => console.log('Auth success:', data)}
-      onError={(error) => console.error('Auth error:', error)}
     />
   );
 }
@@ -330,7 +320,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
       }
     );
   } catch (error: any) {
-    console.error("Generate project files error:", error);
     return new Response(
       JSON.stringify({
         success: false,

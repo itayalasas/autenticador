@@ -10,7 +10,6 @@ function initializeSupabase() {
   }
 
   if (!envConfigService.isLoaded()) {
-    console.warn('⚠️ Environment config not loaded yet')
     return null
   }
 
@@ -25,14 +24,11 @@ function initializeSupabase() {
     supabaseAnonKey !== 'your_supabase_anon_key_here'
 
   if (!isSupabaseConfigured) {
-    console.warn('⚠️ Supabase not properly configured')
     return null
   }
 
   supabaseInstance = createClient(supabaseUrl, supabaseAnonKey)
   isInitialized = true
-
-  console.log('✅ Supabase client initialized')
   return supabaseInstance
 }
 
