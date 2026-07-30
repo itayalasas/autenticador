@@ -369,15 +369,6 @@ function generateStandaloneFormHTML(
       document.getElementById('auth-form').style.display = 'none';
     }
 
-    console.log('🔧 Auth Form Init:', {
-      fullUrl: window.location.href,
-      searchParams: window.location.search,
-      applicationId: APPLICATION_ID,
-      hasApiKey: !!API_KEY,
-      redirectUri: redirectUri,
-      formType: '${formType}',
-      supabaseUrl: SUPABASE_URL
-    });
 
     // Initialize Lucide icons
     lucide.createIcons();
@@ -440,7 +431,6 @@ function generateStandaloneFormHTML(
       if ('${formType}' !== 'register') return;
 
       try {
-        console.log('📋 Loading roles for application:', APPLICATION_ID);
 
         const rolesUrl = SUPABASE_URL + '/rest/v1/roles?application_id=eq.' + APPLICATION_ID + '&is_active=eq.true&select=id,role_name,description';
 
@@ -453,7 +443,6 @@ function generateStandaloneFormHTML(
 
         if (response.ok) {
           const roles = await response.json();
-          console.log('✅ Roles loaded:', roles);
 
           const roleSelect = document.getElementById('role');
           if (roleSelect && roles && roles.length > 0) {
@@ -469,10 +458,8 @@ function generateStandaloneFormHTML(
             });
           }
         } else {
-          console.warn('⚠️ Could not load roles, user will register without role');
         }
       } catch (error) {
-        console.error('❌ Error loading roles:', error);
       }
     }
 
@@ -559,9 +546,6 @@ function generateStandaloneFormHTML(
     document.getElementById('auth-form').addEventListener('submit', async (e) => {
       e.preventDefault();
 
-      console.log('📋 Form submit triggered - preventing default');
-      console.log('🔍 Current URL before submit:', window.location.href);
-      console.log('🔍 Query parameters:', window.location.search);
 
       const email = document.getElementById('email').value;
       const submitBtn = e.target.querySelector('button[type="submit"]');
@@ -586,12 +570,6 @@ function generateStandaloneFormHTML(
           callback_url: redirectUri
         };
 
-        console.log('🚀 Sending login request to:', SUPABASE_URL + '/functions/v1/auth-login');
-        console.log('📦 Payload:', {
-          ...loginPayload,
-          password: '***hidden***',
-          api_key: API_KEY ? API_KEY.substring(0, 15) + '...' : 'MISSING'
-        });
 
         const response = await fetch(SUPABASE_URL + '/functions/v1/auth-login', {
           method: 'POST',
@@ -604,10 +582,8 @@ function generateStandaloneFormHTML(
           body: JSON.stringify(loginPayload)
         });
 
-        console.log('📊 Response status:', response.status, response.statusText);
 
         const data = await response.json();
-        console.log('📥 Login response:', data);
 
         const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -615,7 +591,6 @@ function generateStandaloneFormHTML(
           const targetUrl = loginData?.callback_url || redirectUri || loginData?.redirect_url || '/dashboard';
 
           if (targetUrl) {
-            console.log('🔄 Redirecting to:', targetUrl);
             setTimeout(() => {
               window.location.href = targetUrl;
             }, 1500);
@@ -698,7 +673,6 @@ function generateStandaloneFormHTML(
             : 'Configura Authenticator escaneando el QR y vuelve a iniciar sesión.';
           showMessage(setupMessage, 'error');
         } else {
-          console.error('❌ Login failed:', data.error);
           showMessage(data.error?.message || data.error || 'Error al iniciar sesión', 'error');
         }
         ` : formType === 'register' ? `
@@ -724,12 +698,6 @@ function generateStandaloneFormHTML(
           callback_url: redirectUri
         };
 
-        console.log('🚀 Sending register request to:', SUPABASE_URL + '/functions/v1/auth-register');
-        console.log('📦 Payload:', {
-          ...registerPayload,
-          password: '***hidden***',
-          api_key: API_KEY ? API_KEY.substring(0, 15) + '...' : 'MISSING'
-        });
 
         const response = await fetch(SUPABASE_URL + '/functions/v1/auth-register', {
           method: 'POST',
@@ -742,22 +710,18 @@ function generateStandaloneFormHTML(
           body: JSON.stringify(registerPayload)
         });
 
-        console.log('📊 Response status:', response.status, response.statusText);
 
         const data = await response.json();
-        console.log('📥 Register response:', data);
 
         if (data.success) {
           showMessage('¡Registro exitoso! Redirigiendo...', 'success');
 
           const targetUrl = data.data?.callback_url || redirectUri || data.data?.redirect_url || '/dashboard';
-          console.log('🔄 Redirecting to:', targetUrl);
 
           setTimeout(() => {
             window.location.href = targetUrl;
           }, 1500);
         } else {
-          console.error('❌ Register failed:', data.error);
           showMessage(data.error?.message || data.error || 'Error al registrarse', 'error');
         }
         ` : `
@@ -768,11 +732,6 @@ function generateStandaloneFormHTML(
           callback_url: redirectUri
         };
 
-        console.log('🚀 Sending reset password request to:', SUPABASE_URL + '/functions/v1/auth-reset-password');
-        console.log('📦 Payload:', {
-          ...resetPayload,
-          api_key: API_KEY ? API_KEY.substring(0, 15) + '...' : 'MISSING'
-        });
 
         const response = await fetch(SUPABASE_URL + '/functions/v1/auth-reset-password', {
           method: 'POST',
@@ -785,20 +744,16 @@ function generateStandaloneFormHTML(
           body: JSON.stringify(resetPayload)
         });
 
-        console.log('📊 Response status:', response.status, response.statusText);
 
         const data = await response.json();
-        console.log('📥 Reset password response:', data);
 
         if (data.success) {
           showMessage('Email de recuperación enviado. Revisa tu correo.', 'success');
         } else {
-          console.error('❌ Reset password failed:', data.error);
           showMessage(data.error?.message || data.error || 'Error al enviar email', 'error');
         }
         `}
       } catch (error) {
-        console.error('Error:', error);
         showMessage('Error de conexión', 'error');
       } finally {
         submitBtn.disabled = false;
@@ -814,11 +769,9 @@ function generateStandaloneFormHTML(
     // Cargar branding dinámicamente desde la base de datos
     async function loadBranding() {
       try {
-        console.log('🎨 Loading branding for app:', APPLICATION_ID);
 
         // PASO 1: Obtener la aplicación para conseguir el UUID
         const appUrl = SUPABASE_URL + '/rest/v1/applications?application_id=eq.' + encodeURIComponent(APPLICATION_ID) + '&select=id,name';
-        console.log('📡 Fetching app:', appUrl);
 
         const appResponse = await fetch(appUrl, {
           headers: {
@@ -829,15 +782,12 @@ function generateStandaloneFormHTML(
 
         if (!appResponse.ok) {
           const errorText = await appResponse.text();
-          console.error('❌ App fetch error:', errorText);
           return; // Usar branding por defecto
         }
 
         const apps = await appResponse.json();
-        console.log('📦 App data:', apps);
 
         if (!apps || apps.length === 0) {
-          console.warn('⚠️ App not found');
           return;
         }
 
@@ -845,7 +795,6 @@ function generateStandaloneFormHTML(
 
         // PASO 2: Obtener el branding usando el UUID
         const brandingUrl = SUPABASE_URL + '/rest/v1/branding_configs?application_id=eq.' + app.id + '&select=primary_color,logo_url,secondary_color,accent_color';
-        console.log('📡 Fetching branding:', brandingUrl);
 
         const brandingResponse = await fetch(brandingUrl, {
           headers: {
@@ -855,20 +804,16 @@ function generateStandaloneFormHTML(
         });
 
         if (!brandingResponse.ok) {
-          console.warn('⚠️ Branding fetch failed, using defaults');
           return;
         }
 
         const brandings = await brandingResponse.json();
-        console.log('📦 Branding data:', brandings);
 
         if (!brandings || brandings.length === 0) {
-          console.warn('⚠️ No branding config found');
           return;
         }
 
         const branding = brandings[0];
-        console.log('✅ Branding loaded:', branding);
 
           // Aplicar colores
           if (branding.primary_color) {
@@ -898,7 +843,6 @@ function generateStandaloneFormHTML(
           }
         }
       } catch (error) {
-        console.error('❌ Error loading branding:', error);
         // No hacer nada, usar el branding por defecto
       }
     }
@@ -1038,7 +982,6 @@ async function bootstrap() {
   try {
     await envConfigService.loadConfig();
   } catch (error) {
-    console.warn('No se pudo cargar /get-env. Continuamos con fallback público.', error);
   }
 
   const { default: App } = await import('./App');
@@ -1373,7 +1316,6 @@ class EnvConfigService {
         this.applyVariables(variables as Record<string, string>);
         return;
       } catch (error) {
-        console.warn('No se pudo cargar configuración desde', url, error);
       }
     }
 
@@ -1448,11 +1390,9 @@ export const ipService = {
 
       if (response.ok) {
         const data = await response.json();
-        console.log('Detected client IP:', data.ip);
         return data.ip;
       }
     } catch (error) {
-      console.error('Error detecting client IP:', error);
     }
 
     return '0.0.0.0';
@@ -1470,7 +1410,6 @@ export const ipService = {
       const supabaseAnonKey = getSupabaseAnonKey();
       const apiUrl = \`\${supabaseUrl}/functions/v1/check-ip-status\`;
 
-      console.log('🔍 Checking IP status for:', ipToCheck);
 
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -1482,10 +1421,8 @@ export const ipService = {
         body: JSON.stringify({ client_ip: ipToCheck })
       });
 
-      console.log('📡 Response status:', response.status);
 
       const result = await response.json();
-      console.log('📦 Response data:', result);
 
       if (result.success) {
         return {
@@ -1501,7 +1438,6 @@ export const ipService = {
         ip_address: ipToCheck
       };
     } catch (error) {
-      console.error('❌ Error checking IP status:', error);
       return {
         is_blocked: false,
         blocked_info: null,
@@ -1527,7 +1463,6 @@ export const applicationService = {
 
       return data?.metadata?.branding || null;
     } catch (error) {
-      console.error('Error loading branding:', error);
       return null;
     }
   }
@@ -1549,7 +1484,6 @@ export const rolesService = {
 
       return data || [];
     } catch (error) {
-      console.error('Error loading roles:', error);
       return [];
     }
   },
@@ -1568,7 +1502,6 @@ export const rolesService = {
 
       return data || [];
     } catch (error) {
-      console.error('Error loading roles for registration:', error);
       return [];
     }
   }
@@ -1605,7 +1538,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
   const loadApplicationData = async () => {
     try {
       setLoading(true);
-      console.log('Loading application data for:', appId);
 
       const supabaseUrl = getSupabaseUrl();
       const supabaseKey = getSupabaseAnonKey();
@@ -1614,7 +1546,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
           supabaseUrl === 'https://your-project-id.supabase.co' ||
           supabaseKey === 'your_supabase_anon_key_here') {
 
-        console.warn('⚠️ Supabase not configured, using mock data');
 
         const mockApp = {
           id: appId,
@@ -1651,7 +1582,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
           branding: mockBranding
         });
 
-        console.log('✅ Mock application data loaded:', mockApp);
         return;
       }
 
@@ -1663,9 +1593,7 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
           .single();
 
         if (appError || !app) {
-          console.error('Application not found:', appId, appError);
 
-          console.warn('⚠️ Application not found in database, using mock data for development');
 
           const mockApp = {
             id: appId,
@@ -1702,7 +1630,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
             branding: mockBranding
           });
 
-          console.log('✅ Mock application data loaded for development');
           return;
         }
 
@@ -1717,10 +1644,8 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
           .limit(1);
 
         if (apiKeyError) {
-          console.error('Error loading API keys:', apiKeyError);
           setApiKey('ak_development_cd9bac61b17b0a09f307afe54e93d40f');
         } else if (!apiKeys || apiKeys.length === 0) {
-          console.warn('No active API keys found for application, using mock key');
           setApiKey('ak_development_cd9bac61b17b0a09f307afe54e93d40f');
         } else {
           setApiKey(apiKeys[0].key_hash);
@@ -1733,22 +1658,18 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
             branding: branding || {}
           });
         } catch (brandingError) {
-          console.warn('Could not load branding, using defaults:', brandingError);
           setAppData({
             ...app,
             branding: {}
           });
         }
 
-        console.log('Application loaded:', app);
 
       } catch (supabaseError) {
-        console.error('Supabase connection error:', supabaseError);
         setError('Failed to connect to database. Please check Supabase configuration.');
       }
 
     } catch (error) {
-      console.error('Error loading application:', error);
       setError('Failed to load application');
     } finally {
       setLoading(false);
@@ -1783,10 +1704,8 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
       branding={appData?.branding}
       appInfo={appData}
       onSuccess={(data) => {
-        console.log('Auth success:', data);
       }}
       onError={(error) => {
-        console.error('Auth error:', error);
       }}
     />
   );

@@ -85,7 +85,6 @@ export function extractCallbackExchangeParams(url: string): CallbackUrlParams | 
       state: params.get('state')
     };
   } catch (error) {
-    console.error('Error parsing callback exchange params:', error);
     return null;
   }
 }
@@ -95,7 +94,6 @@ export function extractCallbackExchangeParams(url: string): CallbackUrlParams | 
  * The secure callback flow now relies on code exchange rather than direct token parsing.
  */
 export function parseCallbackParams(_url: string): AuthTokenData | null {
-  console.warn('parseCallbackParams is deprecated. Use extractCallbackExchangeParams + exchangeCallbackCode instead.');
   return null;
 }
 
@@ -279,7 +277,6 @@ export function getStoredAuthData(): AuthTokenData | null {
       expires_in: expiresIn
     };
   } catch (error) {
-    console.error('Error getting stored auth data:', error);
     return null;
   }
 }
@@ -331,7 +328,6 @@ export async function verifyToken(token: string, applicationId: string, apiKey: 
     const result = await response.json();
     return result.success && result.data?.valid;
   } catch (error) {
-    console.error('Error verifying token:', error);
     return false;
   }
 }

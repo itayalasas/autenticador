@@ -196,14 +196,11 @@ function PublicAuthForms({
         if (!isMounted) return;
 
         if (result.is_blocked) {
-          console.log('🚫 IP is blocked:', result);
           setIpBlocked(true);
           setBlockedInfo(result.blocked_info);
         } else {
-          console.log('✅ IP is not blocked:', result.ip_address);
         }
       } catch (error) {
-        console.error('❌ Error checking IP status:', error);
         if (isMounted) setIpBlocked(false);
       } finally {
         if (isMounted) setCheckingIP(false);
@@ -225,40 +222,25 @@ function PublicAuthForms({
           }
         }
       } catch (error) {
-        console.error('Error loading custom texts:', error);
       }
 
       // Load roles for register form
-      console.log('🔍 Checking roles loading:', {
-        formType,
-        internalApplicationId,
-        shouldLoadRoles: formType === 'register' && !!internalApplicationId
-      });
 
       if (formType === 'register' && internalApplicationId && isMounted) {
         try {
-          console.log('📋 Loading roles for application:', internalApplicationId);
           const roles = await rolesService.getAvailableRolesForRegistration(internalApplicationId);
-          console.log('✅ Roles loaded:', roles);
 
           if (isMounted) {
             setAvailableRoles(roles);
             const defaultRole = roles.find(role => role.is_default);
             if (defaultRole) {
-              console.log('✅ Default role set:', defaultRole.name);
               setSelectedRole(defaultRole.name);
             } else {
-              console.log('⚠️ No default role found');
             }
           }
         } catch (error) {
-          console.error('❌ Error loading available roles:', error);
         }
       } else {
-        console.log('⚠️ Not loading roles because:', {
-          isRegisterForm: formType === 'register',
-          hasInternalAppId: !!internalApplicationId
-        });
       }
     };
 
@@ -306,7 +288,6 @@ function PublicAuthForms({
     }
 
     const url = `${path}?${params.toString()}`;
-    console.log('🔗 buildNavUrl:', { path, callbackUrl: trustedCallbackUrl, channel: authChannel, url });
     return url;
   };
 
@@ -408,19 +389,8 @@ function PublicAuthForms({
 
       // Get client IP first
       const clientIp = await ipService.getClientIP();
-      console.log('📍 Client IP:', clientIp);
 
       // Use Supabase Edge Functions URL (hardcoded for production)
-      console.log('🔧 Configuration:', {
-        supabaseUrl: SUPABASE_URL,
-        apiBaseUrl: API_BASE_URL,
-        applicationId,
-        apiKey: apiKey.substring(0, 20) + '...',
-        callbackUrl: trustedCallbackUrl,
-        channel: authChannel,
-        state: authState,
-        codeChallengeMethod,
-      });
 
       let endpoint = '';
       let payload: any = {};
@@ -475,17 +445,6 @@ function PublicAuthForms({
           break;
       }
 
-      console.log('🚀 Making API request:', {
-        endpoint,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + SUPABASE_ANON_KEY.substring(0, 30) + '...',
-          'apikey': SUPABASE_ANON_KEY.substring(0, 30) + '...',
-          'X-Client-Info': 'authsystem-public-form/1.0'
-        },
-        payload: { ...payload, password: '***' }
-      });
 
       // Llamar a la Edge Function de Supabase
       const response = await fetch(endpoint, {
@@ -499,29 +458,15 @@ function PublicAuthForms({
         body: JSON.stringify(payload)
       });
 
-      console.log('📡 Response received:', {
-        status: response.status,
-        statusText: response.statusText,
-        ok: response.ok,
-        headers: Object.fromEntries(response.headers.entries())
-      });
 
       const result = await response.json();
-      console.log('📥 API Response:', {
-        success: result.success,
-        status: response.status,
-        error: result.error?.code,
-        message: result.error?.message
-      });
 
       // Log the response status for debugging
-      console.log('📊 Response status:', response.status, response.ok);
 
       const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
       const completeSuccessfulLogin = async (loginData: any) => {
         if (loginData?.callback_url) {
-          console.log('🔄 Redirecting to callback URL:', loginData.callback_url);
           setTimeout(() => {
             window.location.href = loginData.callback_url;
           }, 1500);
@@ -530,12 +475,10 @@ function PublicAuthForms({
 
         if (loginData?.access_token) {
           storeTokenResponseAuthData(loginData, applicationId);
-          console.log('💾 Tokens guardados en sessionStorage');
         }
       };
       
       if (!result.success) {
-        console.log('❌ Authentication failed:', result.error);
 
         if (formType === 'login' && result.error?.code === 'MFA_REQUIRED') {
           const challengeId = result.data?.challenge_id;
@@ -656,7 +599,6 @@ function PublicAuthForms({
             });
             return;
           } catch (fallbackError: any) {
-            console.error('❌ MFA setup fallback failed:', fallbackError);
           }
 
           setMessage({
@@ -668,7 +610,6 @@ function PublicAuthForms({
         
         // Show more detailed error for debugging
         if (result.error?.code === 'DATABASE_ERROR' || result.error?.message?.includes('Database error')) {
-          console.error('🔍 Database error details:', result.error);
           setMessage({ 
             type: 'error', 
             text: 'Error de base de datos. Por favor contacta al administrador del sistema.' 
@@ -695,7 +636,6 @@ function PublicAuthForms({
         throw new Error(result.error?.message || 'Error en la autenticación');
       }
       
-      console.log('✅ Authentication successful:', result.data);
       
       // Manejar diferentes tipos de respuesta
       if (formType === 'register' && result.data?.email_verification_required) {

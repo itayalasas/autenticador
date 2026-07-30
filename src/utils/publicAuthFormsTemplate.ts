@@ -154,7 +154,6 @@ function PublicAuthForms({
           setAllowPublicRegistration(meta.allow_public_registration !== false);
         }
       } catch (e) {
-        console.error('Error loading app flag:', e);
       }
     };
     loadAppFlag();
@@ -214,14 +213,11 @@ function PublicAuthForms({
         if (!isMounted) return;
 
         if (result.is_blocked) {
-          console.log('🚫 IP is blocked:', result);
           setIpBlocked(true);
           setBlockedInfo(result.blocked_info);
         } else {
-          console.log('✅ IP is not blocked:', result.ip_address);
         }
       } catch (error) {
-        console.error('❌ Error checking IP status:', error);
         if (isMounted) setIpBlocked(false);
       } finally {
         if (isMounted) setCheckingIP(false);
@@ -238,7 +234,6 @@ function PublicAuthForms({
           }
         }
       } catch (error) {
-        console.error('Error loading custom texts:', error);
       }
 
       // Load roles for register form
@@ -253,7 +248,6 @@ function PublicAuthForms({
             }
           }
         } catch (error) {
-          console.error('Error loading available roles:', error);
         }
       }
     };
@@ -308,7 +302,6 @@ function PublicAuthForms({
     }
 
     const url = \`\${path}?\${params.toString()}\`;
-    console.log('\\ud83d\\udd17 buildNavUrl:', { path, callbackUrl, url });
     return url;
   };
 
@@ -460,20 +453,12 @@ function PublicAuthForms({
 
       // Get client IP first
       const clientIp = await ipService.getClientIP();
-      console.log('📍 Client IP:', clientIp);
 
       // Use Supabase Edge Functions URL (hardcoded for production)
       const supabaseUrl = 'https://sfqtmnncgiqkveaoqckt.supabase.co';
       const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNmcXRtbm5jZ2lxa3ZlYW9xY2t0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4MDEyNDMsImV4cCI6MjA3NTM3NzI0M30.n2yaYrfHDLAFePP1tA3-250P6bgKmf696fYJFHfRZaQ';
       const apiBaseUrl = \`\${supabaseUrl}/functions/v1\`;
 
-      console.log('🔧 Configuration:', {
-        supabaseUrl,
-        apiBaseUrl,
-        applicationId,
-        apiKey: apiKey.substring(0, 20) + '...',
-        callbackUrl
-      });
 
       let endpoint = '';
       let payload: any = {};
@@ -528,17 +513,6 @@ function PublicAuthForms({
           break;
       }
 
-      console.log('🚀 Making API request:', {
-        endpoint,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + supabaseAnonKey.substring(0, 30) + '...',
-          'apikey': supabaseAnonKey.substring(0, 30) + '...',
-          'X-Client-Info': 'authsystem-public-form/1.0'
-        },
-        payload: { ...payload, password: '***' }
-      });
 
       // Llamar a la Edge Function de Supabase
       const response = await fetch(endpoint, {
@@ -552,29 +526,15 @@ function PublicAuthForms({
         body: JSON.stringify(payload)
       });
 
-      console.log('📡 Response received:', {
-        status: response.status,
-        statusText: response.statusText,
-        ok: response.ok,
-        headers: Object.fromEntries(response.headers.entries())
-      });
 
       const result = await response.json();
-      console.log('📥 API Response:', {
-        success: result.success,
-        status: response.status,
-        error: result.error?.code,
-        message: result.error?.message
-      });
 
       // Log the response status for debugging
-      console.log('📊 Response status:', response.status, response.ok);
 
       const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
       const completeSuccessfulLogin = async (loginData: any) => {
         if (loginData?.callback_url) {
-          console.log('🔄 Redirecting to callback URL:', loginData.callback_url);
           setTimeout(() => {
             window.location.href = loginData.callback_url;
           }, 1500);
@@ -583,12 +543,10 @@ function PublicAuthForms({
 
         if (loginData?.access_token) {
           storeAuthSessionFromTokens(loginData);
-          console.log('💾 Tokens guardados en sessionStorage');
         }
       };
 
       if (!result.success) {
-        console.log('❌ Authentication failed:', result.error);
 
         if (formType === 'login' && result.error?.code === 'MFA_REQUIRED') {
           const challengeId = result.data?.challenge_id;
@@ -676,7 +634,6 @@ function PublicAuthForms({
 
         // Show more detailed error for debugging
         if (result.error?.code === 'DATABASE_ERROR' || result.error?.message?.includes('Database error')) {
-          console.error('🔍 Database error details:', result.error);
           setMessage({
             type: 'error',
             text: 'Error de base de datos. Por favor contacta al administrador del sistema.'
@@ -703,7 +660,6 @@ function PublicAuthForms({
         throw new Error(result.error?.message || 'Error en la autenticación');
       }
 
-      console.log('✅ Authentication successful:', result.data);
 
       // Manejar diferentes tipos de respuesta
       if (formType === 'register' && result.data?.email_verification_required) {

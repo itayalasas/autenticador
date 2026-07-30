@@ -48,7 +48,6 @@ export default function FormStylesPrototype() {
 
         // Simulate redirect after success
         setTimeout(() => {
-          console.log('Redirecting to callback URL...');
           // window.location.href = callbackUrl;
         }, 2000);
       } else {

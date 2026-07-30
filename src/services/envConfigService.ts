@@ -85,7 +85,6 @@ class EnvConfigService {
 
   private async fetchConfig(): Promise<void> {
     try {
-      console.log('🔄 Fetching environment configuration from API...');
 
       const response = await fetch(this.getBootstrapUrl(), {
         method: 'GET',
@@ -121,15 +120,10 @@ class EnvConfigService {
         updated_at: payload.updated_at || new Date().toISOString(),
       };
 
-      console.log('✅ Environment configuration loaded successfully');
-      console.log(`📦 Loaded ${Object.keys(window.__ENV__ || {}).length} variables`);
-      console.log('🔑 Variables:', Object.keys(window.__ENV__ || {}).join(', '));
     } catch (error) {
-      console.error('❌ Failed to load environment configuration:', error);
       const fallbackVariables = this.getBuildEnvVariables();
 
       if (Object.keys(fallbackVariables).length > 0) {
-        console.warn('⚠️ Falling back to build-time environment variables');
         this.applyConfigVariables(fallbackVariables);
         this.config = {
           project_name: 'build-fallback',
@@ -145,18 +139,10 @@ class EnvConfigService {
   }
 
   getVariable(key: string): string | undefined {
-    if (!this.loaded) {
-      console.warn(`⚠️ Attempted to access env variable "${key}" before config was loaded`);
-    }
-
     return window.__ENV__?.[key] || (import.meta.env[key] as string | undefined);
   }
 
   getAllVariables(): Record<string, string> {
-    if (!this.loaded) {
-      console.warn('⚠️ Attempted to access all env variables before config was loaded');
-    }
-
     return window.__ENV__ || this.getBuildEnvVariables();
   }
 
@@ -174,7 +160,6 @@ export const envConfigService = EnvConfigService.getInstance();
 export function getEnvVariable(key: string): string {
   const value = envConfigService.getVariable(key);
   if (!value) {
-    console.warn(`⚠️ Environment variable "${key}" not found`);
     return '';
   }
   return value;

@@ -31,7 +31,6 @@ export default function CallbackHandler({ onSuccess, onError }: CallbackHandlerP
   const handleCallback = async () => {
     try {
       const currentUrl = window.location.href;
-      console.log('🔄 Processing callback URL:', currentUrl);
 
       const callbackParams = extractCallbackExchangeParams(currentUrl);
 
@@ -74,12 +73,6 @@ export default function CallbackHandler({ onSuccess, onError }: CallbackHandlerP
         application_id: callbackParams.application_id
       });
 
-      console.log('✅ Authentication data parsed:', {
-        userId: authData.user.id,
-        email: authData.user.email,
-        roles: authData.user.roles,
-        application: authData.application.name
-      });
 
       storeAuthData(authData);
       sessionStorage.setItem(processedKey, '1');
@@ -97,7 +90,6 @@ export default function CallbackHandler({ onSuccess, onError }: CallbackHandlerP
         window.location.replace('/dashboard');
       }, 2000);
     } catch (error: any) {
-      console.error('❌ Callback processing error:', error);
 
       const callbackParams = extractCallbackExchangeParams(window.location.href);
       if (callbackParams) {

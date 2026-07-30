@@ -34,7 +34,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
     const loadApplicationData = async () => {
     try {
       setLoading(true);
-      console.log('Loading application data for:', appId);
       
       // Check if Supabase is properly configured
       const supabaseUrl = getSupabaseUrl();
@@ -44,7 +43,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
           supabaseUrl === 'https://your-project-id.supabase.co' || 
           supabaseKey === 'your_supabase_anon_key_here') {
         
-        console.warn('⚠️ Supabase not configured, using mock data');
         
         // Use mock data when Supabase is not configured
         const mockApp = {
@@ -84,7 +82,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
           branding: mockBranding
         });
         
-        console.log('✅ Mock application data loaded:', mockApp);
         return;
       }
       
@@ -97,10 +94,8 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
           .single();
         
         if (appError || !app) {
-          console.error('Application not found:', appId, appError);
           
           // If application not found, use mock data for development
-          console.warn('⚠️ Application not found in database, using mock data for development');
           
           const mockApp = {
             id: appId,
@@ -137,7 +132,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
             branding: mockBranding
           });
           
-          console.log('✅ Mock application data loaded for development');
           return;
         }
 
@@ -153,11 +147,9 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
           .limit(1);
         
         if (apiKeyError) {
-          console.error('Error loading API keys:', apiKeyError);
           // Use mock API key if database query fails
           setApiKey(fallbackApiKey);
         } else if (!apiKeys || apiKeys.length === 0) {
-          console.warn('No active API keys found for application, using mock key');
           setApiKey(fallbackApiKey);
         } else {
           setApiKey(apiKeys[0].key_hash);
@@ -173,35 +165,20 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
             branding: branding || {}
           };
           setAppData(finalAppData);
-          console.log('✅ Application data set:', {
-            id: finalAppData.id,
-            application_id: finalAppData.application_id,
-            name: finalAppData.name,
-            hasBranding: !!branding
-          });
         } catch (brandingError) {
-          console.warn('Could not load branding, using defaults:', brandingError);
           const finalAppData = {
             ...app,
             branding: {}
           };
           setAppData(finalAppData);
-          console.log('✅ Application data set (no branding):', {
-            id: finalAppData.id,
-            application_id: finalAppData.application_id,
-            name: finalAppData.name
-          });
         }
 
-        console.log('Application loaded:', app);
         
       } catch (supabaseError) {
-        console.error('Supabase connection error:', supabaseError);
         setError('Failed to connect to database. Please check Supabase configuration.');
       }
       
     } catch (error) {
-      console.error('Error loading application:', error);
       setError('Failed to load application');
     } finally {
       setLoading(false);
@@ -253,14 +230,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
     );
   }
 
-  console.log('🎨 Rendering PublicAuthForms with:', {
-    applicationId: appId,
-    internalApplicationId: appData?.id,
-    formType: validFormType,
-    hasApiKey: !!apiKey,
-    hasBranding: !!appData?.branding,
-    appInfo: appData
-  });
 
   return (
     <PublicAuthForms
@@ -270,8 +239,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
       apiKey={apiKey}
       branding={appData?.branding}
       appInfo={appData}
-      onSuccess={(data) => console.log('Auth success:', data)}
-      onError={(error) => console.error('Auth error:', error)}
     />
   );
 }

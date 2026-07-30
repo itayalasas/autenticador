@@ -272,7 +272,6 @@ export default function RegisterTenantForm() {
             setRegistrationRole(null);
           }
         } catch (roleError) {
-          console.warn('Unable to resolve registration role for tenant signup:', roleError);
           setRegistrationRole(null);
         }
 
@@ -355,7 +354,6 @@ export default function RegisterTenantForm() {
           return preferredPlan?.id || null;
         });
       } catch (error) {
-        console.error('Error loading application plans:', error);
         setPlans([]);
         setRegistrationRole(null);
       } finally {

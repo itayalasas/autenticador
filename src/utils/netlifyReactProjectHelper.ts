@@ -155,7 +155,6 @@ async function bootstrap() {
   try {
     await envConfigService.loadConfig();
   } catch (error) {
-    console.warn('No se pudo cargar /get-env. Continuamos con fallback público.', error);
   }
 
   const { default: App } = await import('./App');
@@ -504,15 +503,12 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
     const loadApplicationData = async () => {
       try {
         setLoading(true);
-        console.log('Loading application data for:', appId);
 
         // Get API key from URL first
         const apiKeyFromUrl = searchParams.get('api_key');
         if (apiKeyFromUrl) {
-          console.log('✅ API key from URL:', apiKeyFromUrl.substring(0, 20) + '...');
           setApiKey(apiKeyFromUrl);
         } else {
-          console.warn('⚠️ No API key in URL');
         }
 
         try {
@@ -523,7 +519,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
             .single();
 
           if (appError || !app) {
-            console.error('Application not found:', appId, appError);
             setError('Application not found');
             return;
           }
@@ -535,22 +530,18 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
               branding: branding || {}
             });
           } catch (brandingError) {
-            console.warn('Could not load branding, using defaults:', brandingError);
             setAppData({
               ...app,
               branding: {}
             });
           }
 
-          console.log('Application loaded:', app);
 
         } catch (supabaseError) {
-          console.error('Supabase connection error:', supabaseError);
           setError('Failed to connect to database');
         }
 
       } catch (error) {
-        console.error('Error loading application:', error);
         setError('Failed to load application');
       } finally {
         setLoading(false);
@@ -658,13 +649,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
       const supabaseAnonKey = requireSupabaseAnonKey();
       const apiBaseUrl = \`\${supabaseUrl}/functions/v1\`;
 
-      console.log('🔧 Configuration:', {
-        supabaseUrl,
-        apiBaseUrl,
-        applicationId: appId,
-        apiKey: apiKey?.substring(0, 20) + '...',
-        callbackUrl
-      });
 
       let endpoint = '';
       let payload: any = {};
@@ -719,17 +703,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
           break;
       }
 
-      console.log('🚀 Making API request:', {
-        endpoint,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + supabaseAnonKey.substring(0, 30) + '...',
-          'apikey': supabaseAnonKey.substring(0, 30) + '...',
-          'X-Client-Info': 'authsystem-public-form/1.0'
-        },
-        payload: { ...payload, password: '***' }
-      });
 
       // Make API request to Supabase Edge Functions
       const response = await fetch(endpoint, {
@@ -743,17 +716,11 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
         body: JSON.stringify(payload)
       });
 
-      console.log('📡 Response received:', {
-        status: response.status,
-        statusText: response.statusText,
-        ok: response.ok
-      });
 
       const result = await response.json();
 
       const completeSuccessfulLogin = async (loginData: any) => {
         if (loginData?.callback_url) {
-          console.log('🔄 Redirecting to:', loginData.callback_url);
           setTimeout(() => {
             window.location.href = loginData.callback_url;
           }, 1500);
@@ -796,7 +763,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
 
       return result.data;
     } catch (error: any) {
-      console.error('❌ Auth error:', error);
       throw error;
     }
   };
@@ -807,8 +773,6 @@ export default function PublicAuthRouter({ appId, formType }: PublicAuthRouterPr
       formType={validFormType}
       branding={appData?.branding}
       onSubmit={handleAuthSubmit}
-      onSuccess={(data) => console.log('Auth success:', data)}
-      onError={(error) => console.error('Auth error:', error)}
     />
   );
 }
@@ -1153,14 +1117,11 @@ export const rolesService = {
         .order('display_name');
 
       if (error) {
-        console.error('Error fetching roles from DB:', error);
         throw error;
       }
 
-      console.log('✅ Roles loaded:', data);
       return data || [];
     } catch (error) {
-      console.error('❌ Error fetching roles:', error);
       return [];
     }
   },
@@ -1186,18 +1147,15 @@ export const rolesService = {
           return role.is_default === true || role.name !== 'admin';
         });
 
-        console.log('✅ Roles for registration loaded:', filtered);
         return filtered || [];
       }
 
       if (error) {
-        console.error('Error fetching roles for registration:', error);
         return [];
       }
 
       return [];
     } catch (error) {
-      console.error('❌ Error fetching roles for registration:', error);
       return [];
     }
   }
@@ -1219,7 +1177,6 @@ export const applicationService = {
       if (error) throw error;
       return data;
     } catch (error) {
-      console.error('Error fetching application:', error);
       return null;
     }
   },
@@ -1237,7 +1194,6 @@ export const applicationService = {
       if (error) throw error;
       return !!data;
     } catch (error) {
-      console.error('Error verifying API key:', error);
       return false;
     }
   },
@@ -1253,7 +1209,6 @@ export const applicationService = {
       if (error) throw error;
       return data;
     } catch (error) {
-      console.error('Error fetching branding:', error);
       return null;
     }
   },
@@ -1269,7 +1224,6 @@ export const applicationService = {
       if (error) throw error;
       return data;
     } catch (error) {
-      console.error('Error fetching branding:', error);
       return null;
     }
   }
@@ -1282,10 +1236,8 @@ export const applicationService = {
     try {
       const ipResponse = await fetch('https://api.ipify.org?format=json');
       const { ip } = await ipResponse.json();
-      console.log('Detected client IP:', ip);
       return ip;
     } catch (error) {
-      console.error('Error getting client IP:', error);
       return '0.0.0.0';
     }
   }
@@ -1375,7 +1327,6 @@ class EnvConfigService {
         this.applyVariables(variables as Record<string, string>);
         return;
       } catch (error) {
-        console.warn('No se pudo cargar configuración desde', url, error);
       }
     }
 
@@ -1529,13 +1480,6 @@ Todas las rutas requieren los parámetros \`app_id\` y \`api_key\` en la URL.
   // ============================================
   // ALL FILES READY - Complete React application
   // ============================================
-  console.log(`✅ Generated ${Object.keys(files).length} files for complete React app`);
-  console.log(`   - React components with branding support`);
-  console.log(`   - Service layer for API calls`);
-  console.log(`   - Supabase client configuration`);
-  console.log(`   - TypeScript configuration`);
-  console.log(`   - Vite build configuration`);
-  console.log(`   - Netlify deployment configuration`);
 
   return files;
 }

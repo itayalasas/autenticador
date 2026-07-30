@@ -99,7 +99,6 @@ async function initializeApp() {
       </StrictMode>
     );
   } catch (error) {
-    console.error('Failed to initialize app:', error);
     renderErrorState(error as Error);
   }
 }

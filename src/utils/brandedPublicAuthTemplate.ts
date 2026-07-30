@@ -87,7 +87,6 @@ export default function BrandedPublicAuth({
           setAllowPublicRegistration(meta.allow_public_registration !== false);
         }
       } catch (e) {
-        console.error('Error loading app flag:', e);
       }
     };
     loadAppFlag();
@@ -98,7 +97,6 @@ export default function BrandedPublicAuth({
     const loadRoles = async () => {
       if (formType === 'register' && applicationId) {
         try {
-          console.log('📋 Loading roles for application:', applicationId);
 
           // Get internal app ID first
           const { createClient } = await import('@supabase/supabase-js');
@@ -115,12 +113,10 @@ export default function BrandedPublicAuth({
             .maybeSingle();
 
           if (appError || !app) {
-            console.warn('⚠️ Could not find application:', applicationId);
             return;
           }
 
           const internalAppId = app.id;
-          console.log('📋 Internal app ID:', internalAppId);
 
           // Load roles
           const { data: roles, error: rolesError } = await supabase
@@ -130,21 +126,17 @@ export default function BrandedPublicAuth({
             .order('display_name');
 
           if (rolesError) {
-            console.error('❌ Error loading roles:', rolesError);
             return;
           }
 
-          console.log('✅ Roles loaded:', roles);
           setAvailableRoles(roles || []);
 
           // Set default role if exists
           const defaultRole = roles?.find((r: any) => r.is_default);
           if (defaultRole) {
             setSelectedRole(defaultRole.name);
-            console.log('✅ Default role set:', defaultRole.name);
           }
         } catch (error) {
-          console.error('❌ Error in loadRoles:', error);
         }
       }
     };
@@ -541,7 +533,6 @@ export default function BrandedPublicAuth({
           }
           return;
         } catch (fallbackError: any) {
-          console.error('MFA setup fallback failed:', fallbackError);
           setErrorMessage(fallbackError?.message || errorText);
         }
       } else if (errorCode === 'MFA_REQUIRED') {

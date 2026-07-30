@@ -10,11 +10,9 @@ export const ipService = {
 
       if (response.ok) {
         const data = await response.json();
-        console.log('Detected client IP:', data.ip);
         return data.ip;
       }
     } catch (error) {
-      console.error('Error detecting client IP:', error);
     }
 
     return '0.0.0.0';
@@ -33,7 +31,6 @@ export const ipService = {
       const supabaseAnonKey = getEnvVariable('VITE_SUPABASE_ANON_KEY');
       const apiUrl = `${supabaseUrl}/functions/v1/check-ip-status`;
 
-      console.log('🔍 Checking IP status for:', ipToCheck);
 
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -45,10 +42,8 @@ export const ipService = {
         body: JSON.stringify({ client_ip: ipToCheck })
       });
 
-      console.log('📡 Response status:', response.status);
 
       const result = await response.json();
-      console.log('📦 Response data:', result);
 
       if (result.success) {
         return {
@@ -64,7 +59,6 @@ export const ipService = {
         ip_address: ipToCheck
       };
     } catch (error) {
-      console.error('❌ Error checking IP status:', error);
       return {
         is_blocked: false,
         blocked_info: null,

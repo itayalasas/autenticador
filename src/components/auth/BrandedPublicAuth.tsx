@@ -379,7 +379,6 @@ export default function BrandedPublicAuth({
           shouldNotifyError = false;
           return;
         } catch (fallbackError: any) {
-          console.error('MFA setup fallback failed:', fallbackError);
           setRuntimeErrorText(fallbackError?.message || errorMessage);
         }
       } else if (errorCode === 'MFA_REQUIRED') {
