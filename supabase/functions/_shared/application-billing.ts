@@ -101,7 +101,7 @@ function getPlanEntitlementFeatures(plan: ApplicationBillingPlanRecord) {
     : [];
 }
 
-function normalizeEntitlements(plan: ApplicationBillingPlanRecord) {
+export function normalizeEntitlements(plan: ApplicationBillingPlanRecord) {
   const raw = plan.entitlements && typeof plan.entitlements === 'object'
     ? { ...plan.entitlements }
     : {};
@@ -241,7 +241,45 @@ export async function getActivePlans(supabase: any, applicationId: string) {
   return (data || []) as ApplicationBillingPlanRecord[];
 }
 
-async function getScopedSubscription(
+// Resuelve el plan efectivo (y sus entitlements) para un scope
+// tenant/app_user dado, sin depender de un login completo (a diferencia de
+// resolveApplicationBillingAccess, que requiere un appUser real). Si no hay
+// suscripcion activa cae al plan por defecto de la aplicacion, igual que el
+// resto del sistema. Usado por application-usage-limits y wallet-debit para
+// leer limites/precios de excedente server-a-server.
+export async function resolveScopedPlanEntitlements(params: {
+  supabase: any;
+  application: Record<string, any>;
+  tenantId?: string | null;
+  appUserId?: string | null;
+  environmentName?: string | null;
+}) {
+  const { supabase, application, tenantId, appUserId, environmentName } = params;
+  const normalizedEnvironment = normalizeBillingEnvironmentName(environmentName);
+
+  const subscription = await getScopedSubscription(
+    supabase,
+    application.id,
+    tenantId,
+    appUserId,
+    normalizedEnvironment,
+  );
+
+  let plan: ApplicationBillingPlanRecord | null = subscription?.application_billing_plans || null;
+
+  if (!plan) {
+    const activePlans = await getActivePlans(supabase, application.id);
+    plan = activePlans.find((candidate) => candidate.is_default) || null;
+  }
+
+  return {
+    subscription,
+    plan,
+    entitlements: plan ? normalizeEntitlements(plan) : { features: [] as ReturnType<typeof normalizeEntitlements>['features'] },
+  };
+}
+
+export async function getScopedSubscription(
   supabase: any,
   applicationId: string,
   tenantId?: string | null,

@@ -1,7 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
 import { syncMercadoPagoSubscriptionById } from '../_shared/application-billing.ts';
-import { normalizeBillingEnvironmentName, normalizeMercadoPagoConfig } from '../_shared/mercadopago.ts';
+import { mercadoPagoRequest, normalizeBillingEnvironmentName, normalizeMercadoPagoConfig } from '../_shared/mercadopago.ts';
+import { creditWalletFromPayment } from '../_shared/wallet.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -100,6 +101,117 @@ Deno.serve(async (req) => {
           message: 'No se encontro data.id en la notificacion',
         },
       }, 400);
+    }
+
+    if (topic === 'payment') {
+      const appPublicId = String(url.searchParams.get('app') || '').trim();
+      const envParam = String(url.searchParams.get('env') || '').trim() || null;
+
+      if (!appPublicId) {
+        return jsonResponse({
+          success: true,
+          data: {
+            ignored: true,
+            reason: 'Notificacion de pago sin parametro app en la notification_url, no podemos identificar la aplicacion',
+            topic,
+            data_id: dataId,
+          },
+        }, 202);
+      }
+
+      const { data: paymentApplication, error: paymentApplicationError } = await supabase
+        .from('applications')
+        .select('id, application_id, name, domain, billing_config')
+        .eq('application_id', appPublicId)
+        .maybeSingle();
+
+      if (paymentApplicationError || !paymentApplication) {
+        return jsonResponse({
+          success: false,
+          error: { code: 'APPLICATION_NOT_FOUND', message: 'No encontramos la aplicacion de la notificacion de pago' },
+        }, 404);
+      }
+
+      const paymentBillingConfig = normalizeMercadoPagoConfig(paymentApplication.billing_config || {}, envParam);
+      const paymentSignatureValid = await verifyWebhookSignature({
+        secret: paymentBillingConfig.webhookSecret,
+        request: req,
+        dataId,
+      });
+
+      if (paymentBillingConfig.webhookSecret && !paymentSignatureValid) {
+        return jsonResponse({
+          success: false,
+          error: { code: 'INVALID_SIGNATURE', message: 'La firma del webhook de Mercado Pago no es valida' },
+        }, 401);
+      }
+
+      if (!paymentBillingConfig.accessToken) {
+        return jsonResponse({
+          success: true,
+          data: {
+            ignored: true,
+            reason: 'La aplicacion no tiene access token de Mercado Pago configurado para este ambiente',
+            topic,
+            data_id: dataId,
+          },
+        }, 202);
+      }
+
+      const payment = await mercadoPagoRequest(paymentBillingConfig, 'GET', `/v1/payments/${dataId}`);
+      const externalReference = String(payment?.external_reference || '').trim();
+
+      if (!externalReference.startsWith('wallet_topup:')) {
+        // No es una recarga de billetera (podria ser un pago de otro tipo
+        // en la misma cuenta) - lo ignoramos sin error.
+        return jsonResponse({
+          success: true,
+          data: {
+            ignored: true,
+            reason: 'El pago no corresponde a una sesion de recarga de billetera',
+            topic,
+            data_id: dataId,
+          },
+        }, 202);
+      }
+
+      const { data: topupSession, error: topupSessionError } = await supabase
+        .from('wallet_topup_sessions')
+        .select('*')
+        .eq('external_reference', externalReference)
+        .eq('application_id', paymentApplication.id)
+        .maybeSingle();
+
+      if (topupSessionError || !topupSession) {
+        return jsonResponse({
+          success: true,
+          data: {
+            ignored: true,
+            reason: 'No encontramos la sesion de recarga asociada a este pago',
+            topic,
+            data_id: dataId,
+          },
+        }, 202);
+      }
+
+      const { session: syncedSession, transaction } = await creditWalletFromPayment({
+        supabase,
+        session: topupSession,
+        payment,
+        applicationName: paymentApplication.name,
+        applicationDomain: paymentApplication.domain,
+      });
+
+      return jsonResponse({
+        success: true,
+        data: {
+          topic,
+          data_id: dataId,
+          wallet_topup_session_id: syncedSession.id,
+          status: syncedSession.status,
+          credited: Boolean(transaction),
+        },
+      });
     }
 
     const { data: checkoutSession } = await supabase

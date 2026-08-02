@@ -12,6 +12,33 @@ export interface EditableApplicationBillingPlan extends Partial<ApplicationBilli
   application_id: string;
 }
 
+export interface ApplicationWalletBalance {
+  id: string;
+  application_id: string;
+  tenant_id: string | null;
+  app_user_id: string | null;
+  balance: number;
+  currency: string;
+  updated_at: string;
+  created_at: string;
+  tenants?: { id: string; name: string; slug: string } | null;
+  app_users?: { id: string; name: string; email: string } | null;
+}
+
+export interface ApplicationWalletTransaction {
+  id: string;
+  wallet_balance_id: string;
+  type: 'topup' | 'debit' | 'refund' | 'adjustment';
+  amount: number;
+  currency: string;
+  balance_after: number;
+  reference: string | null;
+  feature_code: string | null;
+  provider: string | null;
+  status: string;
+  created_at: string;
+}
+
 export interface PlanEditorFeatureValue {
   feature_id?: string;
   code: string;
@@ -379,6 +406,41 @@ export const applicationBillingService = {
 
     if (error) throw error;
     return (data || []) as ApplicationPlanSubscription[];
+  },
+
+  async getWalletBalances(applicationId: string): Promise<ApplicationWalletBalance[]> {
+    const { data, error } = await supabase
+      .from('wallet_balances')
+      .select(`
+        *,
+        tenants(
+          id,
+          name,
+          slug
+        ),
+        app_users(
+          id,
+          name,
+          email
+        )
+      `)
+      .eq('application_id', applicationId)
+      .order('updated_at', { ascending: false });
+
+    if (error) throw error;
+    return (data || []) as ApplicationWalletBalance[];
+  },
+
+  async getWalletTransactions(walletBalanceId: string, limit = 20): Promise<ApplicationWalletTransaction[]> {
+    const { data, error } = await supabase
+      .from('wallet_transactions')
+      .select('*')
+      .eq('wallet_balance_id', walletBalanceId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+    return (data || []) as ApplicationWalletTransaction[];
   },
 
   async savePlan(plan: EditableApplicationBillingPlan, editorValues: PlanEditorValues) {

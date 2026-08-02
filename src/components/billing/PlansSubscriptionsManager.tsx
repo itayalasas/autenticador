@@ -2,20 +2,53 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   CreditCard,
   RefreshCw,
   Settings,
   Shield,
   Users,
+  Wallet,
 } from 'lucide-react';
 import { applicationService } from '../../services/applicationService';
-import { applicationBillingService } from '../../services/applicationBillingService';
+import {
+  applicationBillingService,
+  ApplicationWalletBalance,
+  ApplicationWalletTransaction,
+} from '../../services/applicationBillingService';
 import { ApplicationPlanSubscription } from '../../types';
 import { useNotification } from '../../hooks/useNotification';
 import NotificationModal from '../ui/NotificationModal';
 import ApplicationPlansManager from '../authentication/ApplicationPlansManager';
 
-type BillingTab = 'plans' | 'subscriptions';
+type BillingTab = 'plans' | 'subscriptions' | 'wallet';
+
+const WALLET_TRANSACTION_LABELS: Record<string, string> = {
+  topup: 'Recarga',
+  debit: 'Débito por excedente',
+  refund: 'Reembolso',
+  adjustment: 'Ajuste manual',
+};
+
+const WALLET_TRANSACTION_STYLES: Record<string, string> = {
+  topup: 'bg-emerald-100 text-emerald-800',
+  debit: 'bg-rose-100 text-rose-800',
+  refund: 'bg-sky-100 text-sky-800',
+  adjustment: 'bg-slate-100 text-slate-700',
+};
+
+function getWalletOwner(wallet: ApplicationWalletBalance) {
+  if (wallet.tenants?.name) {
+    return { title: wallet.tenants.name, scope: 'Tenant' };
+  }
+
+  if (wallet.app_users?.name || wallet.app_users?.email) {
+    return { title: wallet.app_users?.name || wallet.app_users?.email || 'Usuario final', scope: 'Usuario final' };
+  }
+
+  return { title: 'Billetera sin identificar', scope: 'Sin scope asociado' };
+}
 
 const STATUS_STYLES: Record<string, string> = {
   active: 'bg-emerald-100 text-emerald-800',
@@ -72,6 +105,12 @@ export default function PlansSubscriptionsManager() {
   const [subscriptionsLoading, setSubscriptionsLoading] = useState(false);
   const [subscriptions, setSubscriptions] = useState<ApplicationPlanSubscription[]>([]);
   const [activeTab, setActiveTab] = useState<BillingTab>('plans');
+
+  const [wallets, setWallets] = useState<ApplicationWalletBalance[]>([]);
+  const [walletsLoading, setWalletsLoading] = useState(false);
+  const [expandedWalletId, setExpandedWalletId] = useState<string | null>(null);
+  const [walletTransactions, setWalletTransactions] = useState<Record<string, ApplicationWalletTransaction[]>>({});
+  const [transactionsLoadingId, setTransactionsLoadingId] = useState<string | null>(null);
 
   const {
     notification,
@@ -146,6 +185,49 @@ export default function PlansSubscriptionsManager() {
     }
   };
 
+  const loadWallets = async (applicationId: string) => {
+    try {
+      setWalletsLoading(true);
+      setExpandedWalletId(null);
+      setWalletTransactions({});
+      const loadedWallets = await applicationBillingService.getWalletBalances(applicationId);
+      setWallets(loadedWallets);
+    } catch (error: any) {
+      console.error('Error loading wallet balances:', error);
+      showError(
+        'No pudimos cargar las billeteras',
+        error?.message || 'Ocurrió un error al consultar el saldo de billetera de la aplicación.'
+      );
+    } finally {
+      setWalletsLoading(false);
+    }
+  };
+
+  const toggleWalletTransactions = async (wallet: ApplicationWalletBalance) => {
+    if (expandedWalletId === wallet.id) {
+      setExpandedWalletId(null);
+      return;
+    }
+
+    setExpandedWalletId(wallet.id);
+
+    if (walletTransactions[wallet.id]) return;
+
+    try {
+      setTransactionsLoadingId(wallet.id);
+      const transactions = await applicationBillingService.getWalletTransactions(wallet.id);
+      setWalletTransactions((previous) => ({ ...previous, [wallet.id]: transactions }));
+    } catch (error: any) {
+      console.error('Error loading wallet transactions:', error);
+      showError(
+        'No pudimos cargar los movimientos',
+        error?.message || 'Ocurrió un error al consultar los movimientos de esta billetera.'
+      );
+    } finally {
+      setTransactionsLoadingId(null);
+    }
+  };
+
   useEffect(() => {
     void loadApplications();
   }, []);
@@ -154,6 +236,7 @@ export default function PlansSubscriptionsManager() {
     if (!selectedApp) return;
     sessionStorage.setItem('selectedAppId', selectedApp);
     void loadSubscriptions(selectedApp);
+    void loadWallets(selectedApp);
   }, [selectedApp]);
 
   return (
@@ -233,6 +316,18 @@ export default function PlansSubscriptionsManager() {
               <Users className="h-4 w-4" />
               Suscripciones
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('wallet')}
+              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                activeTab === 'wallet'
+                  ? 'bg-slate-900 text-white'
+                  : 'border border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+              }`}
+            >
+              <Wallet className="h-4 w-4" />
+              Billetera
+            </button>
           </div>
         </div>
 
@@ -276,6 +371,135 @@ export default function PlansSubscriptionsManager() {
           }}
           onError={showError}
         />
+      ) : activeTab === 'wallet' ? (
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="max-w-2xl">
+                <h3 className="text-xl font-semibold text-slate-900">Billeteras de crédito prepago</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Saldo prepago por tenant o usuario, cargado vía Mercado Pago y consumido automáticamente
+                  para cubrir excedentes fuera del plan contratado.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => void loadWallets(selectedApp)}
+                disabled={walletsLoading}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <RefreshCw className={`h-4 w-4 ${walletsLoading ? 'animate-spin' : ''}`} />
+                {walletsLoading ? 'Actualizando...' : 'Actualizar'}
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            {walletsLoading ? (
+              <div className="flex items-center gap-3 px-6 py-8 text-sm text-slate-600">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+                Cargando billeteras de la aplicación...
+              </div>
+            ) : wallets.length === 0 ? (
+              <div className="px-6 py-10 text-center">
+                <Wallet className="mx-auto h-10 w-10 text-slate-300" />
+                <h4 className="mt-4 text-lg font-semibold text-slate-900">Todavía no hay billeteras con saldo</h4>
+                <p className="mt-2 text-sm text-slate-600">
+                  Cuando un tenant o usuario cargue saldo por primera vez, va a aparecer acá.
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {wallets.map((wallet) => {
+                  const owner = getWalletOwner(wallet);
+                  const isExpanded = expandedWalletId === wallet.id;
+                  const transactions = walletTransactions[wallet.id] || [];
+
+                  return (
+                    <div key={wallet.id}>
+                      <button
+                        type="button"
+                        onClick={() => void toggleWalletTransactions(wallet)}
+                        className="flex w-full items-center justify-between gap-4 px-6 py-4 text-left transition hover:bg-slate-50"
+                      >
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">{owner.title}</p>
+                          <span className="mt-1 inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                            {owner.scope}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Saldo</p>
+                            <p className="text-lg font-bold text-slate-900">
+                              {wallet.currency} {Number(wallet.balance || 0).toLocaleString('es-UY')}
+                            </p>
+                          </div>
+                          {isExpanded ? (
+                            <ChevronUp className="h-5 w-5 text-slate-400" />
+                          ) : (
+                            <ChevronDown className="h-5 w-5 text-slate-400" />
+                          )}
+                        </div>
+                      </button>
+
+                      {isExpanded && (
+                        <div className="bg-slate-50 px-6 py-4">
+                          {transactionsLoadingId === wallet.id ? (
+                            <div className="flex items-center gap-3 py-4 text-sm text-slate-600">
+                              <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+                              Cargando movimientos...
+                            </div>
+                          ) : transactions.length === 0 ? (
+                            <p className="py-4 text-sm text-slate-500">Todavía no hay movimientos registrados.</p>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="min-w-full divide-y divide-slate-200">
+                                <thead>
+                                  <tr>
+                                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Tipo</th>
+                                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Monto</th>
+                                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Saldo resultante</th>
+                                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Referencia</th>
+                                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Fecha</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                  {transactions.map((transaction) => (
+                                    <tr key={transaction.id}>
+                                      <td className="px-3 py-2">
+                                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${WALLET_TRANSACTION_STYLES[transaction.type] || 'bg-slate-100 text-slate-700'}`}>
+                                          {WALLET_TRANSACTION_LABELS[transaction.type] || transaction.type}
+                                        </span>
+                                      </td>
+                                      <td className="px-3 py-2 text-sm font-semibold text-slate-900">
+                                        {transaction.type === 'debit' ? '-' : '+'}{transaction.currency} {Number(transaction.amount || 0).toLocaleString('es-UY')}
+                                      </td>
+                                      <td className="px-3 py-2 text-sm text-slate-600">
+                                        {transaction.currency} {Number(transaction.balance_after || 0).toLocaleString('es-UY')}
+                                      </td>
+                                      <td className="px-3 py-2 text-sm text-slate-500">
+                                        {transaction.feature_code || transaction.reference || '—'}
+                                      </td>
+                                      <td className="px-3 py-2 text-sm text-slate-500">
+                                        {formatDate(transaction.created_at)}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
       ) : (
         <div className="space-y-6">
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
