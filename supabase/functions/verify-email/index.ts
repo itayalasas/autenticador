@@ -260,6 +260,9 @@ Deno.serve(async (req: Request) => {
     const storedRedirectUri = typeof verificationContext.redirect_uri === 'string'
       ? verificationContext.redirect_uri.trim()
       : null;
+    const storedApiKey = typeof verificationContext.api_key === 'string'
+      ? verificationContext.api_key.trim()
+      : null;
 
     let publicKeyQuery = supabase
       .from('api_keys')
@@ -290,7 +293,7 @@ Deno.serve(async (req: Request) => {
       publicKey = fallbackPublicKey.data;
     }
 
-    const publicApiKey = publicKey?.key ?? publicKey?.key_hash ?? null;
+    const publicApiKey = storedApiKey || publicKey?.key || publicKey?.key_hash || null;
     const applicationSlug = application?.application_id ?? (user as any)?.applications?.application_id ?? null;
     const resolvedAuthUrl = await resolveApplicationAuthUrl(
       supabase,

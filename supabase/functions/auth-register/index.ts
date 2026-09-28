@@ -136,6 +136,27 @@ async function sendExternalConfirmationEmail(params: {
   });
 }
 
+function buildVerificationPendingRedirectUrl(
+  callbackUrl: string | null,
+  fallbackBaseUrl: string | null | undefined,
+): string {
+  const normalizedCallback = normalizeUrl(callbackUrl);
+
+  if (normalizedCallback) {
+    try {
+      const url = new URL(normalizedCallback);
+      url.search = '';
+      url.hash = '';
+      url.pathname = url.pathname.replace(/\/callback\/?$/, '') || '/';
+      return normalizeUrl(url.toString());
+    } catch {
+      return normalizedCallback.replace(/\/callback\/?$/, '');
+    }
+  }
+
+  return normalizeUrl(fallbackBaseUrl || '');
+}
+
 async function sendAdminNewUserNotification(params: {
   adminEmail: string;
   userName: string;
@@ -1495,6 +1516,7 @@ Deno.serve(async (req) => {
         metadata: {
           auth_context: {
             application_id,
+            api_key,
             environment: verificationEnvironment,
             redirect_uri: verificationCallbackUrl,
             channel: authChannel,
@@ -1588,17 +1610,16 @@ Deno.serve(async (req) => {
       };
       
       if (verificationCallbackUrl && authChannel === 'web') {
-        const verifyParams = new URLSearchParams({
-          user_id: newUser.id,
-          email: newUser.email,
-          state: 'email_verification_required',
-          message: 'Por favor verifica tu email para continuar'
-        });
-        
-        response.data.callback_url = buildRedirectUrl(
-          verificationCallbackUrl.replace(/\/callback\/?$/, '/verify-email'),
-          Object.fromEntries(verifyParams.entries())
+        const verificationPendingRedirectUrl = buildVerificationPendingRedirectUrl(
+          verificationCallbackUrl,
+          application.domain || authBaseUrl,
         );
+
+        // callback_url stays as a compatibility alias for previously deployed
+        // public forms. It intentionally returns to the application's base URL,
+        // never to the login form while the email remains unverified.
+        response.data.verification_pending_redirect_url = verificationPendingRedirectUrl || null;
+        response.data.callback_url = verificationPendingRedirectUrl || null;
       }
       
       return new Response(
