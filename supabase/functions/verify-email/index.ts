@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'npm:@supabase/supabase-js@2.43.2';
-import { resolveApplicationAuthUrl } from '../_shared/application-auth-url.ts';
+import { buildRedirectUrl, resolveApplicationAuthUrl, resolveTrustedApplicationCallbackUrl } from '../_shared/application-auth-url.ts';
 import { resolveNotificationConfig, sendTemplatedEmail } from '../_shared/email-notifications.ts';
 
 const corsHeaders = {
@@ -102,7 +102,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: tokenRow, error: tokenErr } = await supabase
       .from('email_verification_tokens')
-      .select('id, app_user_id, expires_at, used_at, created_at')
+      .select('id, app_user_id, expires_at, used_at, created_at, metadata')
       .eq('token', token)
       .maybeSingle();
 
@@ -248,18 +248,72 @@ Deno.serve(async (req: Request) => {
       .eq('id', user.application_id)
       .maybeSingle();
 
-    const { data: publicKey } = await supabase
+    const verificationContext =
+      tokenRow.metadata && typeof tokenRow.metadata === 'object' &&
+      (tokenRow.metadata as Record<string, any>).auth_context &&
+      typeof (tokenRow.metadata as Record<string, any>).auth_context === 'object'
+        ? (tokenRow.metadata as Record<string, any>).auth_context as Record<string, any>
+        : {};
+    const verificationEnvironment = typeof verificationContext.environment === 'string'
+      ? verificationContext.environment.trim().toLowerCase()
+      : null;
+    const storedRedirectUri = typeof verificationContext.redirect_uri === 'string'
+      ? verificationContext.redirect_uri.trim()
+      : null;
+
+    let publicKeyQuery = supabase
       .from('api_keys')
       .select('key, key_hash, environment')
       .eq('application_id', user.application_id)
       .eq('is_public', true)
       .eq('is_active', true)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
+      .order('created_at', { ascending: true });
+
+    if (verificationEnvironment) {
+      publicKeyQuery = publicKeyQuery.eq('environment', verificationEnvironment);
+    }
+
+    let { data: publicKey } = await publicKeyQuery.limit(1).maybeSingle();
+
+    // Old verification tokens have no context. Keep them working with the
+    // existing first active public key instead of failing the confirmation.
+    if (!publicKey && verificationEnvironment) {
+      const fallbackPublicKey = await supabase
+        .from('api_keys')
+        .select('key, key_hash, environment')
+        .eq('application_id', user.application_id)
+        .eq('is_public', true)
+        .eq('is_active', true)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      publicKey = fallbackPublicKey.data;
+    }
 
     const publicApiKey = publicKey?.key ?? publicKey?.key_hash ?? null;
     const applicationSlug = application?.application_id ?? (user as any)?.applications?.application_id ?? null;
+    const resolvedAuthUrl = await resolveApplicationAuthUrl(
+      supabase,
+      user.application_id,
+      verificationEnvironment || publicKey?.environment || null,
+    );
+    const trustedRedirectUri = resolveTrustedApplicationCallbackUrl({
+      requestedCallbackUrl: storedRedirectUri,
+      configuredCallbackUrl: resolvedAuthUrl.callbackUrl,
+      configuredBaseUrl: resolvedAuthUrl.baseUrl,
+      applicationDomain: application?.domain || null,
+      applicationMetadata: application?.metadata || null,
+      channel: 'web',
+      environmentName: verificationEnvironment || resolvedAuthUrl.environmentName || publicKey?.environment || null,
+    });
+    const loginBaseUrl = resolvedAuthUrl.baseUrl || application?.domain || '';
+    const loginUrl = loginBaseUrl
+      ? buildRedirectUrl(`${loginBaseUrl.replace(/\/$/, '')}/login`, {
+          app_id: applicationSlug || null,
+          redirect_uri: trustedRedirectUri || null,
+          api_key: publicApiKey,
+        })
+      : '';
 
     try {
       const emailConfig = application?.email_config || {};
@@ -292,17 +346,6 @@ Deno.serve(async (req: Request) => {
         if (!welcomeNotification.apiUrl || !welcomeNotification.apiKey) {
           throw new Error('Missing external email API configuration for welcome email');
         }
-
-        const { baseUrl } = await resolveApplicationAuthUrl(
-          supabase,
-          user.application_id,
-          publicKey?.environment || null
-        );
-
-        const loginBaseUrl = baseUrl || application?.domain || '';
-        const loginUrl = loginBaseUrl
-          ? `${loginBaseUrl.replace(/\/$/, '')}/login?app_id=${encodeURIComponent(applicationSlug || '')}${publicApiKey ? `&api_key=${encodeURIComponent(publicApiKey)}` : ''}`
-          : '';
 
         const requestedTemplate = welcomeNotification.templateName || 'welcome-authsystem';
         const attemptedTemplates = Array.from(
@@ -410,7 +453,10 @@ Deno.serve(async (req: Request) => {
           status: 'active',
           verified_at: verifiedAt,
           application_id: applicationSlug,
-          api_key: publicApiKey
+          api_key: publicApiKey,
+          environment: verificationEnvironment || resolvedAuthUrl.environmentName || publicKey?.environment || null,
+          redirect_uri: trustedRedirectUri || null,
+          login_url: loginUrl || null,
         }
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

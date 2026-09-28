@@ -6,6 +6,7 @@
 
 import { resolveScopedPlanEntitlements } from './application-billing.ts';
 import { normalizeUrl } from './application-auth-url.ts';
+import { resolveConfiguredValue, sendTemplatedEmail } from './email-notifications.ts';
 
 export interface WalletTopupSessionRecord {
   id: string;
@@ -22,14 +23,12 @@ export interface WalletTopupSessionRecord {
   payer_email?: string | null;
 }
 
-async function getSendCraftBaseUrl(): Promise<string> {
-  return (Deno.env.get('SENDCRAFT_FUNCTIONS_BASE_URL') || '').trim().replace(/\/+$/, '');
-}
-
-// Notifica la recarga acreditada mandando un email via SendCraft (que es
-// quien tiene el sistema de templates y el proveedor de correo configurado).
-// Falla en silencio: un error de notificacion nunca debe tirar abajo la
-// acreditacion del saldo, que ya quedo aplicada en la base cuando esto corre.
+// Notifica la recarga acreditada mandando un email via el mismo API de
+// email externo que ya usan auth-reset-password/verify-email (EMAIL_API_URL
+// + EMAIL_API_KEY, con fallback a EXTERNAL_EMAIL_API_URL/KEY) en vez de
+// inventar secrets nuevos. Falla en silencio: un error de notificacion nunca
+// debe tirar abajo la acreditacion del saldo, que ya quedo aplicada en la
+// base cuando esto corre.
 async function notifyWalletTopupSuccess(params: {
   supabase: any;
   session: WalletTopupSessionRecord;
@@ -39,16 +38,32 @@ async function notifyWalletTopupSuccess(params: {
 }) {
   const { supabase, session, transaction, applicationName, applicationDomain } = params;
   const recipientEmail = String(session.payer_email || '').trim();
-  if (!recipientEmail) return;
+  if (!recipientEmail) {
+    console.warn('wallet_topup_success: sin recipientEmail, no se notifica', { session_id: session.id });
+    return;
+  }
 
   // El dominio de la aplicacion (applications.domain) es dinamico por
   // aplicacion, a diferencia de hardcodear "sendcraft.net" en el template.
   const normalizedDomain = normalizeUrl(applicationDomain || '');
   const dashboardUrl = normalizedDomain ? `${normalizedDomain}/dashboard` : null;
 
-  const sendCraftBaseUrl = await getSendCraftBaseUrl();
-  const sendCraftApiKey = (Deno.env.get('SENDCRAFT_API_KEY') || '').trim();
-  if (!sendCraftBaseUrl || !sendCraftApiKey) return;
+  const apiUrl = resolveConfiguredValue<string>([
+    { source: 'env.EMAIL_API_URL', value: Deno.env.get('EMAIL_API_URL') },
+    { source: 'env.EXTERNAL_EMAIL_API_URL', value: Deno.env.get('EXTERNAL_EMAIL_API_URL') },
+  ]);
+  const apiKey = resolveConfiguredValue<string>([
+    { source: 'env.EMAIL_API_KEY', value: Deno.env.get('EMAIL_API_KEY') },
+    { source: 'env.EXTERNAL_EMAIL_API_KEY', value: Deno.env.get('EXTERNAL_EMAIL_API_KEY') },
+  ]);
+
+  if (!apiUrl.value || !apiKey.value) {
+    console.warn('wallet_topup_success: falta EMAIL_API_URL o EMAIL_API_KEY, no se notifica', {
+      has_api_url: Boolean(apiUrl.value),
+      has_api_key: Boolean(apiKey.value),
+    });
+    return;
+  }
 
   let planName: string | null = null;
   try {
@@ -65,45 +80,28 @@ async function notifyWalletTopupSuccess(params: {
   }
 
   try {
-    const response = await fetch(`${sendCraftBaseUrl}/send-email`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': sendCraftApiKey,
+    await sendTemplatedEmail({
+      apiUrl: apiUrl.value,
+      apiKey: apiKey.value,
+      templateName: 'wallet_topup_success',
+      recipientEmail,
+      data: {
+        application_name: applicationName || 'SendCraft',
+        plan_name: planName,
+        amount: Number(session.amount),
+        currency: session.currency,
+        new_balance: transaction?.balance_after != null ? Number(transaction.balance_after) : null,
+        topup_date: new Date().toISOString(),
+        topup_date_formatted: new Date().toLocaleDateString('es-UY', {
+          year: 'numeric', month: 'long', day: 'numeric',
+        }),
+        dashboard_url: dashboardUrl,
       },
-      body: JSON.stringify({
-        recipient_email: recipientEmail,
-        template_name: 'wallet_topup_success',
-        data: {
-          application_name: applicationName || 'SendCraft',
-          plan_name: planName,
-          amount: Number(session.amount),
-          currency: session.currency,
-          new_balance: transaction?.balance_after != null ? Number(transaction.balance_after) : null,
-          topup_date: new Date().toISOString(),
-          topup_date_formatted: new Date().toLocaleDateString('es-UY', {
-            year: 'numeric', month: 'long', day: 'numeric',
-          }),
-          dashboard_url: dashboardUrl,
-        },
-      }),
     });
 
-    const responseBody = await response.text().catch(() => '');
-
-    if (!response.ok) {
-      console.warn('wallet_topup_success: send-email respondio con error', {
-        status: response.status,
-        body: responseBody.slice(0, 500),
-        send_craft_base_url: sendCraftBaseUrl,
-      });
-    } else {
-      console.log('wallet_topup_success: email notificado', { status: response.status });
-    }
+    console.log('wallet_topup_success: email notificado');
   } catch (error) {
-    console.warn('No se pudo notificar la recarga de billetera por email:', error, {
-      send_craft_base_url: sendCraftBaseUrl,
-    });
+    console.warn('wallet_topup_success: no se pudo notificar la recarga por email', error);
   }
 }
 
@@ -166,7 +164,10 @@ export async function creditWalletFromPayment(params: {
     transaction = rpcResult || null;
 
     if (transaction) {
-      void notifyWalletTopupSuccess({ supabase, session, transaction, applicationName, applicationDomain });
+      // Se espera (no fire-and-forget): el runtime de Edge Functions puede
+      // terminar la ejecucion apenas el handler devuelve la respuesta HTTP,
+      // matando cualquier promesa que haya quedado corriendo sin esperar.
+      await notifyWalletTopupSuccess({ supabase, session, transaction, applicationName, applicationDomain });
     }
   }
 

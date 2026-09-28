@@ -42,6 +42,7 @@ export default function UsersManager() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [tenantFilter, setTenantFilter] = useState('all');
+  const [environmentFilter, setEnvironmentFilter] = useState('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingUser, setEditingUser] = useState<AppUser | null>(null);
@@ -82,6 +83,7 @@ export default function UsersManager() {
 
   useEffect(() => {
     if (selectedApp) {
+      setEnvironmentFilter('all');
       loadUsers();
       loadApplicationRoles();
       loadTenants();
@@ -187,9 +189,10 @@ export default function UsersManager() {
         throw error;
       }
 
-      const envsFromTable = Array.from(
+      const environmentRows = (data || []) as Array<{ name: string | null }>;
+      const envsFromTable: string[] = Array.from(
         new Set(
-          (data || [])
+          environmentRows
             .map((env) => normalizeEnvironmentName(env.name))
             .filter((value): value is string => Boolean(value))
         )
@@ -199,7 +202,7 @@ export default function UsersManager() {
         .map((env) => normalizeEnvironmentName(env))
         .filter((value): value is string => Boolean(value));
 
-      const merged = Array.from(new Set([...envsFromTable, ...envsFromMetadata, ...DEFAULT_ENVIRONMENT_OPTIONS]));
+      const merged: string[] = Array.from(new Set<string>([...envsFromTable, ...envsFromMetadata, ...DEFAULT_ENVIRONMENT_OPTIONS]));
       setAvailableEnvironments(merged);
     } catch (error) {
       console.error('Error loading environments:', error);
@@ -457,7 +460,15 @@ export default function UsersManager() {
                          user.email.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || user.status === statusFilter;
     const matchesTenant = tenantFilter === 'all' || (user as any).tenant_id === tenantFilter;
-    return matchesSearch && matchesStatus && matchesTenant;
+    const userEnvironments = getAllowedEnvironmentsFromMetadata(user.metadata || {});
+    const hasExplicitAccess = hasExplicitEnvironmentAccess(user.metadata || {});
+    const matchesEnvironment =
+      environmentFilter === 'all' ||
+      (environmentFilter === 'legacy' && !hasExplicitAccess) ||
+      (environmentFilter === 'no_access' && hasExplicitAccess && userEnvironments.length === 0) ||
+      userEnvironments.includes(environmentFilter);
+
+    return matchesSearch && matchesStatus && matchesTenant && matchesEnvironment;
   });
 
   const getStatusColor = (status: string) => {
@@ -617,6 +628,24 @@ export default function UsersManager() {
                   <option value="active">Activos</option>
                   <option value="inactive">Inactivos</option>
                   <option value="pending">Pendientes</option>
+                </select>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <select
+                  value={environmentFilter}
+                  onChange={(e) => setEnvironmentFilter(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  aria-label="Filtrar usuarios por ambiente"
+                >
+                  <option value="all">Todos los ambientes</option>
+                  {availableEnvironments.map((environment) => (
+                    <option key={environment} value={environment}>
+                      {formatEnvironmentLabel(environment)}
+                    </option>
+                  ))}
+                  <option value="legacy">Legacy / sin restricción</option>
+                  <option value="no_access">Sin acceso a ambiente</option>
                 </select>
               </div>
 

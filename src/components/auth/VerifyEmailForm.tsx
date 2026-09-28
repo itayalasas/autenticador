@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { CheckCircle, AlertCircle, Loader2, Mail } from 'lucide-react';
 import { requireSupabaseUrl } from '../../lib/supabaseRuntime';
 
@@ -31,9 +31,22 @@ function extractEmailFromCandidates(...candidates: Array<string | null | undefin
   return '';
 }
 
+function buildLoginUrl(appId: string | null, apiKey: string | null, redirectUri: string | null, resolvedLoginUrl?: string | null) {
+  if (resolvedLoginUrl) return resolvedLoginUrl;
+
+  const params = new URLSearchParams();
+  if (appId) params.set('app_id', appId);
+  if (redirectUri) params.set('redirect_uri', redirectUri);
+  if (apiKey) params.set('api_key', apiKey);
+  const query = params.toString();
+  return query ? `/login?${query}` : '/login';
+}
+
 export default function VerifyEmailForm() {
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
+  const appId = searchParams.get('app_id');
+  const apiKey = searchParams.get('api_key');
+  const redirectUri = searchParams.get('redirect_uri') || searchParams.get('callback_url');
   const token = extractTokenFromCandidates(
     searchParams.get('token'),
     typeof window !== 'undefined' ? window.location.href : ''
@@ -46,6 +59,7 @@ export default function VerifyEmailForm() {
   const [status, setStatus] = useState<'verifying' | 'success' | 'error'>('verifying');
   const [message, setMessage] = useState('Verificando tu cuenta...');
   const [userName, setUserName] = useState('');
+  const [loginUrl, setLoginUrl] = useState(() => buildLoginUrl(appId, apiKey, redirectUri));
 
   useEffect(() => {
     const verify = async () => {
@@ -73,6 +87,12 @@ export default function VerifyEmailForm() {
         setStatus('success');
         setUserName(json.data?.name || '');
         setMessage(json.data?.message || 'Cuenta activada correctamente.');
+        setLoginUrl(buildLoginUrl(
+          json.data?.application_id || appId,
+          json.data?.api_key || apiKey,
+          json.data?.redirect_uri || redirectUri,
+          json.data?.login_url,
+        ));
       } catch {
         setStatus('error');
         setMessage('Error de red al validar el token. Intenta nuevamente.');
@@ -112,7 +132,7 @@ export default function VerifyEmailForm() {
 
           {status === 'success' && (
             <button
-              onClick={() => navigate('/')}
+              onClick={() => window.location.assign(loginUrl)}
               className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium rounded-lg transition-colors"
             >
               Ir al inicio de sesión
@@ -128,7 +148,7 @@ export default function VerifyEmailForm() {
                 Reintentar
               </button>
               <button
-                onClick={() => navigate('/')}
+                onClick={() => window.location.assign(loginUrl)}
                 className="w-full py-2.5 px-4 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium rounded-lg transition-colors"
               >
                 Volver al inicio

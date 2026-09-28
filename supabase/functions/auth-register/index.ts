@@ -1485,20 +1485,28 @@ Deno.serve(async (req) => {
       const verificationToken = generateVerificationToken();
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + 24);
+      const verificationCallbackUrl = authChannel === 'mobile' ? null : trustedRedirectUri;
+      const verificationEnvironment = effectiveRegistrationEnvironment || (apiKeyData as any).environment || null;
       
       const { error: tokenError } = await supabase.from('email_verification_tokens').insert({
         app_user_id: newUser.id,
         token: verificationToken,
-        expires_at: expiresAt.toISOString()
+        expires_at: expiresAt.toISOString(),
+        metadata: {
+          auth_context: {
+            application_id,
+            environment: verificationEnvironment,
+            redirect_uri: verificationCallbackUrl,
+            channel: authChannel,
+          },
+        },
       });
-      let verificationCallbackUrl: string | null = null;
       
       if (tokenError) {
         console.error('Error creating verification token:', tokenError);
         // Continue without email verification if token creation fails
       } else {
         const baseUrl = authBaseUrl;
-        verificationCallbackUrl = authChannel === 'mobile' ? null : trustedRedirectUri;
 
         if (!baseUrl) {
           console.error('❌ No auth_url configured for application environment; cannot build verification URL safely.');
@@ -1525,7 +1533,12 @@ Deno.serve(async (req) => {
           });
         }
 
-        const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
+        const verificationParams = new URLSearchParams({ token: verificationToken });
+        verificationParams.set('app_id', application_id);
+        verificationParams.set('api_key', api_key);
+        if (verificationCallbackUrl) verificationParams.set('redirect_uri', verificationCallbackUrl);
+        if (verificationEnvironment) verificationParams.set('env', verificationEnvironment);
+        const verificationUrl = `${baseUrl}/verify-email?${verificationParams.toString()}`;
 
         try {
           await sendExternalConfirmationEmail({
